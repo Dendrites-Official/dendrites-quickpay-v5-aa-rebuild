@@ -1,0 +1,17 @@
+{
+  "name": "quickpay-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@supabase/supabase-js": "^2.49.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.12.1",
+    "fastify": "^4.28.1"
+  }
+}
