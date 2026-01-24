@@ -104,11 +104,11 @@ app.post("/send", async (request, reply) => {
   let normalizedTo;
   let normalizedFeeToken;
   try {
-    normalizedOwnerEoa = await normalizeAddress(ownerEoa, provider, chain);
-    normalizedToken = await normalizeAddress(token, provider, chain);
-    normalizedTo = await normalizeAddress(to, provider, chain);
+    normalizedOwnerEoa = await normalizeAddress(ownerEoa, { chainId: chain, provider });
+    normalizedToken = await normalizeAddress(token, { chainId: chain, provider });
+    normalizedTo = await normalizeAddress(to, { chainId: chain, provider });
     if (feeToken) {
-      normalizedFeeToken = await normalizeAddress(feeToken, provider, chain);
+      normalizedFeeToken = await normalizeAddress(feeToken, { chainId: chain, provider });
     }
   } catch (err) {
     return reply.code(err?.status || 500).send({ ok: false, error: err?.message || String(err), code: err?.code });

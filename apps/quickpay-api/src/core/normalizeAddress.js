@@ -1,6 +1,6 @@
 import { getAddress, isAddress } from "ethers";
 
-export async function normalizeAddress(input, provider, chainId) {
+export async function normalizeAddress(input, { chainId, provider }) {
   const s = String(input ?? "").trim();
 
   if (isAddress(s)) return getAddress(s);
@@ -12,20 +12,12 @@ export async function normalizeAddress(input, provider, chainId) {
     throw err;
   }
 
-  const net = await provider.getNetwork();
-  if (!net?.ensAddress) {
-    const err = new Error("ENS not supported on this network. Please enter a 0x address.");
-    err.status = 400;
-    err.code = "ENS_UNSUPPORTED";
-    throw err;
-  }
-
   const resolved = await provider.resolveName(s);
   if (!resolved) {
-    const err = new Error(`Could not resolve name: ${s}`);
+    const err = new Error(`Could not resolve ENS name: ${s}`);
     err.status = 400;
     err.code = "ENS_NOT_FOUND";
     throw err;
   }
-  return resolved;
+  return getAddress(resolved);
 }
