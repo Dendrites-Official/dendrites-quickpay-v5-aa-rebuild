@@ -31,7 +31,10 @@ const supabaseUrl = process.env.SUPABASE_URL || "";
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseServiceRole);
 
-app.get("/health", async () => ({ ok: true }));
+app.get("/health", async () => ({
+  ok: true,
+  build: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.BUILD_ID || new Date().toISOString(),
+}));
 
 app.post("/quote", async (request, reply) => {
   const body = request.body ?? {};
