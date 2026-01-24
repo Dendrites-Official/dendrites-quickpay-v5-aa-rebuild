@@ -1,9 +1,16 @@
 import { getAddress, isAddress } from "ethers";
 
-export async function normalizeAddress(input, provider) {
+export async function normalizeAddress(input, provider, chainId) {
   const s = String(input ?? "").trim();
 
   if (isAddress(s)) return getAddress(s);
+
+  if (Number(chainId) !== 1) {
+    const err = new Error("ENS not supported on this network. Please enter a 0x address.");
+    err.status = 400;
+    err.code = "ENS_UNSUPPORTED";
+    throw err;
+  }
 
   const net = await provider.getNetwork();
   if (!net?.ensAddress) {
