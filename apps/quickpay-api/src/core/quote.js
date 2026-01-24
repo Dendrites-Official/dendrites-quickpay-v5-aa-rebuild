@@ -6,6 +6,14 @@ const PAYMASTER_ABI = [
   "function usd6PerWholeToken(address token) view returns (uint256)",
 ];
 
+const FACTORY_ABI = [
+  "function getAddress(address owner, uint256 salt) view returns (address)",
+];
+
+const ERC20_ABI = [
+  "function allowance(address owner, address spender) view returns (uint256)",
+];
+
 function ceilDiv(a, b) {
   return (a + b - 1n) / b;
 }
@@ -43,6 +51,9 @@ function parseSpeed({ feeMode, speed }) {
 export async function getQuote({
   rpcUrl,
   paymaster,
+  factoryAddress,
+  router,
+  permit2,
   ownerEoa,
   token,
   amount,
@@ -59,6 +70,11 @@ export async function getQuote({
   const speedVal = parseSpeed({ feeMode: feeModeNorm, speed });
   const envErrors = {};
   const reqErrors = {};
+
+  const provider = rpcUrl ? new ethers.JsonRpcProvider(rpcUrl) : null;
+  let smartSender = null;
+  let smartDeployed = false;
+  const setupNeeded = [];
 
   if (!isSelfPay) {
     if (!rpcUrl) envErrors.RPC_URL = "missing";
@@ -104,6 +120,28 @@ export async function getQuote({
     return { ok: false, error: "invalid_request", details: reqErrors, statusCode: 400 };
   }
 
+  if (provider && factoryAddress && ethers.isAddress(factoryAddress) && ownerEoa && ethers.isAddress(ownerEoa)) {
+    const factoryAddr = ethers.getAddress(factoryAddress);
+    const ownerAddr = ethers.getAddress(ownerEoa);
+    const factory = new ethers.Contract(factoryAddr, FACTORY_ABI, provider);
+    smartSender = await factory["getAddress(address,uint256)"](ownerAddr, 0n);
+    const code = await provider.getCode(smartSender);
+    smartDeployed = typeof code === "string" && code !== "0x";
+  }
+
+  if (provider && token && ethers.isAddress(token)) {
+    const tokenAddr = ethers.getAddress(token);
+    const tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
+    if (permit2 && ethers.isAddress(permit2) && ownerEoa && ethers.isAddress(ownerEoa)) {
+      const allowance = await tokenContract.allowance(ethers.getAddress(ownerEoa), ethers.getAddress(permit2));
+      if (allowance === 0n) setupNeeded.push("permit2_allowance_missing");
+    }
+    if (smartDeployed && smartSender && router && ethers.isAddress(router)) {
+      const allowance = await tokenContract.allowance(smartSender, ethers.getAddress(router));
+      if (allowance === 0n) setupNeeded.push("aa_allowance_missing");
+    }
+  }
+
   if (isSelfPay) {
     return {
       ok: true,
@@ -115,15 +153,21 @@ export async function getQuote({
       feeTokenMode: "same",
       feeMode: feeModeNorm,
       speed: speedVal,
+      smartSender,
+      smartDeployed,
+      firstTxSurchargePaid: true,
+      setupNeeded,
+      router,
+      permit2,
     };
   }
 
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
-  const paymasterContract = new ethers.Contract(paymaster, PAYMASTER_ABI, provider);
+  const paymasterContract = new ethers.Contract(ethers.getAddress(paymaster), PAYMASTER_ABI, provider);
   const nowTs = Math.floor(Date.now() / 1000);
   const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speedVal, nowTs);
   const baselineUsd6 = BigInt(quoteRaw[0]);
-  const surchargeUsd6 = BigInt(quoteRaw[1]);
+  const firstTxSurchargeApplies = Boolean(quoteRaw[5]);
+  const surchargeUsd6 = firstTxSurchargeApplies ? BigInt(quoteRaw[1]) : 0n;
   const totalUsd6 = baselineUsd6 + surchargeUsd6;
   const decimals = Number(await paymasterContract.feeTokenDecimals(token));
   const price = BigInt(await paymasterContract.usd6PerWholeToken(token));
@@ -145,5 +189,11 @@ export async function getQuote({
     feeTokenMode: "same",
     feeMode: feeModeNorm,
     speed: speedVal,
+    smartSender,
+    smartDeployed,
+    firstTxSurchargePaid: !firstTxSurchargeApplies,
+    setupNeeded,
+    router,
+    permit2,
   };
 }
