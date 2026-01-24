@@ -69,8 +69,17 @@ export async function getQuote({
   if (!ownerEoa || !ethers.isAddress(ownerEoa)) reqErrors.ownerEoa = "invalid_address";
   if (!token || !ethers.isAddress(token)) reqErrors.token = "invalid_address";
   if (!/^[0-9]+$/.test(amountStr)) reqErrors.amount = "expected_integer_string";
-  if (!Number.isFinite(speedVal)) reqErrors.speed = "invalid";
-  if (!"eco|instant".split("|").includes(feeModeNorm)) reqErrors.feeMode = "expected_eco_or_instant";
+
+  // speed tier
+  if (!["eco", "instant"].includes(String(speed))) {
+    return { ok: false, error: "invalid_request", details: { speed: "expected_eco_or_instant" }, statusCode: 400 };
+  }
+
+  // fee payment mode (keep minimal for now)
+  if (!["same"].includes(String(feeMode))) {
+    return { ok: false, error: "invalid_request", details: { feeMode: "expected_same" }, statusCode: 400 };
+  }
+
   if (modeNorm && modeNorm !== "SELF_PAY" && modeNorm !== "SPONSORED") reqErrors.mode = "invalid";
 
   const debug = {
