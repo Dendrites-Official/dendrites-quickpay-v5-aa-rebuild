@@ -142,9 +142,11 @@ app.post("/send", async (request, reply) => {
       .update({ status: "sending", owner_eoa: normalizedOwnerEoa.toLowerCase() })
       .eq("id", receipt.id);
 
+    const factoryRaw = process.env.FACTORY ?? "";
+    const factory = factoryRaw.trim();
     const smart = await resolveSmartAccount({
       rpcUrl,
-      factoryAddress: process.env.FACTORY ?? "",
+      factoryAddress: factory,
       factorySource: "env.FACTORY",
       ownerEoa: normalizedOwnerEoa,
     });
