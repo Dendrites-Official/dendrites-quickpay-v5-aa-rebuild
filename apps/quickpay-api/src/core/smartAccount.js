@@ -4,10 +4,15 @@ const FACTORY_ABI = [
   "function getAddress(address owner, uint256 salt) view returns (address)",
 ];
 
-export async function resolveSmartAccount({ rpcUrl, factoryAddress, ownerEoa }) {
+export async function resolveSmartAccount({ rpcUrl, factoryAddress, ownerEoa, factorySource }) {
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   if (!isAddress(factoryAddress)) {
-    throw new Error("Invalid factory address");
+    const source = factorySource ? String(factorySource) : "unknown";
+    const raw = String(factoryAddress ?? "");
+    const err = new Error(`Invalid factory address (source=${source}, value="${raw}")`);
+    err.status = 500;
+    err.code = "CONFIG_FACTORY_INVALID";
+    throw err;
   }
   if (!isAddress(ownerEoa)) {
     throw new Error("Invalid owner address");
