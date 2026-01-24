@@ -22,7 +22,13 @@ export async function sendSponsored({
   quotedFeeTokenAmount,
   auth,
 }) {
-  const repoRoot = process.env.APP_ROOT ? String(process.env.APP_ROOT).trim() : process.cwd();
+  const repoRoot = process.cwd();
+  const scriptPath = path.resolve(repoRoot, "scripts/aa/orchestrate_send_v5.mjs");
+  if (!fs.existsSync(scriptPath)) {
+    const err = new Error(`Missing orchestrator script at ${scriptPath} (cwd=${repoRoot})`);
+    err.status = 500;
+    throw err;
+  }
   const outDir = path.join(repoRoot, "out");
   fs.mkdirSync(outDir, { recursive: true });
   const jsonOutPath = path.join(outDir, `orchestrate_${Date.now()}_${Math.floor(Math.random() * 1e6)}.json`);
@@ -42,7 +48,7 @@ export async function sendSponsored({
     RECEIPT_ID: String(receiptId ?? ""),
   };
 
-  const res = spawnSync("node", ["scripts/aa/orchestrate_send_v5.mjs", "--json-out", jsonOutPath], {
+  const res = spawnSync("node", [scriptPath, "--json-out", jsonOutPath], {
     cwd: repoRoot,
     stdio: ["ignore", "pipe", "pipe"],
     encoding: "utf8",
