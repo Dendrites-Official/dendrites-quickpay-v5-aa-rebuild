@@ -145,6 +145,7 @@ app.post("/send", async (request, reply) => {
     const smart = await resolveSmartAccount({
       rpcUrl,
       factoryAddress: process.env.FACTORY ?? "",
+      factorySource: "env.FACTORY",
       ownerEoa: normalizedOwnerEoa,
     });
 
