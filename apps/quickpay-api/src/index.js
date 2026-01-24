@@ -2,33 +2,29 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { createClient } from "@supabase/supabase-js";
+import { JsonRpcProvider } from "ethers";
 import { getQuote } from "./core/quote.js";
 import { resolveSmartAccount } from "./core/smartAccount.js";
 import { sendSponsored } from "./core/sendSponsored.js";
 import { sendSelfPay } from "./core/sendSelfPay.js";
+import { normalizeAddress } from "./core/normalizeAddress.js";
 
 const app = Fastify({ logger: true });
 
-const allowedOrigins = new Set(
-  String(process.env.ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean)
-    .concat([
-      "http://localhost:5173",
-      "http://127.0.0.1:5173",
-      "http://localhost:5174",
-      "http://127.0.0.1:5174",
-    ])
-);
+const corsOrigins = String(process.env.CORS_ORIGIN ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const allowedOrigins = corsOrigins.length
+  ? corsOrigins
+  : ["http://localhost:5173", "https://dendrites-testnet-ui.vercel.app"];
 
 await app.register(cors, {
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.has(origin)) return cb(null, true);
-    return cb(new Error("Not allowed"), false);
-  },
+  origin: allowedOrigins,
   methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false,
+  optionsSuccessStatus: 204,
 });
 
 const supabaseUrl = process.env.SUPABASE_URL || "";
@@ -46,6 +42,9 @@ app.post("/quote", async (request, reply) => {
   const result = await getQuote({
     rpcUrl: process.env.RPC_URL,
     paymaster: process.env.PAYMASTER_ADDRESS ?? process.env.PAYMASTER,
+    factoryAddress: process.env.FACTORY,
+    router: process.env.ROUTER,
+    permit2: process.env.PERMIT2,
     ownerEoa,
     token,
     amount,
@@ -75,6 +74,7 @@ app.post("/send", async (request, reply) => {
     receiptId,
     quotedFeeTokenAmount,
     auth,
+    feeToken,
   } = body;
 
   if (!ownerEoa || !token || !to || !amount || !receiptId) {
@@ -82,6 +82,23 @@ app.post("/send", async (request, reply) => {
   }
 
   const chain = chainId ?? Number(process.env.CHAIN_ID ?? 84532);
+  const rpcUrl = process.env.RPC_URL;
+  const provider = new JsonRpcProvider(rpcUrl);
+
+  let normalizedOwnerEoa;
+  let normalizedToken;
+  let normalizedTo;
+  let normalizedFeeToken;
+  try {
+    normalizedOwnerEoa = await normalizeAddress(ownerEoa, provider);
+    normalizedToken = await normalizeAddress(token, provider);
+    normalizedTo = await normalizeAddress(to, provider);
+    if (feeToken) {
+      normalizedFeeToken = await normalizeAddress(feeToken, provider);
+    }
+  } catch (err) {
+    return reply.code(err?.status || 500).send({ ok: false, error: err?.message || String(err), code: err?.code });
+  }
 
   const { data: receipt, error: receiptError } = await supabase
     .from("quickpay_receipts")
@@ -96,7 +113,7 @@ app.post("/send", async (request, reply) => {
   if (!receipt) {
     return reply.code(404).send({ ok: false, error: "receipt_not_found" });
   }
-  if (String(receipt.owner_eoa || "").toLowerCase() !== String(ownerEoa).toLowerCase()) {
+  if (String(receipt.owner_eoa || "").toLowerCase() !== String(normalizedOwnerEoa).toLowerCase()) {
     return reply.code(403).send({ ok: false, error: "not_owner" });
   }
   if (["CONFIRMED", "FAILED"].includes(String(receipt.status || ""))) {
@@ -105,43 +122,45 @@ app.post("/send", async (request, reply) => {
 
   await supabase
     .from("quickpay_receipts")
-    .update({ status: "sending", owner_eoa: ownerEoa.toLowerCase() })
+    .update({ status: "sending", owner_eoa: normalizedOwnerEoa.toLowerCase() })
     .eq("id", receipt.id);
 
   try {
     const smart = await resolveSmartAccount({
-      rpcUrl: process.env.RPC_URL,
+      rpcUrl,
       factoryAddress: process.env.FACTORY ?? "",
-      ownerEoa,
+      ownerEoa: normalizedOwnerEoa,
     });
 
     let result;
     if (mode === "SELF_PAY") {
       result = await sendSelfPay({
         chainId: chain,
-        ownerEoa,
-        token,
-        to,
+        ownerEoa: normalizedOwnerEoa,
+        token: normalizedToken,
+        to: normalizedTo,
         amount,
         feeMode,
         speed,
         receiptId,
         quotedFeeTokenAmount,
         auth,
+        feeToken: normalizedFeeToken,
         smart,
       });
     } else {
       result = await sendSponsored({
         chainId: chain,
-        ownerEoa,
-        token,
-        to,
+        ownerEoa: normalizedOwnerEoa,
+        token: normalizedToken,
+        to: normalizedTo,
         amount,
         feeMode,
         speed,
         receiptId,
         quotedFeeTokenAmount,
         auth,
+        feeToken: normalizedFeeToken,
         smart,
       });
     }
@@ -150,7 +169,7 @@ app.post("/send", async (request, reply) => {
       .from("quickpay_receipts")
       .update({
         status: "pending",
-        owner_eoa: ownerEoa.toLowerCase(),
+        owner_eoa: normalizedOwnerEoa.toLowerCase(),
         sender: smart.sender,
         userop_hash: result?.userOpHash ?? null,
         tx_hash: result?.txHash ?? null,
