@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { createClient } from "@supabase/supabase-js";
 import { JsonRpcProvider } from "ethers";
+import crypto from "node:crypto";
 import { getQuote } from "./core/quote.js";
 import { resolveSmartAccount } from "./core/smartAccount.js";
 import { sendSponsored } from "./core/sendSponsored.js";
@@ -75,71 +76,72 @@ app.post("/quote", async (request, reply) => {
 });
 
 app.post("/send", async (request, reply) => {
-  const body = request.body ?? {};
-  const {
-    chainId,
-    ownerEoa,
-    token,
-    to,
-    amount,
-    feeMode,
-    speed,
-    mode,
-    receiptId,
-    quotedFeeTokenAmount,
-    auth,
-    feeToken,
-  } = body;
-
-  if (!ownerEoa || !token || !to || !amount || !receiptId) {
-    return reply.code(400).send({ ok: false, error: "missing_fields" });
-  }
-
-  const chain = chainId ?? Number(process.env.CHAIN_ID ?? 84532);
-  const rpcUrl = process.env.RPC_URL;
-  const provider = new JsonRpcProvider(rpcUrl);
-
-  let normalizedOwnerEoa;
-  let normalizedToken;
-  let normalizedTo;
-  let normalizedFeeToken;
+  const reqId = crypto.randomUUID();
   try {
-    normalizedOwnerEoa = await normalizeAddress(ownerEoa, { chainId: chain, provider });
-    normalizedToken = await normalizeAddress(token, { chainId: chain, provider });
-    normalizedTo = await normalizeAddress(to, { chainId: chain, provider });
-    if (feeToken) {
-      normalizedFeeToken = await normalizeAddress(feeToken, { chainId: chain, provider });
+    const body = request.body ?? {};
+    const {
+      chainId,
+      ownerEoa,
+      token,
+      to,
+      amount,
+      feeMode,
+      speed,
+      mode,
+      receiptId,
+      quotedFeeTokenAmount,
+      auth,
+      feeToken,
+    } = body;
+
+    if (!ownerEoa || !token || !to || !amount || !receiptId) {
+      return reply.code(400).send({ ok: false, error: "missing_fields" });
     }
-  } catch (err) {
-    return reply.code(err?.status || 500).send({ ok: false, error: err?.message || String(err), code: err?.code });
-  }
 
-  const { data: receipt, error: receiptError } = await supabase
-    .from("quickpay_receipts")
-    .select("id, status, owner_eoa")
-    .eq("chain_id", chain)
-    .eq("receipt_id", receiptId)
-    .maybeSingle();
+    const chain = chainId ?? Number(process.env.CHAIN_ID ?? 84532);
+    const rpcUrl = process.env.RPC_URL;
+    const provider = new JsonRpcProvider(rpcUrl);
 
-  if (receiptError) {
-    return reply.code(500).send({ ok: false, error: receiptError.message });
-  }
-  if (!receipt) {
-    return reply.code(404).send({ ok: false, error: "receipt_not_found" });
-  }
-  if (String(receipt.owner_eoa || "").toLowerCase() !== String(normalizedOwnerEoa).toLowerCase()) {
-    return reply.code(403).send({ ok: false, error: "not_owner" });
-  }
-  if (["CONFIRMED", "FAILED"].includes(String(receipt.status || ""))) {
-    return reply.send({ ok: true, receiptId });
-  }
+    let normalizedOwnerEoa;
+    let normalizedToken;
+    let normalizedTo;
+    let normalizedFeeToken;
+    try {
+      normalizedOwnerEoa = await normalizeAddress(ownerEoa, { chainId: chain, provider });
+      normalizedToken = await normalizeAddress(token, { chainId: chain, provider });
+      normalizedTo = await normalizeAddress(to, { chainId: chain, provider });
+      if (feeToken) {
+        normalizedFeeToken = await normalizeAddress(feeToken, { chainId: chain, provider });
+      }
+    } catch (err) {
+      return reply.code(err?.status || 500).send({ ok: false, error: err?.message || String(err), code: err?.code });
+    }
 
-  await supabase
-    .from("quickpay_receipts")
-    .update({ status: "sending", owner_eoa: normalizedOwnerEoa.toLowerCase() })
-    .eq("id", receipt.id);
+    const { data: receipt, error: receiptError } = await supabase
+      .from("quickpay_receipts")
+      .select("id, status, owner_eoa")
+      .eq("chain_id", chain)
+      .eq("receipt_id", receiptId)
+      .maybeSingle();
 
-  try {
+    if (receiptError) {
+      return reply.code(500).send({ ok: false, error: receiptError.message });
+    }
+    if (!receipt) {
+      return reply.code(404).send({ ok: false, error: "receipt_not_found" });
+    }
+    if (String(receipt.owner_eoa || "").toLowerCase() !== String(normalizedOwnerEoa).toLowerCase()) {
+      return reply.code(403).send({ ok: false, error: "not_owner" });
+    }
+    if (["CONFIRMED", "FAILED"].includes(String(receipt.status || ""))) {
+      return reply.send({ ok: true, receiptId });
+    }
+
+    await supabase
+      .from("quickpay_receipts")
+      .update({ status: "sending", owner_eoa: normalizedOwnerEoa.toLowerCase() })
+      .eq("id", receipt.id);
+
     const smart = await resolveSmartAccount({
       rpcUrl,
       factoryAddress: process.env.FACTORY ?? "",
@@ -200,11 +202,14 @@ app.post("/send", async (request, reply) => {
       txHash: result?.txHash ?? null,
     });
   } catch (err) {
-    await supabase
-      .from("quickpay_receipts")
-      .update({ status: "failed" })
-      .eq("id", receipt.id);
-    return reply.code(500).send({ ok: false, error: String(err?.message || err) });
+    console.error("[SEND_ERROR]", reqId, err?.message);
+    console.error(err?.stack || err);
+    return reply.code(err?.status || 500).send({
+      ok: false,
+      reqId,
+      error: String(err?.message || err),
+      code: err?.code,
+    });
   }
 });
 
