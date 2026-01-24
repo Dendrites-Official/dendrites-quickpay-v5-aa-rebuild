@@ -55,6 +55,9 @@ app.post("/quote", async (request, reply) => {
     eip3009Tokens: process.env.EIP3009_TOKENS,
     eip2612Tokens: process.env.EIP2612_TOKENS,
   });
+  if (result?.ok === false) {
+    return reply.code(result.statusCode ?? 400).send(result);
+  }
   return reply.send(result);
 });
 
