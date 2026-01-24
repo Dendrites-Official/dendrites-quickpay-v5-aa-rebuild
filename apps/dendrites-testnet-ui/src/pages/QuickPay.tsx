@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAccount, useSignMessage } from "wagmi";
+import { useAccount, useSignMessage, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import ReceiptCard from "../components/ReceiptCard";
 import { quickpaySend } from "../lib/api";
@@ -10,7 +10,10 @@ export default function QuickPay() {
   const navigate = useNavigate();
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
+  const { signTypedDataAsync } = useSignTypedData();
   const [token, setToken] = useState("");
+  const [tokenPreset, setTokenPreset] = useState("custom");
+  const [decimals, setDecimals] = useState(18);
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [message, setMessage] = useState("");
@@ -21,8 +24,10 @@ export default function QuickPay() {
   const [mode, setMode] = useState<"SPONSORED" | "SELF_PAY">("SPONSORED");
   const [quote, setQuote] = useState<any>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quotePending, setQuotePending] = useState(false);
   const [quoteError, setQuoteError] = useState("");
-  const [quoteAuthSignature, setQuoteAuthSignature] = useState<string | null>(null);
+  const quoteAbortRef = useRef<AbortController | null>(null);
+  const quoteDebounceRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<any>(null);
@@ -30,22 +35,63 @@ export default function QuickPay() {
   const isValidAddress = (value: string) => /^0x[0-9a-fA-F]{40}$/.test(value);
   const amountValid = useMemo(() => {
     try {
-      const isUsdc = token.toLowerCase() === "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
-      const tokenDecimals = isUsdc ? 6 : 18;
-      return ethers.parseUnits(amount, tokenDecimals) > 0n;
+      return ethers.parseUnits(amount, decimals) > 0n;
     } catch {
       return false;
     }
-  }, [amount, token]);
+  }, [amount, decimals]);
+
+  const mdndxToken = String(import.meta.env.VITE_MDNDX ?? "").trim();
+  const tokenOptions = useMemo(
+    () => [
+      {
+        value: "usdc",
+        label: "USDC (Base Sepolia)",
+        address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        decimals: 6,
+      },
+      {
+        value: "weth",
+        label: "WETH (Base Sepolia)",
+        address: "",
+        decimals: 18,
+      },
+      {
+        value: "aero",
+        label: "AERO",
+        address: "",
+        decimals: 18,
+      },
+      {
+        value: "mdndx",
+        label: "mDNDX",
+        address: mdndxToken,
+        decimals: 18,
+      },
+      {
+        value: "custom",
+        label: "Custom",
+        address: "",
+        decimals: 18,
+      },
+    ],
+    [mdndxToken]
+  );
+
+  const selectedTokenPreset = tokenOptions.find((option) => option.value === tokenPreset);
+  const isCustomToken = selectedTokenPreset?.value === "custom";
+  const tokenLocked = !isCustomToken && Boolean(selectedTokenPreset?.address);
+  const decimalsLocked = !isCustomToken;
 
   const feeMode = speed === 1 ? "instant" : "eco";
-  const quoteUrl = useMemo(() => {
-    const base = String(import.meta.env.VITE_QUICKPAY_SEND_URL ?? "").trim();
-    if (!base) return "";
-    return base.replace(/\/send$/i, "/quote");
-  }, []);
+  const apiBase = String(import.meta.env.VITE_QUICKPAY_SEND_URL ?? "").trim();
+  if (!apiBase) {
+    throw new Error("Missing VITE_QUICKPAY_SEND_URL");
+  }
+  const quoteUrl = useMemo(() => `${apiBase.replace(/\/$/, "")}/quote`, [apiBase]);
+  const quoteBusy = quotePending || quoteLoading;
 
-  const getQuote = async () => {
+  const getQuote = async (signal?: AbortSignal) => {
     if (!address) {
       setQuoteError("Connect wallet first.");
       return;
@@ -59,42 +105,87 @@ export default function QuickPay() {
       return;
     }
     setQuoteLoading(true);
+    setQuotePending(false);
     setQuoteError("");
     setQuote(null);
     try {
-      const isUsdc = token.toLowerCase() === "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
-      const tokenDecimals = isUsdc ? 6 : 18;
-      const amountRaw = ethers.parseUnits(amount, tokenDecimals).toString();
-      const authMessage = mode === "SPONSORED"
-        ? isUsdc
-          ? "Dendrites QuickPay EIP-3009 authorization"
-          : "Dendrites QuickPay Permit2 authorization"
-        : "Dendrites QuickPay quote authorization";
-      const sig = await signMessageAsync({ message: authMessage });
-      setQuoteAuthSignature(sig);
+      const amountRaw = ethers.parseUnits(amount, decimals).toString();
+      const speedLabel = speed === 1 ? "instant" : "eco";
+      const body = {
+        chainId: 84532,
+        ownerEoa: address,
+        token,
+        to,
+        amount: amountRaw,
+        feeMode: "same",
+        speed: speedLabel,
+        mode,
+      };
+      console.log("QUOTE_BODY", body);
 
       const res = await fetch(quoteUrl, {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          fromEoa: address,
-          token,
-          to,
-          amount: amountRaw,
-          feeMode,
-          speed,
-          mode,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 400) {
+        throw new Error(JSON.stringify(data));
+      }
+      if (data?.ok === false) {
+        throw new Error(JSON.stringify(data));
+      }
       if (!res.ok) throw new Error(data?.error || "Failed to get quote");
       setQuote(data);
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
       setQuoteError(err?.message || "Failed to get quote");
     } finally {
-      setQuoteLoading(false);
+      if (!signal?.aborted) {
+        setQuoteLoading(false);
+      }
     }
   };
+
+  useEffect(() => {
+    if (!isConnected || !address) {
+      quoteAbortRef.current?.abort();
+      setQuotePending(false);
+      setQuoteLoading(false);
+      return;
+    }
+    if (!isValidAddress(token) || !isValidAddress(to) || !amountValid) {
+      quoteAbortRef.current?.abort();
+      setQuotePending(false);
+      setQuoteLoading(false);
+      return;
+    }
+
+    if (quoteDebounceRef.current) {
+      window.clearTimeout(quoteDebounceRef.current);
+    }
+
+    quoteDebounceRef.current = window.setTimeout(() => {
+      quoteAbortRef.current?.abort();
+      const controller = new AbortController();
+      quoteAbortRef.current = controller;
+      getQuote(controller.signal);
+    }, 400);
+    setQuotePending(true);
+
+    return () => {
+      if (quoteDebounceRef.current) {
+        window.clearTimeout(quoteDebounceRef.current);
+      }
+    };
+  }, [address, amount, amountValid, decimals, isConnected, mode, speed, to, token]);
+
+  useEffect(() => {
+    return () => {
+      quoteAbortRef.current?.abort();
+    };
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,15 +209,44 @@ export default function QuickPay() {
       const chainId = 84532;
       const senderLower = address.toLowerCase();
 
-      if (mode === "SPONSORED") {
-        await signMessageAsync({ message: "Dendrites QuickPay send authorization" });
-      } else {
-        await signMessageAsync({ message: "Dendrites QuickPay self-pay authorization" });
-      }
-
       const isUsdc = token.toLowerCase() === "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
-      const tokenDecimals = isUsdc ? 6 : 18;
-      const amountRaw = ethers.parseUnits(amount, tokenDecimals).toString();
+      const amountRaw = ethers.parseUnits(amount, decimals).toString();
+      let auth: any = null;
+      if (mode === "SPONSORED" && isUsdc) {
+        const now = Math.floor(Date.now() / 1000);
+        const validAfter = 0;
+        const validBefore = now + 60 * 30;
+        const nonce = ethers.hexlify(ethers.randomBytes(32));
+        const typedData = {
+          domain: {
+            name: "USD Coin",
+            version: "2",
+            chainId,
+            verifyingContract: token,
+          },
+          types: {
+            ReceiveWithAuthorization: [
+              { name: "from", type: "address" },
+              { name: "to", type: "address" },
+              { name: "value", type: "uint256" },
+              { name: "validAfter", type: "uint256" },
+              { name: "validBefore", type: "uint256" },
+              { name: "nonce", type: "bytes32" },
+            ],
+          },
+          primaryType: "ReceiveWithAuthorization",
+          message: {
+            from: senderLower,
+            to,
+            value: amountRaw,
+            validAfter,
+            validBefore,
+            nonce,
+          },
+        } as const;
+        const signature = await signTypedDataAsync(typedData);
+        auth = { type: "EIP3009", ...typedData.message, signature };
+      }
 
       receiptId = await createReceipt({
         chainId,
@@ -156,7 +276,7 @@ export default function QuickPay() {
         await setPrivateNote({ receiptId, sender: senderLower, note: note.trim(), signature, chainId });
       }
 
-      const data = await quickpaySend({
+      const sendPayload: any = {
         fromEoa: senderLower,
         to,
         token,
@@ -167,8 +287,9 @@ export default function QuickPay() {
         receiptId,
         chainId,
         quotedFeeTokenAmount: quote?.feeTokenAmount,
-        quoteAuthSignature,
-      });
+        auth,
+      };
+      const data = await quickpaySend(sendPayload);
       const userOpHash = data?.userOpHash || data?.userOp?.userOpHash;
       const txHash = data?.txHash ?? data?.tx_hash ?? null;
 
@@ -205,24 +326,69 @@ export default function QuickPay() {
     <div style={{ padding: 16 }}>
       <h2>QuickPay</h2>
       <form onSubmit={submit} style={{ marginTop: 16, display: "grid", gap: 8, maxWidth: 520 }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Token</span>
+          <select
+            value={tokenPreset}
+            onChange={(e) => {
+              const nextPreset = e.target.value;
+              setTokenPreset(nextPreset);
+              const selected = tokenOptions.find((option) => option.value === nextPreset);
+              if (!selected) return;
+              if (selected.value === "custom") {
+                setDecimals(18);
+                return;
+              }
+              setToken(selected.address || "");
+              setDecimals(selected.decimals ?? 18);
+            }}
+          >
+            {tokenOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <input
           style={{ padding: 8 }}
           placeholder="Token address"
           value={token}
           onChange={(e) => setToken(e.target.value)}
+          readOnly={tokenLocked}
         />
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Decimals</span>
+          <input
+            style={{ padding: 8 }}
+            type="number"
+            min={0}
+            max={36}
+            value={decimals}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              if (!Number.isFinite(next)) return;
+              setDecimals(Math.max(0, Math.min(36, Math.trunc(next))));
+            }}
+            readOnly={decimalsLocked}
+          />
+        </label>
         <input
           style={{ padding: 8 }}
           placeholder="Recipient address"
           value={to}
           onChange={(e) => setTo(e.target.value)}
         />
-        <input
-          style={{ padding: 8 }}
-          placeholder="Amount (raw units)"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Amount</span>
+          <input
+            style={{ padding: 8 }}
+            placeholder="e.g. 1.0"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <small style={{ color: "#9aa0a6" }}>We convert to raw units automatically</small>
+        </label>
         <input
           style={{ padding: 8 }}
           placeholder="Name (optional)"
@@ -268,9 +434,6 @@ export default function QuickPay() {
           </select>
         </label>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" onClick={getQuote} disabled={quoteLoading || !isConnected}>
-            {quoteLoading ? "Quoting..." : "Get Quote"}
-          </button>
           <button type="submit" disabled={loading || !isConnected || !quote}>
             {loading ? "Sending..." : "Send"}
           </button>
@@ -280,15 +443,37 @@ export default function QuickPay() {
         ) : null}
       </form>
 
+      {quoteBusy ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>Quote: loading…</div> : null}
       {quoteError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{quoteError}</div> : null}
       {quote ? (
         <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Quote</div>
           <div><strong>Lane:</strong> {quote.lane ?? "—"}</div>
           <div><strong>Sponsored:</strong> {quote.sponsored ? "Yes" : "No"}</div>
-          <div><strong>Fee (token units):</strong> {quote.feeTokenAmount ?? "0"}</div>
-          <div><strong>Net (token units):</strong> {quote.netAmount ?? "0"}</div>
-          <div><strong>Fee USD6:</strong> {quote.feeUsd6 ?? "0"}</div>
+          <div>
+            <strong>Fee USD:</strong>{" "}
+            {token.toLowerCase() === "0x036cbd53842c5426634e7929541ec2318f3dcf7e" && decimals === 6
+              ? (Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)
+              : quote.feeUsd6 ?? "0"}
+          </div>
+          <div>
+            <strong>Fee token:</strong>{" "}
+            {quote.feeTokenAmount ? ethers.formatUnits(quote.feeTokenAmount, decimals) : "0"}
+          </div>
+          <div>
+            <strong>Net token:</strong>{" "}
+            {quote.netAmount ? ethers.formatUnits(quote.netAmount, decimals) : "0"}
+          </div>
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ cursor: "pointer" }}>Raw details</summary>
+            <div style={{ marginTop: 6, fontSize: 12, color: "#bdbdbd" }}>
+              <div>feeUsd6: {quote.feeUsd6 ?? "0"}</div>
+              <div>feeTokenAmount: {quote.feeTokenAmount ?? "0"}</div>
+              <div>netAmount: {quote.netAmount ?? "0"}</div>
+              <div>feeMode: {quote.feeMode ?? "—"}</div>
+              <div>speed: {quote.speed ?? "—"}</div>
+            </div>
+          </details>
         </div>
       ) : null}
 
