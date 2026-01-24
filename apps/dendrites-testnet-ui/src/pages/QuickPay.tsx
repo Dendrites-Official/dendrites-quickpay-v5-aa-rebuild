@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAccount, useSignMessage, useSignTypedData } from "wagmi";
+import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import ReceiptCard from "../components/ReceiptCard";
-import { quickpaySend } from "../lib/api";
-import { createReceipt, setPrivateNote, updateReceiptMeta, updateReceiptStatus } from "../lib/receiptsApi";
+import { createReceipt, updateReceiptMeta, updateReceiptStatus } from "../lib/receiptsApi";
+import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
+import { qpUrl } from "../lib/quickpayApiBase";
 
 export default function QuickPay() {
   const navigate = useNavigate();
   const { address, isConnected } = useAccount();
-  const { signMessageAsync } = useSignMessage();
+  const publicClient = usePublicClient({ chainId: 84532 });
   const { signTypedDataAsync } = useSignTypedData();
   const [token, setToken] = useState("");
   const [tokenPreset, setTokenPreset] = useState("custom");
@@ -83,13 +84,37 @@ export default function QuickPay() {
   const tokenLocked = !isCustomToken && Boolean(selectedTokenPreset?.address);
   const decimalsLocked = !isCustomToken;
 
-  const feeMode = speed === 1 ? "instant" : "eco";
-  const apiBase = String(import.meta.env.VITE_QUICKPAY_SEND_URL ?? "").trim();
-  if (!apiBase) {
-    throw new Error("Missing VITE_QUICKPAY_SEND_URL");
-  }
-  const quoteUrl = useMemo(() => `${apiBase.replace(/\/$/, "")}/quote`, [apiBase]);
+  const speedLabel = speed === 1 ? "instant" : "eco";
   const quoteBusy = quotePending || quoteLoading;
+
+  const fetchQuote = async (signal?: AbortSignal) => {
+    const amountRaw = ethers.parseUnits(amount, decimals).toString();
+    const body = {
+      chainId: 84532,
+      ownerEoa: address,
+      token,
+      to,
+      amount: amountRaw,
+      feeMode: "same",
+      speed: speedLabel,
+      mode,
+    };
+    console.log("QUOTE_BODY", body);
+
+    const res = await fetch(qpUrl("/quote"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 400 || data?.ok === false) {
+      const details = data?.details ? ` ${JSON.stringify(data.details)}` : "";
+      throw new Error(`${data?.error || "Bad request"}${details}`.trim());
+    }
+    if (!res.ok) throw new Error(data?.error || "Failed to get quote");
+    return data;
+  };
 
   const getQuote = async (signal?: AbortSignal) => {
     if (!address) {
@@ -100,43 +125,12 @@ export default function QuickPay() {
       setQuoteError("Enter valid token, recipient, and amount.");
       return;
     }
-    if (!quoteUrl) {
-      setQuoteError("Missing VITE_QUICKPAY_SEND_URL");
-      return;
-    }
     setQuoteLoading(true);
     setQuotePending(false);
     setQuoteError("");
     setQuote(null);
     try {
-      const amountRaw = ethers.parseUnits(amount, decimals).toString();
-      const speedLabel = speed === 1 ? "instant" : "eco";
-      const body = {
-        chainId: 84532,
-        ownerEoa: address,
-        token,
-        to,
-        amount: amountRaw,
-        feeMode: "same",
-        speed: speedLabel,
-        mode,
-      };
-      console.log("QUOTE_BODY", body);
-
-      const res = await fetch(quoteUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 400) {
-        throw new Error(JSON.stringify(data));
-      }
-      if (data?.ok === false) {
-        throw new Error(JSON.stringify(data));
-      }
-      if (!res.ok) throw new Error(data?.error || "Failed to get quote");
+      const data = await fetchQuote(signal);
       setQuote(data);
     } catch (err: any) {
       if (err?.name === "AbortError") return;
@@ -193,10 +187,6 @@ export default function QuickPay() {
       setError("Connect wallet first.");
       return;
     }
-    if (!quote) {
-      setError("Get a quote before sending.");
-      return;
-    }
     if (!isValidAddress(token) || !isValidAddress(to) || !amountValid) {
       setError("Enter valid token, recipient, and amount.");
       return;
@@ -209,13 +199,27 @@ export default function QuickPay() {
       const chainId = 84532;
       const senderLower = address.toLowerCase();
 
-      const isUsdc = token.toLowerCase() === "0x036cbd53842c5426634e7929541ec2318f3dcf7e";
+      let activeQuote = quote;
+      if (!activeQuote) {
+        activeQuote = await fetchQuote();
+        setQuote(activeQuote);
+      }
+
+      const lane = String(activeQuote?.lane ?? "").toUpperCase();
       const amountRaw = ethers.parseUnits(amount, decimals).toString();
       let auth: any = null;
-      if (mode === "SPONSORED" && isUsdc) {
+      let eip3009Router: string | undefined;
+      if (mode === "SPONSORED" && lane === "EIP3009") {
+        const routerAddr = String(activeQuote?.router ?? getQuickPayChainConfig(chainId)?.router ?? "");
+        if (!ethers.isAddress(routerAddr)) {
+          setError("Missing router address for EIP3009");
+          setLoading(false);
+          return;
+        }
+        eip3009Router = routerAddr;
         const now = Math.floor(Date.now() / 1000);
-        const validAfter = 0;
-        const validBefore = now + 60 * 30;
+        const validAfter = now - 10;
+        const validBefore = now + 60 * 60;
         const nonce = ethers.hexlify(ethers.randomBytes(32));
         const typedData = {
           domain: {
@@ -237,7 +241,7 @@ export default function QuickPay() {
           primaryType: "ReceiveWithAuthorization",
           message: {
             from: senderLower,
-            to,
+            to: routerAddr,
             value: amountRaw,
             validAfter,
             validBefore,
@@ -246,6 +250,74 @@ export default function QuickPay() {
         } as const;
         const signature = await signTypedDataAsync(typedData);
         auth = { type: "EIP3009", ...typedData.message, signature };
+      }
+      if (mode === "SPONSORED" && lane === "PERMIT2") {
+        const permit2Address = String(activeQuote?.permit2 ?? "0x000000000022D473030F116dDEE9F6B43aC78BA3");
+        const spender = String(activeQuote?.router ?? "");
+        if (!ethers.isAddress(permit2Address)) {
+          throw new Error("Missing Permit2 address");
+        }
+        if (!ethers.isAddress(spender)) {
+          throw new Error("Missing router address for Permit2");
+        }
+        const permit2Abi = [
+          {
+            type: "function",
+            name: "allowance",
+            stateMutability: "view",
+            inputs: [
+              { name: "owner", type: "address" },
+              { name: "token", type: "address" },
+              { name: "spender", type: "address" },
+            ],
+            outputs: [
+              { name: "amount", type: "uint160" },
+              { name: "expiration", type: "uint48" },
+              { name: "nonce", type: "uint48" },
+            ],
+          },
+        ] as const;
+        const allowance = await publicClient.readContract({
+          address: permit2Address as `0x${string}`,
+          abi: permit2Abi,
+          functionName: "allowance",
+          args: [senderLower as `0x${string}`, token as `0x${string}`, spender as `0x${string}`],
+        });
+        const now = Math.floor(Date.now() / 1000);
+        const sigDeadline = now + 60 * 30;
+        const typedData = {
+          domain: {
+            name: "Permit2",
+            chainId,
+            verifyingContract: permit2Address,
+          },
+          types: {
+            PermitDetails: [
+              { name: "token", type: "address" },
+              { name: "amount", type: "uint160" },
+              { name: "expiration", type: "uint48" },
+              { name: "nonce", type: "uint48" },
+            ],
+            PermitSingle: [
+              { name: "details", type: "PermitDetails" },
+              { name: "spender", type: "address" },
+              { name: "sigDeadline", type: "uint256" },
+            ],
+          },
+          primaryType: "PermitSingle",
+          message: {
+            details: {
+              token,
+              amount: BigInt(amountRaw),
+              expiration: BigInt(sigDeadline),
+              nonce: BigInt(allowance[2] ?? 0n),
+            },
+            spender,
+            sigDeadline,
+          },
+        } as const;
+        const signature = await signTypedDataAsync(typedData);
+        auth = { type: "PERMIT2", ...typedData.message, signature };
       }
 
       receiptId = await createReceipt({
@@ -265,31 +337,29 @@ export default function QuickPay() {
         chainId,
       });
 
-      if (receiptId && note.trim()) {
-        const noteMessage =
-          `Dendrites QuickPay Note v1\n` +
-          `Action: SET\n` +
-          `Receipt: ${receiptId}\n` +
-          `Sender: ${senderLower}\n` +
-          `ChainId: ${chainId}`;
-        const signature = await signMessageAsync({ message: noteMessage });
-        await setPrivateNote({ receiptId, sender: senderLower, note: note.trim(), signature, chainId });
-      }
-
       const sendPayload: any = {
-        fromEoa: senderLower,
+        chainId,
+        ownerEoa: senderLower,
         to,
         token,
         amount: amountRaw,
+        feeMode: "same",
+        speed: speedLabel,
         mode,
-        speed,
-        feeMode,
         receiptId,
-        chainId,
-        quotedFeeTokenAmount: quote?.feeTokenAmount,
+        quotedFeeTokenAmount: activeQuote?.feeTokenAmount,
         auth,
       };
-      const data = await quickpaySend(sendPayload);
+      if (mode === "SPONSORED" && lane === "EIP3009" && eip3009Router) {
+        sendPayload.router = eip3009Router;
+      }
+      const sendRes = await fetch(qpUrl("/send"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sendPayload),
+      });
+      const data = await sendRes.json().catch(() => ({}));
+      if (!sendRes.ok) throw new Error(data?.error || "Failed to send");
       const userOpHash = data?.userOpHash || data?.userOp?.userOpHash;
       const txHash = data?.txHash ?? data?.tx_hash ?? null;
 
@@ -447,14 +517,33 @@ export default function QuickPay() {
       {quoteError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{quoteError}</div> : null}
       {quote ? (
         <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Status</div>
+          <div>
+            <strong>AA:</strong>{" "}
+            {quote.smartDeployed ? "deployed" : "will be created automatically"}
+          </div>
+          <div>
+            <strong>Setup needed:</strong>{" "}
+            {Array.isArray(quote.setupNeeded) && quote.setupNeeded.length
+              ? quote.setupNeeded.join(", ")
+              : "none"}
+          </div>
+          <div>
+            <strong>First-time surcharge:</strong>{" "}
+            {quote.firstTxSurchargePaid ? "already paid" : "applied"}
+          </div>
+        </div>
+      ) : null}
+      {quote ? (
+        <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Quote</div>
           <div><strong>Lane:</strong> {quote.lane ?? "—"}</div>
           <div><strong>Sponsored:</strong> {quote.sponsored ? "Yes" : "No"}</div>
           <div>
             <strong>Fee USD:</strong>{" "}
             {token.toLowerCase() === "0x036cbd53842c5426634e7929541ec2318f3dcf7e" && decimals === 6
-              ? (Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)
-              : quote.feeUsd6 ?? "0"}
+              ? `$${(Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)}`
+              : `$${quote.feeUsd6 ?? "0"}`}
           </div>
           <div>
             <strong>Fee token:</strong>{" "}
@@ -462,14 +551,16 @@ export default function QuickPay() {
           </div>
           <div>
             <strong>Net token:</strong>{" "}
-            {quote.netAmount ? ethers.formatUnits(quote.netAmount, decimals) : "0"}
+            {quote.netAmount || quote.netAmountRaw
+              ? ethers.formatUnits(quote.netAmountRaw ?? quote.netAmount, decimals)
+              : "0"}
           </div>
           <details style={{ marginTop: 8 }}>
             <summary style={{ cursor: "pointer" }}>Raw details</summary>
             <div style={{ marginTop: 6, fontSize: 12, color: "#bdbdbd" }}>
               <div>feeUsd6: {quote.feeUsd6 ?? "0"}</div>
               <div>feeTokenAmount: {quote.feeTokenAmount ?? "0"}</div>
-              <div>netAmount: {quote.netAmount ?? "0"}</div>
+              <div>netAmount: {quote.netAmountRaw ?? quote.netAmount ?? "0"}</div>
               <div>feeMode: {quote.feeMode ?? "—"}</div>
               <div>speed: {quote.speed ?? "—"}</div>
             </div>
