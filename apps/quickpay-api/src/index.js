@@ -202,6 +202,7 @@ app.post("/send", async (request, reply) => {
       txHash: result?.txHash ?? null,
     });
   } catch (err) {
+    const debug = process.env.QUICKPAY_DEBUG === "1";
     console.error("[SEND_ERROR]", reqId, err?.message);
     console.error(err?.stack || err);
     return reply.code(err?.status || 500).send({
@@ -209,6 +210,7 @@ app.post("/send", async (request, reply) => {
       reqId,
       error: String(err?.message || err),
       code: err?.code,
+      details: debug ? String(err?.stack || err) : undefined,
     });
   }
 });
