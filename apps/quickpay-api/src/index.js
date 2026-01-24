@@ -11,6 +11,17 @@ import { normalizeAddress } from "./core/normalizeAddress.js";
 
 const app = Fastify({ logger: true });
 
+app.setErrorHandler((err, request, reply) => {
+  const status = err?.status || 500;
+  reply.code(status).send({
+    ok: false,
+    error: err?.message || "Internal error",
+    code: err?.code || "INTERNAL",
+    where: err?.where,
+    details: process.env.NODE_ENV === "production" ? undefined : String(err?.stack || err),
+  });
+});
+
 const corsOrigins = String(process.env.CORS_ORIGIN ?? "")
   .split(",")
   .map((value) => value.trim())
@@ -93,11 +104,11 @@ app.post("/send", async (request, reply) => {
   let normalizedTo;
   let normalizedFeeToken;
   try {
-    normalizedOwnerEoa = await normalizeAddress(ownerEoa, provider);
-    normalizedToken = await normalizeAddress(token, provider);
-    normalizedTo = await normalizeAddress(to, provider);
+    normalizedOwnerEoa = await normalizeAddress(ownerEoa, provider, chain);
+    normalizedToken = await normalizeAddress(token, provider, chain);
+    normalizedTo = await normalizeAddress(to, provider, chain);
     if (feeToken) {
-      normalizedFeeToken = await normalizeAddress(feeToken, provider);
+      normalizedFeeToken = await normalizeAddress(feeToken, provider, chain);
     }
   } catch (err) {
     return reply.code(err?.status || 500).send({ ok: false, error: err?.message || String(err), code: err?.code });
