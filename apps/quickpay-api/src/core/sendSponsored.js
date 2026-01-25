@@ -1,14 +1,68 @@
 import { ethers } from "ethers";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { getQuote } from "./quote.js";
-
-function mustEnv(name) {
-  const v = (process.env[name] || "").trim();
-  if (!v) throw new Error(`Missing required env var: ${name}`);
-  return v;
-}
 
 function isAddr(x) {
   return typeof x === "string" && ethers.isAddress(x.trim());
+}
+
+function resolveScriptPath(scriptName) {
+  const cwd = process.cwd();
+  const candidates = [
+    path.join(cwd, "scripts", "aa", scriptName),
+    path.join(cwd, "..", "..", "scripts", "aa", scriptName),
+    path.join(cwd, "..", "scripts", "aa", scriptName),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function runLaneScript({ scriptName, lane, env }) {
+  const scriptPath = resolveScriptPath(scriptName);
+  if (!scriptPath) {
+    if (lane === "EIP2612") {
+      throw new Error("EIP2612 script missing");
+    }
+    throw new Error(`Script not found for lane ${lane}: ${scriptName}`);
+  }
+
+  const tmpDir = "/tmp";
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const tmpFile = path.join(
+    tmpDir,
+    `quickpay-${lane}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
+  );
+
+  const result = spawnSync("node", [scriptPath, "--json-out", tmpFile], {
+    env,
+    encoding: "utf-8",
+  });
+
+  const stdout = result.stdout || "";
+  const stderr = result.stderr || "";
+  const exitCode = typeof result.status === "number" ? result.status : null;
+
+  if (result.error || exitCode !== 0) {
+    const err = new Error(`Lane ${lane} script failed: ${stderr}`.trim());
+    err.details = { stdout, stderr, exitCode };
+    throw err;
+  }
+
+  const raw = fs.readFileSync(tmpFile, "utf-8");
+  const json = JSON.parse(raw);
+
+  return {
+    ok: true,
+    lane,
+    userOpHash: json.userOpHash ?? json.userOp?.userOpHash ?? null,
+    txHash: json.txHash ?? json.transactionHash ?? null,
+    feeAmountRaw: json.feeAmountRaw ?? json.feeTokenAmount ?? null,
+    netAmountRaw: json.netAmountRaw ?? json.netAmount ?? null,
+  };
 }
 
 export async function sendSponsored({
@@ -48,10 +102,6 @@ export async function sendSponsored({
   }
   if (!/^\d+$/.test(amt)) throw new Error(`Invalid amount (must be uint string): "${amt}"`);
 
-  if (!auth || auth.type !== "EIP3009") {
-    throw new Error(`Missing/invalid auth. Expected auth.type="EIP3009"`);
-  }
-
   const q = await getQuote({
     chainId,
     rpcUrl: rpc,
@@ -68,56 +118,46 @@ export async function sendSponsored({
     speed,
   });
 
-  if (q.lane !== "EIP3009") {
-    throw new Error(`Unsupported lane for this send endpoint: ${q.lane}`);
+  if (q.lane === "EIP3009") {
+    if (!auth || auth.type !== "EIP3009") {
+      throw new Error(`Missing/invalid auth. Expected auth.type="EIP3009"`);
+    }
+    if (String(auth.from || "").toLowerCase() !== owner.toLowerCase()) {
+      throw new Error(`auth.from mismatch`);
+    }
+    if (String(auth.to || "").toLowerCase() !== routerAddr.toLowerCase()) {
+      throw new Error(`auth.to mismatch (must be router)`);
+    }
+    if (String(auth.value || "") !== amt) {
+      throw new Error(`auth.value mismatch`);
+    }
   }
 
-  if (String(auth.from || "").toLowerCase() !== owner.toLowerCase()) {
-    throw new Error(`auth.from mismatch`);
-  }
-  if (String(auth.to || "").toLowerCase() !== routerAddr.toLowerCase()) {
-    throw new Error(`auth.to mismatch (must be router)`);
-  }
-  if (String(auth.value || "") !== amt) {
-    throw new Error(`auth.value mismatch`);
-  }
+  let scriptName;
+  if (q.lane === "EIP3009") scriptName = "send_eip3009_v5.mjs";
+  else if (q.lane === "PERMIT2") scriptName = "send_permit2_v5.mjs";
+  else if (q.lane === "EIP2612") scriptName = "send_eip2612_v5.mjs";
+  else throw new Error(`Unsupported lane for this send endpoint: ${q.lane}`);
 
-  const sig = ethers.Signature.from(String(auth.signature));
-  const nonce = String(auth.nonce);
-  const validAfter = String(auth.validAfter || "0");
-  const validBefore = String(auth.validBefore || "0");
-
-  const relayerPk = mustEnv("RELAYER_PRIVATE_KEY");
-  const provider = new ethers.JsonRpcProvider(rpc);
-  const relayer = new ethers.Wallet(relayerPk, provider);
-
-  const routerAbi = [
-    "function sendERC20EIP3009Sponsored(address from,address token,address to,uint256 amount,address feeToken,uint256 finalFee,address owner,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s)",
-  ];
-  const routerC = new ethers.Contract(routerAddr, routerAbi, relayer);
-
-  const tx = await routerC.sendERC20EIP3009Sponsored(
-    owner,
-    tokenAddr,
-    toAddr,
-    amt,
-    tokenAddr,
-    q.feeTokenAmount,
-    owner,
-    validAfter,
-    validBefore,
-    nonce,
-    sig.v,
-    sig.r,
-    sig.s
-  );
-
-  return {
-    ok: true,
-    lane: q.lane,
-    txHash: tx.hash,
-    feeUsd6: q.feeUsd6,
-    maxFeeUsd6: q.maxFeeUsd6 ?? null,
-    feeTokenAmount: q.feeTokenAmount,
+  const env = {
+    ...process.env,
+    RPC_URL: rpc,
+    BUNDLER_URL: bundlerUrl || process.env.BUNDLER_URL,
+    CHAIN_ID: String(chainId),
+    ENTRYPOINT: entryPoint || process.env.ENTRYPOINT,
+    ROUTER: routerAddr,
+    PAYMASTER: paymaster || process.env.PAYMASTER,
+    FACTORY: factory || process.env.FACTORY,
+    FEEVAULT: feeVault || process.env.FEEVAULT,
+    PERMIT2: process.env.PERMIT2,
+    TOKEN: tokenAddr,
+    TO: toAddr,
+    AMOUNT: amt,
+    OWNER_EOA: owner,
+    SPEED: speed,
+    FEE_MODE: feeMode,
   };
+  if (auth) env.AUTH_JSON = JSON.stringify(auth);
+
+  return runLaneScript({ scriptName, lane: q.lane, env });
 }
