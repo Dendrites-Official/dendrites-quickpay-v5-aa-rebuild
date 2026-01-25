@@ -9,7 +9,7 @@ function isHexString(v) {
   return typeof v === "string" && /^0x[0-9a-fA-F]*$/.test(v) && v.length >= 2;
 }
 
-function toLower(addr) {
+function toLower(addr) { 
   return String(addr).toLowerCase();
 }
 
