@@ -339,18 +339,10 @@ async function main(options = {}) {
   const amount = BigInt(requireEnv("AMOUNT"));
   const payGasYourself = parseBoolEnv("PAY_GAS_YOURSELF", "0");
 
-  const ownerEoaEnv = (process.env.OWNER_EOA || "").trim();
+  const ownerEoaEnv = requireEnv("OWNER_EOA");
+  const authJsonRaw = (process.env.AUTH_JSON || "").trim();
+  const hasAuthJson = !!authJsonRaw && authJsonRaw !== "null" && authJsonRaw !== "undefined";
   let ownerEoaResolved = ownerEoaEnv;
-  if (!ownerEoaResolved) {
-    const pkForOwner = (process.env.PRIVATE_KEY_TEST_USER || "").trim();
-    if (pkForOwner) {
-      try {
-        ownerEoaResolved = new ethers.Wallet(pkForOwner).address;
-      } catch {
-        ownerEoaResolved = "";
-      }
-    }
-  }
   const ownerEoaLower = ownerEoaResolved ? toLower(ownerEoaResolved) : "";
   result.owner_eoa = ownerEoaLower;
 
@@ -374,6 +366,9 @@ async function main(options = {}) {
       } catch {
         ownerAddress = ownerEoa;
       }
+    }
+    if (ownerAddress && !ethers.isAddress(ownerAddress)) {
+      throw new Error(`Invalid OWNER_EOA address: ${ownerAddress}`);
     }
     const ownerEthBalWei = ownerAddress ? await publicRpc.getBalance(ownerAddress) : 0n;
     result.ownerSender.ownerAddress = ownerAddress;
@@ -485,16 +480,14 @@ async function main(options = {}) {
   const factoryAbi = ["function getAddress(address owner, uint256 salt) view returns (address)"];
   const factory = new ethers.Contract(factoryAddr, factoryAbi, publicRpc);
 
-  if (!aaOwnerPk) {
-    result.lane.selectedLane = "NONE";
-    result.lane.reasons.push("MISSING_PRIVATE_KEY_TEST_USER");
-    console.log("LANE=NONE");
-    console.log("REASON=MISSING_PRIVATE_KEY_TEST_USER");
-    return result;
+  if (!aaOwnerPk && !hasAuthJson) {
+    throw new Error("Missing AUTH_JSON (wallet signature required)");
   }
 
-  const aaWallet = new ethers.Wallet(aaOwnerPk);
-  const aaOwner = aaWallet.address;
+  const aaOwner = aaOwnerPk ? new ethers.Wallet(aaOwnerPk).address : ownerEoa;
+  if (aaOwner && !ethers.isAddress(aaOwner)) {
+    throw new Error(`Invalid OWNER_EOA address: ${aaOwner}`);
+  }
   const sender = await factory["getAddress(address,uint256)"](aaOwner, 0n);
   const senderCode = await publicRpc.getCode(sender);
   const senderDeployed = typeof senderCode === "string" && senderCode !== "0x";
