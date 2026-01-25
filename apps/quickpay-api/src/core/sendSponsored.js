@@ -118,6 +118,10 @@ export async function sendSponsored({
     speed,
   });
 
+  if (!q.feeTokenAmount || !/^\d+$/.test(String(q.feeTokenAmount)) || String(q.feeTokenAmount) === "0") {
+    throw new Error(`Invalid feeTokenAmount from quote: ${q.feeTokenAmount}`);
+  }
+
   if (q.lane === "EIP3009") {
     if (!auth || auth.type !== "EIP3009") {
       throw new Error(`Missing/invalid auth. Expected auth.type="EIP3009"`);
@@ -156,6 +160,8 @@ export async function sendSponsored({
     OWNER_EOA: owner,
     SPEED: speed,
     FEE_MODE: feeMode,
+    FINAL_FEE_TOKEN: String(q.feeTokenAmount),
+    FINAL_FEE: String(q.feeTokenAmount),
   };
   if (auth) env.AUTH_JSON = JSON.stringify(auth);
 
