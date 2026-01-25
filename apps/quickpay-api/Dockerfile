@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --production
 COPY src ./src
+COPY scripts ./scripts
 EXPOSE 8787
 CMD ["npm","run","start"]
 ENV NODE_ENV=production
