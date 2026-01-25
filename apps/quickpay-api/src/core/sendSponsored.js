@@ -29,7 +29,7 @@ export async function sendSponsored({
     err.status = 500;
     throw err;
   }
-  const outDir = path.join(repoRoot, "out");
+  const outDir = "/app/out";
   fs.mkdirSync(outDir, { recursive: true });
   const jsonOutPath = path.join(outDir, `orchestrate_${Date.now()}_${Math.floor(Math.random() * 1e6)}.json`);
 
@@ -62,6 +62,17 @@ export async function sendSponsored({
   if (res.error) {
     throw res.error;
   }
+  if (fs.existsSync(jsonOutPath)) {
+    const raw = fs.readFileSync(jsonOutPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed?.ok === true || parsed?.success === true) {
+      return parsed;
+    }
+    const err = new Error(parsed?.error || parsed?.message || "orchestrator failed");
+    err.details = parsed;
+    throw err;
+  }
+
   if (res.status !== 0) {
     const err = new Error(
       `orchestrate_send_v5 failed: exitCode=${res.status} signal=${res.signal}\ncmd=${cmd}\ncwd=${repoRoot}\n---stderr---\n${tail(stderr)}\n---stdout---\n${tail(stdout)}`
@@ -74,22 +85,9 @@ export async function sendSponsored({
     throw err;
   }
 
-  let result;
-  try {
-    result = parseResultFile(jsonOutPath);
-  } catch (err) {
-    const parseErr = new Error(
-      `orchestrate_send_v5 output parse failed: cmd=${cmd}\ncwd=${repoRoot}\n---stderr---\n${tail(stderr)}\n---stdout---\n${tail(stdout)}`
-    );
-    parseErr.details = { stdout: tail(stdout), stderr: tail(stderr) };
-    throw parseErr;
-  }
-  if (!result) {
-    const err = new Error(
-      `orchestrate_send_v5 missing output: ${jsonOutPath}\ncmd=${cmd}\ncwd=${repoRoot}\n---stderr---\n${tail(stderr)}\n---stdout---\n${tail(stdout)}`
-    );
-    err.details = { stdout: tail(stdout), stderr: tail(stderr) };
-    throw err;
-  }
-  return result;
+  const err = new Error(
+    `orchestrate_send_v5 missing output: ${jsonOutPath}\ncmd=${cmd}\ncwd=${repoRoot}\n---stderr---\n${tail(stderr)}\n---stdout---\n${tail(stdout)}`
+  );
+  err.details = { stdout: tail(stdout), stderr: tail(stderr) };
+  throw err;
 }
