@@ -208,12 +208,13 @@ app.post("/send", async (request, reply) => {
     const debug = process.env.QUICKPAY_DEBUG === "1";
     console.error("[SEND_ERROR]", reqId, err?.message);
     console.error(err?.stack || err);
+    const detailPayload = err?.details ?? String(err?.stack || err);
     return reply.code(err?.status || 500).send({
       ok: false,
       reqId,
       error: String(err?.message || err),
       code: err?.code,
-      details: debug ? String(err?.stack || err) : undefined,
+      details: debug ? detailPayload : undefined,
     });
   }
 });

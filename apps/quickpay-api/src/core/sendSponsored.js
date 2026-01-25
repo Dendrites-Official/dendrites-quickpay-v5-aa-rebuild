@@ -33,8 +33,7 @@ export async function sendSponsored({
   fs.mkdirSync(outDir, { recursive: true });
   const jsonOutPath = path.join(outDir, `orchestrate_${Date.now()}_${Math.floor(Math.random() * 1e6)}.json`);
 
-  const env = {
-    ...process.env,
+  const childEnv = {
     CHAIN_ID: String(chainId ?? ""),
     OWNER_EOA: String(ownerEoa ?? ""),
     TOKEN: String(token ?? ""),
@@ -48,25 +47,49 @@ export async function sendSponsored({
     RECEIPT_ID: String(receiptId ?? ""),
   };
 
-  const res = spawnSync("node", [scriptPath, "--json-out", jsonOutPath], {
+  const cmd = `${process.execPath} ${scriptPath} --json-out ${jsonOutPath}`;
+  const res = spawnSync(process.execPath, [scriptPath, "--json-out", jsonOutPath], {
     cwd: repoRoot,
     stdio: ["ignore", "pipe", "pipe"],
     encoding: "utf8",
-    env,
+    env: { ...process.env, ...childEnv },
   });
+
+  const stdout = String(res.stdout ?? "");
+  const stderr = String(res.stderr ?? "");
+  const tail = (s) => String(s || "").slice(-4000);
 
   if (res.error) {
     throw res.error;
   }
   if (res.status !== 0) {
-    const err = new Error(`orchestrate_send_v5 failed: ${res.stderr || "unknown error"}`);
-    err.stderr = res.stderr;
+    const err = new Error(
+      `orchestrate_send_v5 failed: exitCode=${res.status} signal=${res.signal}\ncmd=${cmd}\ncwd=${repoRoot}\n---stderr---\n${tail(stderr)}\n---stdout---\n${tail(stdout)}`
+    );
+    err.exitCode = res.status;
+    err.signal = res.signal;
+    err.cmd = cmd;
+    err.cwd = repoRoot;
+    err.details = { stdout: tail(stdout), stderr: tail(stderr) };
     throw err;
   }
 
-  const result = parseResultFile(jsonOutPath);
+  let result;
+  try {
+    result = parseResultFile(jsonOutPath);
+  } catch (err) {
+    const parseErr = new Error(
+      `orchestrate_send_v5 output parse failed: cmd=${cmd}\ncwd=${repoRoot}\n---stderr---\n${tail(stderr)}\n---stdout---\n${tail(stdout)}`
+    );
+    parseErr.details = { stdout: tail(stdout), stderr: tail(stderr) };
+    throw parseErr;
+  }
   if (!result) {
-    throw new Error(`orchestrate_send_v5 missing output: ${jsonOutPath}`);
+    const err = new Error(
+      `orchestrate_send_v5 missing output: ${jsonOutPath}\ncmd=${cmd}\ncwd=${repoRoot}\n---stderr---\n${tail(stderr)}\n---stdout---\n${tail(stdout)}`
+    );
+    err.details = { stdout: tail(stdout), stderr: tail(stderr) };
+    throw err;
   }
   return result;
 }
