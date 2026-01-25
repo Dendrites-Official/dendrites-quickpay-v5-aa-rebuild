@@ -33,8 +33,9 @@ export async function sendSponsored({
   fs.mkdirSync(outDir, { recursive: true });
   const jsonOutPath = path.join(outDir, `orchestrate_${Date.now()}_${Math.floor(Math.random() * 1e6)}.json`);
 
-  const feeModeRaw = String(feeMode ?? "").trim().toLowerCase();
-  const feeModeMapped = feeModeRaw === "usdc" ? "USDC" : "TOKEN";
+  const speedRaw = String(speed ?? "").trim().toLowerCase();
+  const feeModeMapped = speedRaw === "instant" || speedRaw === "1" ? "instant" : "eco";
+  const feeTokenModeRaw = String(feeMode ?? "same").trim().toLowerCase();
   const childEnv = {
     CHAIN_ID: String(chainId ?? ""),
     OWNER_EOA: String(ownerEoa ?? ""),
@@ -44,6 +45,7 @@ export async function sendSponsored({
     SPEED: String(speed ?? ""),
     MODE: String(mode ?? ""),
     FEE_MODE: feeModeMapped,
+    FEE_TOKEN_MODE: feeTokenModeRaw,
     QUOTED_FEE_TOKEN_AMOUNT: quotedFeeTokenAmount != null ? String(quotedFeeTokenAmount) : "",
     AUTH_JSON: JSON.stringify(auth ?? null),
     RECEIPT_ID: String(receiptId ?? ""),
