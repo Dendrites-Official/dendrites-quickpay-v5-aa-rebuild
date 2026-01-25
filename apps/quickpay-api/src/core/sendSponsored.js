@@ -1,98 +1,123 @@
-import { spawnSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
+import { ethers } from "ethers";
+import { getQuote } from "./quote.js";
 
-function parseResultFile(jsonOutPath) {
-  if (!fs.existsSync(jsonOutPath)) return null;
-  const raw = fs.readFileSync(jsonOutPath, "utf8");
-  if (!raw) return null;
-  return JSON.parse(raw);
+function mustEnv(name) {
+  const v = (process.env[name] || "").trim();
+  if (!v) throw new Error(`Missing required env var: ${name}`);
+  return v;
+}
+
+function isAddr(x) {
+  return typeof x === "string" && ethers.isAddress(x.trim());
 }
 
 export async function sendSponsored({
   chainId,
+  rpcUrl,
+  bundlerUrl,
+  entryPoint,
+  router,
+  paymaster,
+  factory,
+  feeVault,
   ownerEoa,
   token,
   to,
   amount,
   feeMode,
   speed,
-  mode,
-  receiptId,
-  quotedFeeTokenAmount,
   auth,
 }) {
-  const repoRoot = process.cwd();
-  const scriptPath = path.resolve(repoRoot, "scripts/aa/orchestrate_send_v5.mjs");
-  if (!fs.existsSync(scriptPath)) {
-    const err = new Error(`Missing orchestrator script at ${scriptPath} (cwd=${repoRoot})`);
-    err.status = 500;
-    throw err;
+  const routerAddr = String(router || process.env.ROUTER || "").trim();
+  const owner = String(ownerEoa || "").trim();
+  const tokenAddr = String(token || "").trim();
+  const toAddr = String(to || "").trim();
+  const amt = String(amount || "").trim();
+  const rpc = String(rpcUrl || process.env.RPC_URL || "").trim();
+
+  if (![84532, "84532"].includes(chainId)) {
+    throw new Error(`Unsupported chainId: ${chainId}`);
   }
-  const outDir = "/app/out";
-  fs.mkdirSync(outDir, { recursive: true });
-  const jsonOutPath = path.join(outDir, `orchestrate_${Date.now()}_${Math.floor(Math.random() * 1e6)}.json`);
+  for (const [k, v] of [
+    ["router", routerAddr],
+    ["ownerEoa", owner],
+    ["token", tokenAddr],
+    ["to", toAddr],
+  ]) {
+    if (!isAddr(v)) throw new Error(`Invalid ${k} address: "${v}"`);
+  }
+  if (!/^\d+$/.test(amt)) throw new Error(`Invalid amount (must be uint string): "${amt}"`);
 
-  const speedRaw = String(speed ?? "").trim().toLowerCase();
-  const feeModeMapped = speedRaw === "instant" || speedRaw === "1" ? "instant" : "eco";
-  const feeTokenModeRaw = String(feeMode ?? "same").trim().toLowerCase();
-  const childEnv = {
-    CHAIN_ID: String(chainId ?? ""),
-    OWNER_EOA: String(ownerEoa ?? ""),
-    TOKEN: String(token ?? ""),
-    TO: String(to ?? ""),
-    AMOUNT: String(amount ?? ""),
-    SPEED: String(speed ?? ""),
-    MODE: String(mode ?? ""),
-    FEE_MODE: feeModeMapped,
-    FEE_TOKEN_MODE: feeTokenModeRaw,
-    QUOTED_FEE_TOKEN_AMOUNT: quotedFeeTokenAmount != null ? String(quotedFeeTokenAmount) : "",
-    AUTH_JSON: JSON.stringify(auth ?? null),
-    RECEIPT_ID: String(receiptId ?? ""),
-  };
+  if (!auth || auth.type !== "EIP3009") {
+    throw new Error(`Missing/invalid auth. Expected auth.type="EIP3009"`);
+  }
 
-  const cmd = `${process.execPath} ${scriptPath} --json-out ${jsonOutPath}`;
-  const res = spawnSync(process.execPath, [scriptPath, "--json-out", jsonOutPath], {
-    cwd: repoRoot,
-    stdio: ["ignore", "pipe", "pipe"],
-    encoding: "utf8",
-    env: { ...process.env, ...childEnv },
+  const q = await getQuote({
+    chainId,
+    rpcUrl: rpc,
+    bundlerUrl,
+    entryPoint,
+    router: routerAddr,
+    paymaster: paymaster || process.env.PAYMASTER,
+    factoryAddress: factory || process.env.FACTORY,
+    feeVault: feeVault || process.env.FEEVAULT,
+    ownerEoa: owner,
+    token: tokenAddr,
+    amount: amt,
+    feeMode,
+    speed,
   });
 
-  const stdout = String(res.stdout ?? "");
-  const stderr = String(res.stderr ?? "");
-  const tail = (s) => String(s || "").slice(-4000);
-
-  if (res.error) {
-    throw res.error;
-  }
-  if (fs.existsSync(jsonOutPath)) {
-    const raw = fs.readFileSync(jsonOutPath, "utf8");
-    const parsed = JSON.parse(raw);
-    if (parsed?.ok === true || parsed?.success === true) {
-      return parsed;
-    }
-    const msg = parsed?.error?.message || parsed?.error || parsed?.message || "orchestrator failed";
-    const err = new Error(msg);
-    err.details = parsed;
-    throw err;
+  if (q.lane !== "EIP3009") {
+    throw new Error(`Unsupported lane for this send endpoint: ${q.lane}`);
   }
 
-  if (res.status !== 0) {
-    const err = new Error(
-      `orchestrate_send_v5 failed: exitCode=${res.status} signal=${res.signal}\ncmd=${cmd}\ncwd=${repoRoot}\n---stderr---\n${tail(stderr)}\n---stdout---\n${tail(stdout)}`
-    );
-    err.exitCode = res.status;
-    err.signal = res.signal;
-    err.cmd = cmd;
-    err.cwd = repoRoot;
-    err.details = { stdout: tail(stdout), stderr: tail(stderr) };
-    throw err;
+  if (String(auth.from || "").toLowerCase() !== owner.toLowerCase()) {
+    throw new Error(`auth.from mismatch`);
+  }
+  if (String(auth.to || "").toLowerCase() !== routerAddr.toLowerCase()) {
+    throw new Error(`auth.to mismatch (must be router)`);
+  }
+  if (String(auth.value || "") !== amt) {
+    throw new Error(`auth.value mismatch`);
   }
 
-  const err = new Error(
-    `orchestrate_send_v5 missing output: ${jsonOutPath}\ncmd=${cmd}\ncwd=${repoRoot}\n---stderr---\n${tail(stderr)}\n---stdout---\n${tail(stdout)}`
+  const sig = ethers.Signature.from(String(auth.signature));
+  const nonce = String(auth.nonce);
+  const validAfter = String(auth.validAfter || "0");
+  const validBefore = String(auth.validBefore || "0");
+
+  const relayerPk = mustEnv("RELAYER_PRIVATE_KEY");
+  const provider = new ethers.JsonRpcProvider(rpc);
+  const relayer = new ethers.Wallet(relayerPk, provider);
+
+  const routerAbi = [
+    "function sendERC20EIP3009Sponsored(address from,address token,address to,uint256 amount,address feeToken,uint256 finalFee,address owner,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s)",
+  ];
+  const routerC = new ethers.Contract(routerAddr, routerAbi, relayer);
+
+  const tx = await routerC.sendERC20EIP3009Sponsored(
+    owner,
+    tokenAddr,
+    toAddr,
+    amt,
+    tokenAddr,
+    q.feeTokenAmount,
+    owner,
+    validAfter,
+    validBefore,
+    nonce,
+    sig.v,
+    sig.r,
+    sig.s
   );
-  err.details = { stdout: tail(stdout), stderr: tail(stderr) };
-  throw err;
+
+  return {
+    ok: true,
+    lane: q.lane,
+    txHash: tx.hash,
+    feeUsd6: q.feeUsd6,
+    maxFeeUsd6: q.maxFeeUsd6 ?? null,
+    feeTokenAmount: q.feeTokenAmount,
+  };
 }
