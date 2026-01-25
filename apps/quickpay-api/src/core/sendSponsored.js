@@ -68,7 +68,8 @@ export async function sendSponsored({
     if (parsed?.ok === true || parsed?.success === true) {
       return parsed;
     }
-    const err = new Error(parsed?.error || parsed?.message || "orchestrator failed");
+    const msg = parsed?.error?.message || parsed?.error || parsed?.message || "orchestrator failed";
+    const err = new Error(msg);
     err.details = parsed;
     throw err;
   }
