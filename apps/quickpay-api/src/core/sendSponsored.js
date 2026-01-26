@@ -15,10 +15,10 @@ const __dirname = path.dirname(__filename);
 const appRoot = path.resolve(__dirname, "..", "..", "..");
 
 function resolveScriptPath(scriptName) {
+  const root = process.cwd();
   const candidates = [
-    path.join(appRoot, "src", "aa", scriptName),
-    path.join(appRoot, "scripts", "aa", scriptName),
-    path.join(appRoot, "..", "scripts", "aa", scriptName),
+    path.join(root, "src", "aa", scriptName),
+    path.join(root, "scripts", "aa", scriptName),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
@@ -31,14 +31,14 @@ function runLaneScript({ scriptName, lane, env }) {
   if (!scriptPath) {
     const err = new Error(`Script not found for lane ${lane}: ${scriptName}`);
     if (env?.QUICKPAY_DEBUG === "1") {
+      const root = process.cwd();
       err.details = {
         candidates: [
-          path.join(appRoot, "src", "aa", scriptName),
-          path.join(appRoot, "scripts", "aa", scriptName),
-          path.join(appRoot, "..", "scripts", "aa", scriptName),
+          path.join(root, "src", "aa", scriptName),
+          path.join(root, "scripts", "aa", scriptName),
         ],
-        cwd: process.cwd(),
-        appRoot,
+        cwd: root,
+        __filename,
       };
     }
     throw err;
