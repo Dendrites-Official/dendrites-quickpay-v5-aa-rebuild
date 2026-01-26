@@ -176,9 +176,6 @@ function assertDraftFees({
   if (BigInt(finalFee) !== feeTokenAmount) {
     throw new Error(`draft finalFee mismatch: callData=${finalFee} draft.feeTokenAmount=${feeTokenAmount}`);
   }
-  if (toLower(feeToken) === toLower(token) && feeUsd6 !== feeTokenAmount) {
-    throw new Error(`draft feeUsd6 must equal feeTokenAmount for USDC (feeUsd6=${feeUsd6} feeTokenAmount=${feeTokenAmount})`);
-  }
   if (feeUsd6 > pmMaxFeeUsd6) {
     throw new Error(`draft feeUsd6 exceeds paymaster maxFeeUsd6 (${feeUsd6} > ${pmMaxFeeUsd6})`);
   }
