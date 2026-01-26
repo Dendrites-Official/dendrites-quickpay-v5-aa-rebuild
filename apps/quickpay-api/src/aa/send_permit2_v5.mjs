@@ -159,11 +159,110 @@ async function main() {
 
   const factoryData = factory.interface.encodeFunctionData("createAccount", [ownerEoa, salt]);
 
-  main().catch((err) => {
-    main().catch((err) => {
-      console.error(err);
-      process.exitCode = 1;
+  const routerAbi = [
+    "function sendERC20Permit2Sponsored(address from,address token,address to,uint256 amount,address feeToken,uint256 finalFee,address owner)",
+  ];
+  const router = new ethers.Contract(routerAddr, routerAbi, publicRpc);
+
+  const routerCallData = router.interface.encodeFunctionData("sendERC20Permit2Sponsored", [
+    ownerEoa,
+    token,
+    to,
+    amount,
+    feeToken,
+    finalFeeToken,
+    ownerEoa,
+  ]);
+
+  const accountAbi = ["function execute(address dest,uint256 value,bytes func)"];
+  const accountIface = new ethers.Interface(accountAbi);
+  const callData = accountIface.encodeFunctionData("execute", [routerAddr, 0n, routerCallData]);
+
+  const { maxFeePerGas, maxPriorityFeePerGas } = await getPimlicoGasPriceStandard(bundlerRpc);
+
+  const nowTs = Math.floor(Date.now() / 1000);
+  const speed = 0;
+  console.log(`USING_FINAL_FEE_TOKEN=${finalFeeToken}`);
+  console.log(`USING_MAX_FEE_USD6=${maxFeeUsd6}`);
+  console.log(`NET_AMOUNT=${netAmount}`);
+  console.log(`FEE_TOKEN_USED=${feeToken}`);
+  console.log(`TOKEN_SENT=${token}`);
+
+  const now = BigInt(nowTs);
+  const validAfter = now - 60n;
+  const validUntil = now + 3600n;
+  const coder = ethers.AbiCoder.defaultAbiCoder();
+  const paymasterData = coder.encode(
+    ["uint8", "uint8", "address", "uint256", "uint48", "uint48"],
+    [0, speed, feeToken, BigInt(maxFeeUsd6), validUntil, validAfter]
+  );
+
+  const userOpNonce = await getNonce(publicRpc, entryPoint, sender);
+
+  const gasDefaults = {
+    callGasLimit: 500_000n,
+    verificationGasLimit: 300_000n,
+    preVerificationGas: 100_000n,
+    paymasterVerificationGasLimit: 200_000n,
+    paymasterPostOpGasLimit: 200_000n,
+  };
+
+  const userOp = {
+    sender,
+    nonce: hexlify(userOpNonce),
+    ...(senderDeployed ? {} : { factory: factoryAddr, factoryData }),
+    callData,
+    callGasLimit: hexlify(gasDefaults.callGasLimit),
+    verificationGasLimit: hexlify(gasDefaults.verificationGasLimit),
+    preVerificationGas: hexlify(gasDefaults.preVerificationGas),
+    maxFeePerGas,
+    maxPriorityFeePerGas,
+    paymaster: paymasterAddr,
+    paymasterVerificationGasLimit: hexlify(gasDefaults.paymasterVerificationGasLimit),
+    paymasterPostOpGasLimit: hexlify(gasDefaults.paymasterPostOpGasLimit),
+    paymasterData,
+    signature: "0x",
+  };
+
+  const buildPackedUserOp = () => {
+    const initCode = senderDeployed ? "0x" : packInitCode(factoryAddr, factoryData);
+    const accountGasLimits = packUint128Pair(BigInt(userOp.verificationGasLimit), BigInt(userOp.callGasLimit));
+    const gasFees = packUint128Pair(BigInt(userOp.maxPriorityFeePerGas), BigInt(userOp.maxFeePerGas));
+    const paymasterAndData = packPaymasterAndData(
+      paymasterAddr,
+      BigInt(userOp.paymasterVerificationGasLimit),
+      BigInt(userOp.paymasterPostOpGasLimit),
+      paymasterData
+    );
+
+    return {
+      sender,
+      nonce: userOpNonce,
+      initCode,
+      callData,
+      accountGasLimits,
+      preVerificationGas: BigInt(userOp.preVerificationGas),
+      gasFees,
+      paymasterAndData,
+      signature: userOp.signature || "0x",
+    };
+  };
+
+  if (!userOpSignature) {
+    userOp.signature = "0x";
+    const userOpHash = await getUserOpHash(publicRpc, entryPoint, buildPackedUserOp());
+    writeJson(jsonOut, {
+      ok: false,
+      needsUserOpSignature: true,
+      lane: "PERMIT2",
+      userOpHash,
+      message: "SIGN_THIS_USEROP_HASH_WITH_eth_sign",
     });
+    process.exit(2);
+  }
+
+  userOp.signature = userOpSignature;
+  const userOpHash = await getUserOpHash(publicRpc, entryPoint, buildPackedUserOp());
   const bundlerHash = await bundlerRpc.send("eth_sendUserOperation", [userOp, entryPoint]);
   void bundlerHash;
 
@@ -181,13 +280,9 @@ async function main() {
     userOpHash,
     txHash,
   });
-
 }
 
 main().catch((err) => {
   console.error(err);
   process.exitCode = 1;
 });
-git push
-
-</userRequest>
