@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { ethers } from "ethers";
+import fs from "node:fs";
 
 function hexlify(value) {
   return ethers.toBeHex(value);
@@ -19,14 +20,6 @@ function requireEnv(name) {
     throw new Error(`Missing required env var: ${name}`);
   }
   return String(value).trim();
-}
-
-function requirePrivateKey(name) {
-  const pk = requireEnv(name);
-  if (!pk.startsWith("0x") || pk.length !== 66) {
-    throw new Error(`Invalid ${name} (must be 0x-prefixed 32-byte hex, length 66)`);
-  }
-  return pk;
 }
 
 function requireChainId() {
@@ -83,7 +76,19 @@ async function getUserOpHash(publicRpc, entryPoint, packedUserOp) {
   return await ep.getUserOpHash(packedUserOp);
 }
 
+function getJsonOutPath() {
+  const idx = process.argv.indexOf("--json-out");
+  if (idx >= 0 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return null;
+}
+
+function writeJson(outPath, obj) {
+  if (!outPath) return;
+  fs.writeFileSync(outPath, JSON.stringify(obj));
+}
+
 async function main() {
+  const jsonOut = getJsonOutPath();
   const rpcUrl = requireEnv("RPC_URL");
   const bundlerUrl = requireEnv("BUNDLER_URL");
   const chainId = requireChainId();
@@ -102,6 +107,9 @@ async function main() {
     process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || process.env.MAX_FEE_USDC || "0"
   );
   const feeToken = (process.env.FEE_TOKEN_ADDRESS || process.env.FEE_TOKEN || token).trim();
+  const userOpSignature = String(process.env.USEROP_SIGNATURE || "").trim();
+  const authRaw = process.env.AUTH_JSON;
+  const authJson = authRaw ? JSON.parse(authRaw) : null;
 
   if (finalFeeToken <= 0n) throw new Error("FINAL_FEE (token units) missing");
   if (maxFeeUsd6 <= 0n) throw new Error("MAX_FEE_USDC6 missing");
@@ -111,17 +119,18 @@ async function main() {
   if (finalFeeToken > amount) {
     throw new Error(`FINAL_FEE must be <= AMOUNT. amount=${amount} finalFee=${finalFeeToken}`);
   }
+  if (!authJson || (!authJson.type && !(authJson.owner && authJson.spender && authJson.signature))) {
+    throw new Error("AUTH_JSON missing for EIP2612");
+  }
+  if (authJson.type && authJson.type !== "EIP2612") {
+    throw new Error("AUTH_JSON missing for EIP2612");
+  }
 
   const netAmount = amount - finalFeeToken;
 
-  const signer = new ethers.Wallet(requirePrivateKey("PRIVATE_KEY_TEST_USER"));
-  if (toLower(signer.address) !== toLower(ownerEoa)) {
-    throw new Error(`OWNER_EOA must equal SimpleAccount owner. owner=${signer.address} ownerEoa=${ownerEoa}`);
-  }
-
   const publicRpc = new ethers.JsonRpcProvider(rpcUrl);
   const bundlerRpc = new ethers.JsonRpcProvider(bundlerUrl);
-  const ownerSigner = signer.connect(publicRpc);
+  const nowTs = Math.floor(Date.now() / 1000);
 
   const supported = await bundlerRpc.send("eth_supportedEntryPoints", []);
   const supportedLower = (supported || []).map((a) => toLower(a));
@@ -144,44 +153,28 @@ async function main() {
 
   const factoryData = factory.interface.encodeFunctionData("createAccount", [ownerEoa, salt]);
 
-  const erc20PermitAbi = [
-    "function nonces(address owner) view returns (uint256)",
-    "function name() view returns (string)",
-  ];
-  const tokenContract = new ethers.Contract(token, erc20PermitAbi, publicRpc);
-  const tokenName = await tokenContract.name();
-  const nonce = await tokenContract.nonces(ownerEoa);
+  let deadline;
+  let v;
+  let r;
+  let s;
 
-  const nowTs = Math.floor(Date.now() / 1000);
-  const deadline = BigInt(nowTs + 3600);
-
-  const domain = {
-    name: tokenName,
-    version: "1",
-    chainId,
-    verifyingContract: token,
-  };
-
-  const types = {
-    Permit: [
-      { name: "owner", type: "address" },
-      { name: "spender", type: "address" },
-      { name: "value", type: "uint256" },
-      { name: "nonce", type: "uint256" },
-      { name: "deadline", type: "uint256" },
-    ],
-  };
-
-  const message = {
-    owner: ownerEoa,
-    spender: routerAddr,
-    value: amount,
-    nonce,
-    deadline,
-  };
-
-  const sig = await ownerSigner.signTypedData(domain, types, message);
-  const { v, r, s } = ethers.Signature.from(sig);
+  if (!authJson?.signature) {
+    throw new Error("AUTH_JSON missing for EIP2612");
+  }
+  if (authJson.owner && toLower(authJson.owner) !== toLower(ownerEoa)) {
+    throw new Error(`auth.owner mismatch`);
+  }
+  if (authJson.spender && toLower(authJson.spender) !== toLower(routerAddr)) {
+    throw new Error(`auth.spender mismatch (must be router)`);
+  }
+  if (authJson.value != null && String(authJson.value) !== String(amount)) {
+    throw new Error(`auth.value mismatch`);
+  }
+  deadline = BigInt(authJson.deadline || 0);
+  const sig = ethers.Signature.from(String(authJson.signature));
+  v = sig.v;
+  r = sig.r;
+  s = sig.s;
 
   const routerAbi = [
     "function sendERC20EIP2612Sponsored(address from,address token,address to,uint256 amount,address feeToken,uint256 finalFee,address owner,uint256 permitDeadline,uint8 v,bytes32 r,bytes32 s)",
@@ -247,7 +240,7 @@ async function main() {
     signature: "0x",
   };
 
-  const signWithGasFields = async () => {
+  const buildPackedUserOp = () => {
     const initCode = senderDeployed ? "0x" : packInitCode(factoryAddr, factoryData);
     const accountGasLimits = packUint128Pair(BigInt(userOp.verificationGasLimit), BigInt(userOp.callGasLimit));
     const gasFees = packUint128Pair(BigInt(userOp.maxPriorityFeePerGas), BigInt(userOp.maxFeePerGas));
@@ -258,7 +251,7 @@ async function main() {
       paymasterData
     );
 
-    const packed = {
+    return {
       sender,
       nonce: userOpNonce,
       initCode,
@@ -267,29 +260,42 @@ async function main() {
       preVerificationGas: BigInt(userOp.preVerificationGas),
       gasFees,
       paymasterAndData,
-      signature: "0x",
+      signature: userOp.signature || "0x",
     };
-
-    const userOpHash = await getUserOpHash(publicRpc, entryPoint, packed);
-    userOp.signature = ownerSigner.signingKey.sign(userOpHash).serialized;
-    return userOpHash;
   };
 
-  await signWithGasFields();
+  if (!userOpSignature) {
+    userOp.signature = "0x";
+    const userOpHash = await getUserOpHash(publicRpc, entryPoint, buildPackedUserOp());
+    writeJson(jsonOut, {
+      ok: false,
+      needsUserOpSignature: true,
+      lane: "EIP2612",
+      userOpHash,
+      message: "SIGN_THIS_USEROP_HASH_WITH_eth_sign",
+    });
+    process.exit(2);
+  }
 
-  const estimate = await bundlerRpc.send("eth_estimateUserOperationGas", [userOp, entryPoint]);
-
-  userOp.callGasLimit = estimate.callGasLimit ?? userOp.callGasLimit;
-  userOp.verificationGasLimit = estimate.verificationGasLimit ?? userOp.verificationGasLimit;
-  userOp.preVerificationGas = estimate.preVerificationGas ?? userOp.preVerificationGas;
-  userOp.paymasterVerificationGasLimit = estimate.paymasterVerificationGasLimit ?? userOp.paymasterVerificationGasLimit;
-  userOp.paymasterPostOpGasLimit = estimate.paymasterPostOpGasLimit ?? userOp.paymasterPostOpGasLimit;
-
-  const finalHash = await signWithGasFields();
-  console.log(`USEROP_HASH=${finalHash}`);
-
+  userOp.signature = userOpSignature;
+  const userOpHash = await getUserOpHash(publicRpc, entryPoint, buildPackedUserOp());
   const bundlerHash = await bundlerRpc.send("eth_sendUserOperation", [userOp, entryPoint]);
-  console.log(`TX_SENT_USEROP=${bundlerHash}`);
+  void bundlerHash;
+
+  let txHash = null;
+  for (let i = 0; i < 15; i += 1) {
+    const receipt = await bundlerRpc.send("eth_getUserOperationReceipt", [userOpHash]);
+    txHash = receipt?.receipt?.transactionHash ?? receipt?.transactionHash ?? null;
+    if (txHash) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  writeJson(jsonOut, {
+    ok: true,
+    lane: "EIP2612",
+    userOpHash,
+    txHash,
+  });
 }
 
 main().catch((err) => {
