@@ -15,18 +15,33 @@ const __dirname = path.dirname(__filename);
 const appRoot = path.resolve(__dirname, "..", "..", "..");
 
 function resolveScriptPath(scriptName) {
-  const candidate = path.join(appRoot, "scripts", "aa", scriptName);
-  if (fs.existsSync(candidate)) return candidate;
+  const candidates = [
+    path.join(appRoot, "src", "aa", scriptName),
+    path.join(appRoot, "scripts", "aa", scriptName),
+    path.join(appRoot, "..", "scripts", "aa", scriptName),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
   return null;
 }
 
 function runLaneScript({ scriptName, lane, env }) {
   const scriptPath = resolveScriptPath(scriptName);
   if (!scriptPath) {
-    if (lane === "EIP2612") {
-      throw new Error("EIP2612 script missing");
+    const err = new Error(`Script not found for lane ${lane}: ${scriptName}`);
+    if (env?.QUICKPAY_DEBUG === "1") {
+      err.details = {
+        candidates: [
+          path.join(appRoot, "src", "aa", scriptName),
+          path.join(appRoot, "scripts", "aa", scriptName),
+          path.join(appRoot, "..", "scripts", "aa", scriptName),
+        ],
+        cwd: process.cwd(),
+        appRoot,
+      };
     }
-    throw new Error(`Script not found for lane ${lane}: ${scriptName}`);
+    throw err;
   }
 
   const tmpDir = "/tmp";
