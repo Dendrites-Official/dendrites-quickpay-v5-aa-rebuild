@@ -92,6 +92,7 @@ app.post("/send", async (request, reply) => {
       quotedFeeTokenAmount,
       auth,
       feeToken,
+      userOpSignature,
     } = body;
 
     if (!ownerEoa || !token || !to || !amount || !receiptId) {
@@ -181,7 +182,12 @@ app.post("/send", async (request, reply) => {
         auth,
         feeToken: normalizedFeeToken,
         smart,
+        userOpSignature,
       });
+    }
+
+    if (result?.needsUserOpSignature === true) {
+      return reply.send({ reqId, ...result });
     }
 
     await supabase
@@ -200,7 +206,8 @@ app.post("/send", async (request, reply) => {
 
     return reply.send({
       ok: true,
-      receiptId,
+      reqId,
+      lane: result?.lane ?? null,
       userOpHash: result?.userOpHash ?? null,
       txHash: result?.txHash ?? null,
     });
