@@ -249,8 +249,8 @@ async function main() {
   if (!userOpDraft) {
     const paymasterContract = new ethers.Contract(paymasterAddr, PAYMASTER_ABI, publicRpc);
     const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speed, nowTs);
-    baselineUsd6 = BigInt(quoteRaw[2]);
-    surchargeUsd6 = BigInt(quoteRaw[3]);
+    baselineUsd6 = BigInt(quoteRaw[0]);
+    surchargeUsd6 = BigInt(quoteRaw[1]);
     feeUsd6 = baselineUsd6 + surchargeUsd6;
   }
 

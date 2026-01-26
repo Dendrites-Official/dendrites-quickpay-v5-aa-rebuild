@@ -149,10 +149,12 @@ export async function getQuote({
 
   const paymasterContract = new ethers.Contract(ethers.getAddress(paymaster), PAYMASTER_ABI, provider);
   const nowTs = Math.floor(Date.now() / 1000);
-  const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, canonicalSpeed, nowTs);
-  const baselineUsd6 = BigInt(quoteRaw[2]);
-  const firstTxSurchargeUsd6 = BigInt(quoteRaw[3]);
-  const capBps = BigInt(quoteRaw[4]);
+  const payerForQuote = smartSender || ownerEoa;
+  const quoteRaw = await paymasterContract.quoteFeeUsd6(payerForQuote, 0, canonicalSpeed, nowTs);
+  const baselineUsd6 = BigInt(quoteRaw[0]);
+  const firstTxSurchargeUsd6 = BigInt(quoteRaw[1]);
+  const finalFeeUsd6 = BigInt(quoteRaw[2]);
+  const capBps = BigInt(quoteRaw[3]);
   const firstTxSurchargeApplies = Boolean(quoteRaw[5]);
   const surchargeUsd6 = firstTxSurchargeApplies ? firstTxSurchargeUsd6 : 0n;
   const feeUsd6Final = baselineUsd6 + surchargeUsd6;
@@ -183,7 +185,9 @@ export async function getQuote({
     };
   }
 
-  console.log(`QUOTE_INVARIANTS feeUsd6=${feeUsd6Final} maxFeeUsd6=${maxFeeUsd6Used}`);
+  console.log(
+    `QUOTE_INVARIANTS feeUsd6=${feeUsd6Final} maxFeeUsd6=${maxFeeUsd6Used} finalFeeUsd6=${finalFeeUsd6}`
+  );
   const decimals = Number(await paymasterContract.feeTokenDecimals(token));
   const price = BigInt(await paymasterContract.usd6PerWholeToken(token));
   const pow10 = 10n ** BigInt(decimals);
