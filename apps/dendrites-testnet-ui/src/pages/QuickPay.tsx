@@ -21,7 +21,7 @@ export default function QuickPay() {
   const [note, setNote] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [reason, setReason] = useState("");
-  const [speed, setSpeed] = useState<0 | 1>(0);
+  const [speed, setSpeed] = useState<0 | 1>(1);
   const [mode, setMode] = useState<"SPONSORED" | "SELF_PAY">("SPONSORED");
   const [quote, setQuote] = useState<any>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -86,7 +86,7 @@ export default function QuickPay() {
   const tokenLocked = !isCustomToken && Boolean(selectedTokenPreset?.address);
   const decimalsLocked = !isCustomToken;
 
-  const speedLabel = speed === 1 ? "instant" : "eco";
+  const speedLabel = speed === 0 ? "instant" : "eco";
   const quoteBusy = quotePending || quoteLoading;
 
   const fetchQuote = async (signal?: AbortSignal) => {
@@ -97,8 +97,8 @@ export default function QuickPay() {
       token,
       to,
       amount: amountRaw,
-      feeMode: "same",
-      speed: speedLabel,
+      feeMode: speedLabel,
+      speed,
       mode,
     };
     console.log("QUOTE_BODY", body);
@@ -346,8 +346,8 @@ export default function QuickPay() {
         to,
         token,
         amount: amountRaw,
-        feeMode: "same",
-        speed: speedLabel,
+        feeMode: speedLabel,
+        speed,
         mode,
         receiptId,
         quotedFeeTokenAmount: activeQuote?.feeTokenAmount,

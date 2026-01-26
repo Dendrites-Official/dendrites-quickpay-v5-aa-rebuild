@@ -39,13 +39,13 @@ function parseSpeed({ feeMode, speed }) {
   if (typeof speed === "string") {
     const trimmed = speed.trim().toLowerCase();
     if (trimmed === "") {
-      return String(feeMode ?? "eco").toLowerCase() === "instant" ? 1 : 0;
+      return String(feeMode ?? "eco").toLowerCase() === "instant" ? 0 : 1;
     }
-    if (trimmed === "eco") return 0;
-    if (trimmed === "instant") return 1;
+    if (trimmed === "eco") return 1;
+    if (trimmed === "instant") return 0;
     return Number(trimmed);
   }
-  return String(feeMode ?? "eco").toLowerCase() === "instant" ? 1 : 0;
+  return String(feeMode ?? "eco").toLowerCase() === "instant" ? 0 : 1;
 }
 
 export async function getQuote({
@@ -86,14 +86,17 @@ export async function getQuote({
   if (!token || !ethers.isAddress(token)) reqErrors.token = "invalid_address";
   if (!/^[0-9]+$/.test(amountStr)) reqErrors.amount = "expected_integer_string";
 
-  // speed tier
-  if (!["eco", "instant"].includes(String(speed))) {
-    return { ok: false, error: "invalid_request", details: { speed: "expected_eco_or_instant" }, statusCode: 400 };
+  // fee mode
+  if (!/^(eco|instant)$/i.test(String(feeMode ?? ""))) {
+    return { ok: false, error: "invalid_request", details: { feeMode: "expected_eco_or_instant" }, statusCode: 400 };
   }
 
-  // fee payment mode (keep minimal for now)
-  if (!["same"].includes(String(feeMode))) {
-    return { ok: false, error: "invalid_request", details: { feeMode: "expected_same" }, statusCode: 400 };
+  // speed tier (optional)
+  if (speed != null && speed !== "") {
+    const speedStr = String(speed).toLowerCase();
+    if (!(["0", "1", "eco", "instant"].includes(speedStr))) {
+      return { ok: false, error: "invalid_request", details: { speed: "expected_0_1_eco_or_instant" }, statusCode: 400 };
+    }
   }
 
   if (modeNorm && modeNorm !== "SELF_PAY" && modeNorm !== "SPONSORED") reqErrors.mode = "invalid";

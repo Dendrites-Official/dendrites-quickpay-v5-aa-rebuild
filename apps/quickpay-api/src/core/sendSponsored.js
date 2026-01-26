@@ -107,6 +107,8 @@ export async function sendSponsored({
   userOpSignature,
   userOpDraft,
 }) {
+  const feeModeNorm = String(feeMode || "eco").trim().toLowerCase();
+  const speedNum = feeModeNorm === "instant" ? 0 : 1;
   const routerAddr = String(router || process.env.ROUTER || "").trim();
   const owner = String(ownerEoa || "").trim();
   const tokenAddr = String(token || "").trim();
@@ -150,7 +152,8 @@ export async function sendSponsored({
       TO: toAddr,
       AMOUNT: amt,
       OWNER_EOA: owner,
-      FEE_MODE: feeMode,
+      SPEED: String(speedNum),
+      FEE_MODE: feeModeNorm,
       USEROP_DRAFT_JSON: JSON.stringify(userOpDraft),
       USEROP_SIGNATURE: String(userOpSignature).trim(),
     };
@@ -170,8 +173,8 @@ export async function sendSponsored({
     ownerEoa: owner,
     token: tokenAddr,
     amount: amt,
-    feeMode,
-    speed,
+    feeMode: feeModeNorm,
+    speed: speedNum,
     permit2: process.env.PERMIT2,
     eip3009Tokens: process.env.EIP3009_TOKENS,
     eip2612Tokens: process.env.EIP2612_TOKENS,
@@ -222,8 +225,8 @@ export async function sendSponsored({
     TO: toAddr,
     AMOUNT: amt,
     OWNER_EOA: owner,
-    SPEED: String(q.speed),
-    FEE_MODE: feeMode,
+    SPEED: String(speedNum),
+    FEE_MODE: feeModeNorm,
     MAX_FEE_USDC6: chosen.toString(),
     MAX_FEE_USD6: chosen.toString(),
     FINAL_FEE_TOKEN: String(q.feeTokenAmount),
