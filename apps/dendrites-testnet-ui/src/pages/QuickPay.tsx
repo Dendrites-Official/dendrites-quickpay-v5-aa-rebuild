@@ -220,14 +220,34 @@ export default function QuickPay() {
           return;
         }
         eip3009Router = routerAddr;
+        const eip3009Abi = [
+          { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+          { type: "function", name: "version", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+        ] as const;
+        let tokenName = "USD Coin";
+        let tokenVersion = "2";
+        try {
+          tokenName = await publicClient.readContract({
+            address: token as `0x${string}`,
+            abi: eip3009Abi,
+            functionName: "name",
+          });
+        } catch {}
+        try {
+          tokenVersion = await publicClient.readContract({
+            address: token as `0x${string}`,
+            abi: eip3009Abi,
+            functionName: "version",
+          });
+        } catch {}
         const now = Math.floor(Date.now() / 1000);
         const validAfter = now - 10;
         const validBefore = now + 60 * 60;
         const nonce = ethers.hexlify(ethers.randomBytes(32));
         const typedData = {
           domain: {
-            name: "USD Coin",
-            version: "2",
+            name: tokenName,
+            version: tokenVersion,
             chainId,
             verifyingContract: token,
           },
@@ -357,10 +377,11 @@ export default function QuickPay() {
         sendPayload.router = eip3009Router;
       }
       const postSend = async (payload: any) => {
+        const body = JSON.stringify(payload, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
         const res = await fetch(qpUrl("/send"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body,
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error || "Failed to send");
