@@ -168,14 +168,24 @@ export async function getQuote({
   const paymasterContract = new ethers.Contract(ethers.getAddress(paymaster), PAYMASTER_ABI, provider);
   const nowTs = Math.floor(Date.now() / 1000);
   const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speedVal, nowTs);
-  const maxFeeUsd6 = BigInt(quoteRaw[1]);
   const baselineUsd6 = BigInt(quoteRaw[2]);
   const firstTxSurchargeUsd6 = BigInt(quoteRaw[3]);
   const capBps = BigInt(quoteRaw[4]);
   const firstTxSurchargeApplies = Boolean(quoteRaw[5]);
   const surchargeUsd6 = firstTxSurchargeApplies ? firstTxSurchargeUsd6 : 0n;
-  const finalFeeUsd6 = baselineUsd6 + surchargeUsd6;
-  const totalUsd6 = finalFeeUsd6;
+  const feeUsd6Final = baselineUsd6 + surchargeUsd6;
+  const totalUsd6 = feeUsd6Final;
+  const maxFromCap = ceilDiv(feeUsd6Final * capBps, 10000n);
+  const envOverrideRaw =
+    process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || process.env.MAX_FEE_USDC || "";
+  const envOverride = /^\d+$/.test(String(envOverrideRaw)) ? BigInt(envOverrideRaw) : 0n;
+  const maxFeeUsd6 = [feeUsd6Final, maxFromCap, envOverride].reduce(
+    (max, value) => (value > max ? value : max),
+    0n
+  );
+  if (maxFeeUsd6 < feeUsd6Final) {
+    throw new Error("BUG: maxFeeUsd6 < feeUsd6");
+  }
   const decimals = Number(await paymasterContract.feeTokenDecimals(token));
   const price = BigInt(await paymasterContract.usd6PerWholeToken(token));
   const pow10 = 10n ** BigInt(decimals);
