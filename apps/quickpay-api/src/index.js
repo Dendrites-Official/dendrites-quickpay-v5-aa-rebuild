@@ -50,7 +50,7 @@ app.get("/health", async () => ({
 
 app.post("/quote", async (request, reply) => {
   const body = request.body ?? {};
-  const { chainId, ownerEoa, token, to, amount, feeMode, speed, mode } = body;
+  const { chainId, ownerEoa, token, to, amount, feeMode, speed, mode, maxFeeUsd6 } = body;
   if (!ownerEoa || !token || !to || !amount) {
     return reply.code(400).send({ ok: false, error: "missing_fields" });
   }
@@ -66,6 +66,7 @@ app.post("/quote", async (request, reply) => {
     feeMode,
     speed,
     mode,
+    maxFeeUsd6,
     eip3009Tokens: process.env.EIP3009_TOKENS,
     eip2612Tokens: process.env.EIP2612_TOKENS,
   });
