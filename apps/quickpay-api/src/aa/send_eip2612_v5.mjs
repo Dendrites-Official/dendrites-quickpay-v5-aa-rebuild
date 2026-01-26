@@ -2,6 +2,10 @@ import "dotenv/config";
 import { ethers } from "ethers";
 import fs from "node:fs";
 
+const PAYMASTER_ABI = [
+  "function quoteFeeUsd6(address payer,uint8 mode,uint8 speed,uint256 nowTs) view returns (uint256,uint256,uint256,uint256,uint256,bool)",
+];
+
 function hexlify(value) {
   return ethers.toBeHex(value);
 }
@@ -130,7 +134,16 @@ async function main() {
 
   const publicRpc = new ethers.JsonRpcProvider(rpcUrl);
   const bundlerRpc = new ethers.JsonRpcProvider(bundlerUrl);
+  const speed = Number(process.env.SPEED || "0");
   const nowTs = Math.floor(Date.now() / 1000);
+  let feeUsd6 = 0n;
+  let baselineUsd6 = 0n;
+  let surchargeUsd6 = 0n;
+  const paymasterContract = new ethers.Contract(paymasterAddr, PAYMASTER_ABI, publicRpc);
+  const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speed, nowTs);
+  baselineUsd6 = BigInt(quoteRaw[0]);
+  surchargeUsd6 = BigInt(quoteRaw[1]);
+  feeUsd6 = baselineUsd6 + surchargeUsd6;
 
   const supported = await bundlerRpc.send("eth_supportedEntryPoints", []);
   const supportedLower = (supported || []).map((a) => toLower(a));
@@ -201,7 +214,6 @@ async function main() {
 
   const { maxFeePerGas, maxPriorityFeePerGas } = await getPimlicoGasPriceStandard(bundlerRpc);
 
-  const speed = Number(process.env.SPEED || "0");
   console.log(`NET_AMOUNT=${netAmount}`);
 
   const now = BigInt(nowTs);
@@ -273,6 +285,32 @@ async function main() {
       lane: "EIP2612",
       userOpHash,
       message: "SIGN_THIS_USEROP_HASH_WITH_eth_sign",
+      userOpDraft: {
+        lane: "EIP2612",
+        feeUsd6: feeUsd6.toString(),
+        feeTokenAmount: finalFeeToken.toString(),
+        baselineUsd6: baselineUsd6.toString(),
+        surchargeUsd6: surchargeUsd6.toString(),
+        maxFeeUsd6: BigInt(maxFeeUsd6).toString(),
+        token,
+        to,
+        amount: amount.toString(),
+        smartSender: sender,
+        sender: userOp.sender,
+        nonce: userOp.nonce,
+        factory: userOp.factory,
+        factoryData: userOp.factoryData,
+        callData: userOp.callData,
+        callGasLimit: userOp.callGasLimit,
+        verificationGasLimit: userOp.verificationGasLimit,
+        preVerificationGas: userOp.preVerificationGas,
+        maxFeePerGas: userOp.maxFeePerGas,
+        maxPriorityFeePerGas: userOp.maxPriorityFeePerGas,
+        paymaster: userOp.paymaster,
+        paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit,
+        paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit,
+        paymasterData,
+      },
     });
     process.exit(2);
   }

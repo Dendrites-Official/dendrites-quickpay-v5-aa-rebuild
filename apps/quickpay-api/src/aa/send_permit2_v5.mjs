@@ -2,6 +2,10 @@ import "dotenv/config";
 import { ethers } from "ethers";
 import fs from "node:fs";
 
+const PAYMASTER_ABI = [
+  "function quoteFeeUsd6(address payer,uint8 mode,uint8 speed,uint256 nowTs) view returns (uint256,uint256,uint256,uint256,uint256,bool)",
+];
+
 function hexlify(value) {
   return ethers.toBeHex(value);
 }
@@ -106,6 +110,8 @@ async function main() {
   const maxFeeUsd6 = BigInt(
     process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || process.env.MAX_FEE_USDC || "0"
   );
+  const speedRaw = String(process.env.SPEED ?? "").trim();
+  const speed = speedRaw === "" ? 0 : Number(speedRaw);
   const feeTokenMode = String(process.env.FEE_TOKEN_MODE || "same").toLowerCase();
   const feeToken = (process.env.FEE_TOKEN_ADDRESS || process.env.FEE_TOKEN || token).trim();
   const userOpSignature = String(process.env.USEROP_SIGNATURE || "").trim();
@@ -181,7 +187,14 @@ async function main() {
   const { maxFeePerGas, maxPriorityFeePerGas } = await getPimlicoGasPriceStandard(bundlerRpc);
 
   const nowTs = Math.floor(Date.now() / 1000);
-  const speed = 0;
+  let feeUsd6 = 0n;
+  let baselineUsd6 = 0n;
+  let surchargeUsd6 = 0n;
+  const paymasterContract = new ethers.Contract(paymasterAddr, PAYMASTER_ABI, publicRpc);
+  const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speed, nowTs);
+  baselineUsd6 = BigInt(quoteRaw[0]);
+  surchargeUsd6 = BigInt(quoteRaw[1]);
+  feeUsd6 = baselineUsd6 + surchargeUsd6;
   console.log(`USING_FINAL_FEE_TOKEN=${finalFeeToken}`);
   console.log(`USING_MAX_FEE_USD6=${maxFeeUsd6}`);
   console.log(`NET_AMOUNT=${netAmount}`);
@@ -257,6 +270,32 @@ async function main() {
       lane: "PERMIT2",
       userOpHash,
       message: "SIGN_THIS_USEROP_HASH_WITH_eth_sign",
+      userOpDraft: {
+        lane: "PERMIT2",
+        feeUsd6: feeUsd6.toString(),
+        feeTokenAmount: finalFeeToken.toString(),
+        baselineUsd6: baselineUsd6.toString(),
+        surchargeUsd6: surchargeUsd6.toString(),
+        maxFeeUsd6: BigInt(maxFeeUsd6).toString(),
+        token,
+        to,
+        amount: amount.toString(),
+        smartSender: sender,
+        sender: userOp.sender,
+        nonce: userOp.nonce,
+        factory: userOp.factory,
+        factoryData: userOp.factoryData,
+        callData: userOp.callData,
+        callGasLimit: userOp.callGasLimit,
+        verificationGasLimit: userOp.verificationGasLimit,
+        preVerificationGas: userOp.preVerificationGas,
+        maxFeePerGas: userOp.maxFeePerGas,
+        maxPriorityFeePerGas: userOp.maxPriorityFeePerGas,
+        paymaster: userOp.paymaster,
+        paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit,
+        paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit,
+        paymasterData,
+      },
     });
     process.exit(2);
   }

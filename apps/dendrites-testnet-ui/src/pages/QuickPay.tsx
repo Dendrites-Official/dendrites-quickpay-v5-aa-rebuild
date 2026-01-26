@@ -4,6 +4,7 @@ import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import ReceiptCard from "../components/ReceiptCard";
 import { createReceipt, updateReceiptMeta, updateReceiptStatus } from "../lib/receiptsApi";
+import { quickpayReceipt } from "../lib/api";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
 import { qpUrl } from "../lib/quickpayApiBase";
 
@@ -27,6 +28,8 @@ export default function QuickPay() {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quotePending, setQuotePending] = useState(false);
   const [quoteError, setQuoteError] = useState("");
+  const [selfPayGasEstimate, setSelfPayGasEstimate] = useState("");
+  const [selfPayGasError, setSelfPayGasError] = useState("");
   const quoteAbortRef = useRef<AbortController | null>(null);
   const quoteDebounceRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -86,7 +89,7 @@ export default function QuickPay() {
   const tokenLocked = !isCustomToken && Boolean(selectedTokenPreset?.address);
   const decimalsLocked = !isCustomToken;
 
-  const speedLabel = speed === 0 ? "instant" : "eco";
+  const speedLabel = speed === 0 ? "eco" : "instant";
   const quoteBusy = quotePending || quoteLoading;
 
   const fetchQuote = async (signal?: AbortSignal) => {
@@ -182,6 +185,58 @@ export default function QuickPay() {
       quoteAbortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setSelfPayGasEstimate("");
+      setSelfPayGasError("");
+      if (mode !== "SELF_PAY") return;
+      if (!publicClient || !address) return;
+      if (!isValidAddress(token) || !isValidAddress(to) || !amountValid) return;
+
+      try {
+        const amountRaw = ethers.parseUnits(amount, decimals);
+        const gasLimit = await publicClient.estimateContractGas({
+          address: token as `0x${string}`,
+          abi: [
+            {
+              type: "function",
+              name: "transfer",
+              stateMutability: "nonpayable",
+              inputs: [
+                { name: "to", type: "address" },
+                { name: "value", type: "uint256" },
+              ],
+              outputs: [{ name: "", type: "bool" }],
+            },
+          ] as const,
+          functionName: "transfer",
+          args: [to as `0x${string}`, amountRaw],
+          account: address as `0x${string}`,
+        });
+        const gasPrice = await publicClient.getGasPrice();
+        const estCostWei = gasLimit * gasPrice;
+        const estCostEth = ethers.formatEther(estCostWei);
+        if (!cancelled) {
+          setSelfPayGasEstimate(`${gasLimit.toString()} gas (≈ ${estCostEth} ETH)`);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        const rawMessage = String(err?.shortMessage || err?.message || "");
+        const message = rawMessage.includes("exceeds balance")
+          ? "Insufficient token balance"
+          : "Gas estimate unavailable";
+        setSelfPayGasEstimate("");
+        setSelfPayGasError(message);
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [address, amount, amountValid, decimals, mode, publicClient, to, token]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -351,6 +406,7 @@ export default function QuickPay() {
         token,
         amountRaw,
         mode,
+        feeMode: speedLabel,
       });
 
       await updateReceiptMeta(receiptId ?? undefined, {
@@ -359,6 +415,77 @@ export default function QuickPay() {
         reason: reason.trim() || undefined,
         chainId,
       });
+
+      if (receiptId && note.trim()) {
+        try {
+          const provider = new ethers.BrowserProvider((window as any).ethereum);
+          const signer = await provider.getSigner();
+          const senderLower = address.toLowerCase();
+          const noteMessage = `Dendrites QuickPay Note v1\nAction: SET\nReceipt: ${receiptId}\nSender: ${senderLower}\nChainId: ${chainId}`;
+          const signature = await signer.signMessage(noteMessage);
+          const { quickpayNoteSet } = await import("../lib/api");
+          await quickpayNoteSet({ receiptId, sender: senderLower, note: note.trim(), signature, chainId });
+        } catch (err) {
+          console.warn("NOTE_SAVE_FAILED", err);
+        }
+      }
+
+      if (mode === "SELF_PAY") {
+        setStatus("Sending wallet transaction…");
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+        const erc20 = new ethers.Contract(
+          token,
+          ["function transfer(address to,uint256 value) returns (bool)"],
+          signer
+        );
+        try {
+          const gasLimit = await erc20.estimateGas.transfer(to, BigInt(amountRaw));
+          const feeData = await provider.getFeeData();
+          const maxFeePerGas = feeData.maxFeePerGas ?? feeData.gasPrice ?? 0n;
+          const estCostWei = gasLimit * maxFeePerGas;
+          const estCostEth = ethers.formatEther(estCostWei);
+          setStatus(`Estimated gas: ${gasLimit.toString()} (≈ ${estCostEth} ETH)`);
+        } catch {
+          // ignore estimate failures
+        }
+        const tx = await erc20.transfer(to, BigInt(amountRaw));
+        const txHash = tx?.hash ? String(tx.hash) : null;
+        if (!txHash) {
+          throw new Error("Missing transaction hash from wallet");
+        }
+
+        updateReceiptMeta(receiptId ?? undefined, {
+          txHash,
+          chainId,
+        }).catch(() => undefined);
+        if (receiptId) {
+          updateReceiptStatus(receiptId, "PENDING").catch(() => undefined);
+        }
+
+        setStatus("Waiting for confirmation…");
+        try {
+          const mined = await tx.wait();
+          const success = mined?.status === 1;
+          if (receiptId) {
+            updateReceiptStatus(receiptId, success ? "CONFIRMED" : "FAILED").catch(() => undefined);
+            quickpayReceipt({ receiptId, txHash, chainId }).catch(() => undefined);
+          }
+        } catch {
+          if (receiptId) {
+            updateReceiptStatus(receiptId, "FAILED").catch(() => undefined);
+          }
+        }
+
+        if (receiptId) {
+          navigate(`/r/${receiptId}`);
+          return;
+        }
+        if (txHash) {
+          navigate(`/receipts?tx=${txHash}`);
+          return;
+        }
+      }
 
       const sendPayload: any = {
         chainId,
@@ -577,7 +704,7 @@ export default function QuickPay() {
       {quoteBusy ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>Quote: loading…</div> : null}
       {status ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>{status}</div> : null}
       {quoteError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{quoteError}</div> : null}
-      {quote ? (
+      {quote && quote.lane !== "SELF_PAY" ? (
         <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Status</div>
           <div>
@@ -602,10 +729,22 @@ export default function QuickPay() {
           <div><strong>Lane:</strong> {quote.lane ?? "—"}</div>
           <div><strong>Sponsored:</strong> {quote.sponsored ? "Yes" : "No"}</div>
           <div>
+            <strong>Token:</strong>{" "}
+            {selectedTokenPreset?.label
+              ? selectedTokenPreset.label
+              : token
+                ? token
+                : "—"}
+          </div>
+          {quote.lane === "SELF_PAY" ? (
+            <div><strong>Gas estimate (ETH):</strong> {selfPayGasEstimate || "calculating..."}</div>
+          ) : null}
+          {quote.lane === "SELF_PAY" && selfPayGasError ? (
+            <div style={{ color: "#ff7a7a" }}>{selfPayGasError}</div>
+          ) : null}
+          <div>
             <strong>Fee USD:</strong>{" "}
-            {token.toLowerCase() === "0x036cbd53842c5426634e7929541ec2318f3dcf7e" && decimals === 6
-              ? `$${(Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)}`
-              : `$${quote.feeUsd6 ?? "0"}`}
+            {`$${(Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)}`}
           </div>
           <div>
             <strong>Fee token:</strong>{" "}
