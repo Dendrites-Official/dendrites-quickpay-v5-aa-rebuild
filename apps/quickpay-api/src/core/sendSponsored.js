@@ -248,6 +248,7 @@ export async function sendSponsored({
       USEROP_DRAFT_JSON: JSON.stringify(userOpDraft),
       USEROP_SIGNATURE: String(userOpSignature).trim(),
     };
+    if (auth) env.AUTH_JSON = JSON.stringify(auth);
 
     return runLaneScript({ scriptName, lane: draftLane, env });
   }
