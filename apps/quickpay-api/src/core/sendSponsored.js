@@ -140,6 +140,10 @@ export async function sendSponsored({
     amount: amt,
     feeMode,
     speed,
+    permit2: process.env.PERMIT2,
+    eip3009Tokens: process.env.EIP3009_TOKENS,
+    eip2612Tokens: process.env.EIP2612_TOKENS,
+    mode: "SPONSORED",
   });
 
   if (!q.feeTokenAmount || !/^\d+$/.test(String(q.feeTokenAmount)) || String(q.feeTokenAmount) === "0") {
