@@ -245,9 +245,9 @@ export default function QuickPay() {
           message: {
             from: senderLower,
             to: routerAddr,
-            value: amountRaw,
-            validAfter,
-            validBefore,
+            value: BigInt(amountRaw),
+            validAfter: BigInt(validAfter),
+            validBefore: BigInt(validBefore),
             nonce,
           },
         } as const;
