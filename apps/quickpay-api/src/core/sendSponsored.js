@@ -186,8 +186,9 @@ export async function sendSponsored({
     TO: toAddr,
     AMOUNT: amt,
     OWNER_EOA: owner,
-    SPEED: speed,
+    SPEED: String(q.speed),
     FEE_MODE: feeMode,
+    MAX_FEE_USDC6: String(q.maxFeeUsd6 || process.env.MAX_FEE_USDC6 || ""),
     FINAL_FEE_TOKEN: String(q.feeTokenAmount),
     FINAL_FEE: String(q.feeTokenAmount),
   };
