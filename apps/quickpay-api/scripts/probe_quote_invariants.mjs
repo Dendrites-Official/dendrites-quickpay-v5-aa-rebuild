@@ -50,6 +50,15 @@ const body = {
   mode: MODE,
 };
 
+if (process.env.OVERRIDE_MAX_FEE_USDC6) {
+  body.maxFeeUsd6 = String(process.env.OVERRIDE_MAX_FEE_USDC6);
+}
+if (process.env.OMIT_MAX_FEE_USDC6 === "1") {
+  delete body.maxFeeUsd6;
+}
+
+console.log(`REQUEST_JSON=${JSON.stringify(body)}`);
+
 const res = await fetch(`${QP_URL}/quote`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
