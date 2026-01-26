@@ -57,6 +57,8 @@ if (process.env.OMIT_MAX_FEE_USDC6 === "1") {
   delete body.maxFeeUsd6;
 }
 
+console.log(`QP_URL=${QP_URL}`);
+console.log(`TARGET=${QP_URL}/quote`);
 console.log(`REQUEST_JSON=${JSON.stringify(body)}`);
 
 const res = await fetch(`${QP_URL}/quote`, {
@@ -65,8 +67,17 @@ const res = await fetch(`${QP_URL}/quote`, {
   body: JSON.stringify(body),
 });
 
-const resp = await res.json().catch(() => ({}));
-console.log(`QUOTE_JSON=${JSON.stringify(resp)}`);
+const responseText = await res.text();
+console.log(`STATUS=${res.status}`);
+console.log(`RESPONSE_TEXT=${responseText}`);
+
+let resp = {};
+try {
+  resp = responseText ? JSON.parse(responseText) : {};
+  console.log(`QUOTE_JSON=${JSON.stringify(resp)}`);
+} catch {
+  resp = {};
+}
 
 if (!res.ok || resp?.ok === false) {
   fail(resp?.error || `HTTP ${res.status}`);
