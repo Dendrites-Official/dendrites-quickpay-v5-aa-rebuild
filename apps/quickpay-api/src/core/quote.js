@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import { normalizeSpeed } from "./normalizeSpeed.js";
 
 const PAYMASTER_ABI = [
   "function quoteFeeUsd6(address payer,uint8 mode,uint8 speed,uint256 nowTs) view returns (uint256,uint256,uint256,uint256,uint256,bool)",
@@ -34,20 +35,6 @@ function selectLane(token, { eip3009Tokens, eip2612Tokens }) {
   return "PERMIT2";
 }
 
-function parseSpeed({ feeMode, speed }) {
-  if (typeof speed === "number") return speed;
-  if (typeof speed === "string") {
-    const trimmed = speed.trim().toLowerCase();
-    if (trimmed === "") {
-      return String(feeMode ?? "eco").toLowerCase() === "instant" ? 0 : 1;
-    }
-    if (trimmed === "eco") return 1;
-    if (trimmed === "instant") return 0;
-    return Number(trimmed);
-  }
-  return String(feeMode ?? "eco").toLowerCase() === "instant" ? 0 : 1;
-}
-
 export async function getQuote({
   rpcUrl,
   paymaster,
@@ -66,9 +53,8 @@ export async function getQuote({
 }) {
   const modeNorm = String(mode ?? "").toUpperCase();
   const isSelfPay = modeNorm === "SELF_PAY";
-  const feeModeNorm = String(feeMode ?? "eco").toLowerCase();
   const amountStr = typeof amount === "string" || typeof amount === "number" ? String(amount) : "";
-  const speedVal = parseSpeed({ feeMode: feeModeNorm, speed });
+  const { canonicalSpeed, canonicalFeeMode } = normalizeSpeed({ feeMode, speed });
   const envErrors = {};
   const reqErrors = {};
 
@@ -88,16 +74,8 @@ export async function getQuote({
   if (!/^[0-9]+$/.test(amountStr)) reqErrors.amount = "expected_integer_string";
 
   // fee mode
-  if (!/^(eco|instant)$/i.test(String(feeMode ?? ""))) {
+  if (feeMode != null && feeMode !== "" && !/^(eco|instant)$/i.test(String(feeMode))) {
     return { ok: false, error: "invalid_request", details: { feeMode: "expected_eco_or_instant" }, statusCode: 400 };
-  }
-
-  // speed tier (optional)
-  if (speed != null && speed !== "") {
-    const speedStr = String(speed).toLowerCase();
-    if (!(["0", "1", "eco", "instant"].includes(speedStr))) {
-      return { ok: false, error: "invalid_request", details: { speed: "expected_0_1_eco_or_instant" }, statusCode: 400 };
-    }
   }
 
   if (modeNorm && modeNorm !== "SELF_PAY" && modeNorm !== "SPONSORED") reqErrors.mode = "invalid";
@@ -110,12 +88,15 @@ export async function getQuote({
       eip2612Tokens: Boolean(eip2612Tokens),
     },
     parsed: {
-      feeMode: feeModeNorm,
-      speed: speedVal,
+      feeMode: canonicalFeeMode,
+      speed: canonicalSpeed,
       amountNum: Number(amountStr),
     },
   };
   console.log("QUOTE_DEBUG", JSON.stringify(debug));
+  console.log(
+    `NORMALIZED_SPEED feeMode=${feeMode ?? ""} speedIn=${speed ?? ""} speedOut=${canonicalSpeed}`
+  );
 
   if (Object.keys(envErrors).length) {
     return { ok: false, error: "invalid_config", details: envErrors, statusCode: 400 };
@@ -155,8 +136,8 @@ export async function getQuote({
       feeTokenAmount: "0",
       netAmount: String(amount),
       feeTokenMode: "same",
-      feeMode: feeModeNorm,
-      speed: speedVal,
+      feeMode: canonicalFeeMode,
+      speed: canonicalSpeed,
       smartSender,
       smartDeployed,
       firstTxSurchargePaid: true,
@@ -168,7 +149,7 @@ export async function getQuote({
 
   const paymasterContract = new ethers.Contract(ethers.getAddress(paymaster), PAYMASTER_ABI, provider);
   const nowTs = Math.floor(Date.now() / 1000);
-  const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speedVal, nowTs);
+  const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, canonicalSpeed, nowTs);
   const baselineUsd6 = BigInt(quoteRaw[2]);
   const firstTxSurchargeUsd6 = BigInt(quoteRaw[3]);
   const capBps = BigInt(quoteRaw[4]);
@@ -226,8 +207,8 @@ export async function getQuote({
     firstTxSurchargeApplies,
     netAmount,
     feeTokenMode: "same",
-    feeMode: feeModeNorm,
-    speed: speedVal,
+    feeMode: canonicalFeeMode,
+    speed: canonicalSpeed,
     smartSender,
     smartDeployed,
     firstTxSurchargePaid: !firstTxSurchargeApplies,

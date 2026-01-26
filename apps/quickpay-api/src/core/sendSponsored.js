@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getQuote } from "./quote.js";
+import { normalizeSpeed } from "./normalizeSpeed.js";
 
 function isAddr(x) {
   return typeof x === "string" && ethers.isAddress(x.trim());
@@ -108,8 +109,9 @@ export async function sendSponsored({
   userOpDraft,
   smart,
 }) {
-  const feeModeNorm = String(feeMode || "eco").trim().toLowerCase();
-  const speedNum = feeModeNorm === "instant" ? 0 : 1;
+  const { canonicalSpeed, canonicalFeeMode } = normalizeSpeed({ feeMode, speed });
+  const feeModeNorm = canonicalFeeMode;
+  const speedNum = canonicalSpeed;
   const routerAddr = String(router || process.env.ROUTER || "").trim();
   const owner = String(ownerEoa || "").trim();
   const tokenAddr = String(token || "").trim();
@@ -131,6 +133,9 @@ export async function sendSponsored({
   if (!/^\d+$/.test(amt)) throw new Error(`Invalid amount (must be uint string): "${amt}"`);
 
   if (userOpDraft && userOpSignature) {
+    console.log(
+      `NORMALIZED_SPEED feeMode=${feeMode ?? ""} speedIn=${speed ?? ""} speedOut=${canonicalSpeed}`
+    );
     const draftError = (code, message) => {
       const err = new Error(message);
       err.status = 400;
@@ -287,6 +292,10 @@ export async function sendSponsored({
   else if (q.lane === "PERMIT2") scriptName = "send_permit2_v5.mjs";
   else if (q.lane === "EIP2612") scriptName = "send_eip2612_v5.mjs";
   else throw new Error(`Unsupported lane for this send endpoint: ${q.lane}`);
+
+  console.log(
+    `NORMALIZED_SPEED feeMode=${feeMode ?? ""} speedIn=${speed ?? ""} speedOut=${canonicalSpeed}`
+  );
 
   const envMax = BigInt(process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || process.env.MAX_FEE_USDC || "0");
   const floor = 1000000n;
