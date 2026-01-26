@@ -258,11 +258,6 @@ async function main() {
 
   const factoryData = factory.interface.encodeFunctionData("createAccount", [ownerEoa, salt]);
 
-  const permit2Addr = String(process.env.PERMIT2 || "").trim();
-  if (!ethers.isAddress(permit2Addr)) {
-    throw new Error("PERMIT2 env missing or invalid");
-  }
-
   const routerAbi = [
     "function sendERC20Permit2Sponsored(address from,address token,address to,uint256 amount,address feeToken,uint256 finalFee,address owner)",
   ];
