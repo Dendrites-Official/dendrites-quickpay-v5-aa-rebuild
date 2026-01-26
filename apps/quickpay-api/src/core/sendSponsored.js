@@ -241,6 +241,10 @@ export async function sendSponsored({
       OWNER_EOA: owner,
       SPEED: String(speedNum),
       FEE_MODE: feeModeNorm,
+      FINAL_FEE_TOKEN: String(userOpDraft?.feeTokenAmount ?? ""),
+      FINAL_FEE: String(userOpDraft?.feeTokenAmount ?? ""),
+      MAX_FEE_USDC6: String(userOpDraft?.maxFeeUsd6 ?? ""),
+      MAX_FEE_USD6: String(userOpDraft?.maxFeeUsd6 ?? ""),
       USEROP_DRAFT_JSON: JSON.stringify(userOpDraft),
       USEROP_SIGNATURE: String(userOpSignature).trim(),
     };
