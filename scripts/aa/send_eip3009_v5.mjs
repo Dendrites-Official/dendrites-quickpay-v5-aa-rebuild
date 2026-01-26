@@ -22,14 +22,6 @@ function requireEnv(name) {
   return String(value).trim();
 }
 
-function requirePrivateKey(name) {
-  const pk = requireEnv(name);
-  if (!pk.startsWith("0x") || pk.length !== 66) {
-    throw new Error(`Invalid ${name} (must be 0x-prefixed 32-byte hex, length 66)`);
-  }
-  return pk;
-}
-
 function requireChainId() {
   const raw = requireEnv("CHAIN_ID");
   const chainId = Number(raw);
@@ -130,11 +122,15 @@ async function main() {
   if (finalFeeToken > amount) {
     throw new Error(`FINAL_FEE must be <= AMOUNT. amount=${amount} finalFee=${finalFeeToken}`);
   }
+  if (!authJson || authJson.type !== "EIP3009") {
+    throw new Error("AUTH_JSON missing for EIP3009");
+  }
 
   const netAmount = amount - finalFeeToken;
 
   const publicRpc = new ethers.JsonRpcProvider(rpcUrl);
   const bundlerRpc = new ethers.JsonRpcProvider(bundlerUrl);
+  const nowTs = Math.floor(Date.now() / 1000);
 
   const supported = await bundlerRpc.send("eth_supportedEntryPoints", []);
   const supportedLower = (supported || []).map((a) => toLower(a));
@@ -164,84 +160,25 @@ async function main() {
   let r;
   let s;
 
-  if (authJson?.signature) {
-    if (authJson.from && toLower(authJson.from) !== toLower(ownerEoa)) {
-      throw new Error(`auth.from mismatch`);
-    }
-    if (authJson.to && toLower(authJson.to) !== toLower(routerAddr)) {
-      throw new Error(`auth.to mismatch (must be router)`);
-    }
-    if (authJson.value != null && String(authJson.value) !== String(amount)) {
-      throw new Error(`auth.value mismatch`);
-    }
-    validAfter = BigInt(authJson.validAfter || 0);
-    validBefore = BigInt(authJson.validBefore || 0);
-    nonce = authJson.nonce;
-    const sig = ethers.Signature.from(String(authJson.signature));
-    v = sig.v;
-    r = sig.r;
-    s = sig.s;
-  } else {
-    const signer = new ethers.Wallet(requirePrivateKey("PRIVATE_KEY_TEST_USER"));
-    if (toLower(signer.address) !== toLower(ownerEoa)) {
-      throw new Error(`OWNER_EOA must equal SimpleAccount owner. owner=${signer.address} ownerEoa=${ownerEoa}`);
-    }
-    const ownerSigner = signer.connect(publicRpc);
-
-    const erc3009Abi = [
-      "function name() view returns (string)",
-      "function version() view returns (string)",
-    ];
-    const tokenContract = new ethers.Contract(token, erc3009Abi, publicRpc);
-    const tokenName = await tokenContract.name();
-    let tokenVersion = "2";
-    try {
-      const v = await tokenContract.version();
-      if (typeof v === "string" && v.trim() !== "") {
-        tokenVersion = v;
-      }
-    } catch {
-      tokenVersion = "2";
-    }
-
-    const nowTs = Math.floor(Date.now() / 1000);
-    validAfter = BigInt(nowTs - 60);
-    validBefore = BigInt(nowTs + 3600);
-    nonce = ethers.hexlify(ethers.randomBytes(32));
-
-    const domain = {
-      name: tokenName,
-      version: tokenVersion,
-      chainId,
-      verifyingContract: token,
-    };
-
-    const types = {
-      ReceiveWithAuthorization: [
-        { name: "from", type: "address" },
-        { name: "to", type: "address" },
-        { name: "value", type: "uint256" },
-        { name: "validAfter", type: "uint256" },
-        { name: "validBefore", type: "uint256" },
-        { name: "nonce", type: "bytes32" },
-      ],
-    };
-
-    const message = {
-      from: ownerEoa,
-      to: routerAddr,
-      value: amount,
-      validAfter,
-      validBefore,
-      nonce,
-    };
-
-    const sig = await ownerSigner.signTypedData(domain, types, message);
-    const parts = ethers.Signature.from(sig);
-    v = parts.v;
-    r = parts.r;
-    s = parts.s;
+  if (!authJson?.signature) {
+    throw new Error("AUTH_JSON missing for EIP3009");
   }
+  if (authJson.from && toLower(authJson.from) !== toLower(ownerEoa)) {
+    throw new Error(`auth.from mismatch`);
+  }
+  if (authJson.to && toLower(authJson.to) !== toLower(routerAddr)) {
+    throw new Error(`auth.to mismatch (must be router)`);
+  }
+  if (authJson.value != null && String(authJson.value) !== String(amount)) {
+    throw new Error(`auth.value mismatch`);
+  }
+  validAfter = BigInt(authJson.validAfter || 0);
+  validBefore = BigInt(authJson.validBefore || 0);
+  nonce = authJson.nonce;
+  const sig = ethers.Signature.from(String(authJson.signature));
+  v = sig.v;
+  r = sig.r;
+  s = sig.s;
 
   const routerAbi = [
     "function sendERC20EIP3009Sponsored(address from,address token,address to,uint256 amount,address feeToken,uint256 finalFee,address owner,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s)",

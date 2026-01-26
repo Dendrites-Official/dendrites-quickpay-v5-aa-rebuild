@@ -109,9 +109,14 @@ async function main() {
   const feeTokenMode = String(process.env.FEE_TOKEN_MODE || "same").toLowerCase();
   const feeToken = (process.env.FEE_TOKEN_ADDRESS || process.env.FEE_TOKEN || token).trim();
   const userOpSignature = String(process.env.USEROP_SIGNATURE || "").trim();
+  const authRaw = process.env.AUTH_JSON;
+  const authJson = authRaw ? JSON.parse(authRaw) : null;
 
   if (finalFeeToken <= 0n) throw new Error("FINAL_FEE (token units) missing");
   if (maxFeeUsd6 <= 0n) throw new Error("MAX_FEE_USDC6 missing");
+  if (!authJson || authJson.type !== "PERMIT2") {
+    throw new Error("AUTH_JSON missing for PERMIT2");
+  }
 
   let netAmount = amount;
 
