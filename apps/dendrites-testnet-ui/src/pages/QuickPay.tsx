@@ -376,9 +376,10 @@ export default function QuickPay() {
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         let sig: string;
         try {
-          sig = await provider.send("eth_sign", [address, data.userOpHash]);
+          const signer = await provider.getSigner();
+          sig = await signer.signMessage(ethers.getBytes(data.userOpHash));
         } catch (err: any) {
-          setError(err?.message || "eth_sign failed. This flow requires raw digest signing.");
+          setError(err?.message || "Signature failed. This flow requires personal_sign on userOpHash bytes.");
           setLoading(false);
           return;
         }
