@@ -151,6 +151,7 @@ async function main() {
   const userOpDraft = userOpDraftRaw ? JSON.parse(userOpDraftRaw) : null;
   const authRaw = process.env.AUTH_JSON;
   const authJson = authRaw ? JSON.parse(authRaw) : null;
+  // Permit2 address is required for on-chain permit + transfer.
   const permit2Addr = String(process.env.PERMIT2 || "").trim();
 
   if (!ethers.isAddress(permit2Addr)) {
