@@ -376,13 +376,27 @@ export default function QuickPay() {
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         let sig: string;
         try {
-          const signer = await provider.getSigner();
-          sig = await signer.signMessage(ethers.getBytes(data.userOpHash));
-        } catch {
-          sig = await provider.send("eth_sign", [senderLower, data.userOpHash]);
+          sig = await provider.send("eth_sign", [address, data.userOpHash]);
+        } catch (err: any) {
+          setError(err?.message || "eth_sign failed. This flow requires raw digest signing.");
+          setLoading(false);
+          return;
+        }
+        const recRaw = ethers.recoverAddress(data.userOpHash, sig);
+        const rec191 = ethers.recoverAddress(ethers.hashMessage(ethers.getBytes(data.userOpHash)), sig);
+        console.log("USEROP SIGN CHECK", {
+          address,
+          userOpHash: data.userOpHash,
+          recRaw,
+          rec191,
+        });
+        if (!data?.userOpDraft) {
+          setError("Missing userOpDraft from server response.");
+          setLoading(false);
+          return;
         }
         setStatus("Submitting sponsored transaction…");
-        data = await postSend({ ...sendPayload, userOpSignature: sig });
+        data = await postSend({ ...sendPayload, userOpSignature: sig, userOpDraft: data.userOpDraft });
       }
 
       const userOpHash = data?.userOpHash || data?.userOp?.userOpHash;
