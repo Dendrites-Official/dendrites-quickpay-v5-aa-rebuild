@@ -171,12 +171,9 @@ export async function sendSponsored({
   else if (q.lane === "EIP2612") scriptName = "send_eip2612_v5.mjs";
   else throw new Error(`Unsupported lane for this send endpoint: ${q.lane}`);
 
-  const pickMaxFee = (value) => {
-    const str = String(value ?? "").trim();
-    return /^\d+$/.test(str) && BigInt(str) > 0n ? str : null;
-  };
-  const maxFeeUsd6Value =
-    pickMaxFee(q?.maxFeeUsd6) ?? pickMaxFee(process.env.MAX_FEE_USDC6) ?? "600000";
+  const envMax = BigInt(process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || process.env.MAX_FEE_USDC || "0");
+  const floor = 1000000n;
+  const chosen = envMax >= floor ? envMax : floor;
 
   const env = {
     ...process.env,
@@ -195,7 +192,8 @@ export async function sendSponsored({
     OWNER_EOA: owner,
     SPEED: String(q.speed),
     FEE_MODE: feeMode,
-    MAX_FEE_USDC6: maxFeeUsd6Value,
+    MAX_FEE_USDC6: chosen.toString(),
+    MAX_FEE_USD6: chosen.toString(),
     FINAL_FEE_TOKEN: String(q.feeTokenAmount),
     FINAL_FEE: String(q.feeTokenAmount),
   };
