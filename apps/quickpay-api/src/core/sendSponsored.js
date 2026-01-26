@@ -105,6 +105,7 @@ export async function sendSponsored({
   speed,
   auth,
   userOpSignature,
+  userOpDraft,
 }) {
   const routerAddr = String(router || process.env.ROUTER || "").trim();
   const owner = String(ownerEoa || "").trim();
@@ -125,6 +126,37 @@ export async function sendSponsored({
     if (!isAddr(v)) throw new Error(`Invalid ${k} address: "${v}"`);
   }
   if (!/^\d+$/.test(amt)) throw new Error(`Invalid amount (must be uint string): "${amt}"`);
+
+  if (userOpDraft && userOpSignature) {
+    const draftLane = String(userOpDraft?.lane || "").toUpperCase();
+    let scriptName;
+    if (draftLane === "EIP3009") scriptName = "send_eip3009_v5.mjs";
+    else if (draftLane === "PERMIT2") scriptName = "send_permit2_v5.mjs";
+    else if (draftLane === "EIP2612") scriptName = "send_eip2612_v5.mjs";
+    else throw new Error(`Unsupported lane for this send endpoint: ${draftLane}`);
+
+    const env = {
+      ...process.env,
+      RPC_URL: rpc,
+      BUNDLER_URL: bundlerUrl || process.env.BUNDLER_URL,
+      CHAIN_ID: String(chainId),
+      ENTRYPOINT: entryPoint || process.env.ENTRYPOINT,
+      ROUTER: routerAddr,
+      PAYMASTER: paymaster || process.env.PAYMASTER,
+      FACTORY: factory || process.env.FACTORY,
+      FEEVAULT: feeVault || process.env.FEEVAULT,
+      PERMIT2: process.env.PERMIT2,
+      TOKEN: tokenAddr,
+      TO: toAddr,
+      AMOUNT: amt,
+      OWNER_EOA: owner,
+      FEE_MODE: feeMode,
+      USEROP_DRAFT_JSON: JSON.stringify(userOpDraft),
+      USEROP_SIGNATURE: String(userOpSignature).trim(),
+    };
+
+    return runLaneScript({ scriptName, lane: draftLane, env });
+  }
 
   const q = await getQuote({
     chainId,

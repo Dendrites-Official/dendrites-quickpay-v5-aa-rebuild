@@ -87,6 +87,38 @@ function writeJson(outPath, obj) {
   fs.writeFileSync(outPath, JSON.stringify(obj));
 }
 
+function requireDraftField(draft, key) {
+  const value = draft?.[key];
+  if (value == null || value === "") {
+    throw new Error(`USEROP_DRAFT_JSON missing ${key}`);
+  }
+  return value;
+}
+
+function buildPackedUserOpFromUserOp(userOp) {
+  const initCode = userOp.factory && userOp.factoryData ? packInitCode(userOp.factory, userOp.factoryData) : "0x";
+  const accountGasLimits = packUint128Pair(BigInt(userOp.verificationGasLimit), BigInt(userOp.callGasLimit));
+  const gasFees = packUint128Pair(BigInt(userOp.maxPriorityFeePerGas), BigInt(userOp.maxFeePerGas));
+  const paymasterAndData = packPaymasterAndData(
+    userOp.paymaster,
+    BigInt(userOp.paymasterVerificationGasLimit),
+    BigInt(userOp.paymasterPostOpGasLimit),
+    userOp.paymasterData || "0x"
+  );
+
+  return {
+    sender: userOp.sender,
+    nonce: BigInt(userOp.nonce),
+    initCode,
+    callData: userOp.callData,
+    accountGasLimits,
+    preVerificationGas: BigInt(userOp.preVerificationGas),
+    gasFees,
+    paymasterAndData,
+    signature: userOp.signature || "0x",
+  };
+}
+
 async function main() {
   const jsonOut = getJsonOutPath();
   const rpcUrl = requireEnv("RPC_URL");
@@ -109,21 +141,25 @@ async function main() {
   const feeTokenMode = String(process.env.FEE_TOKEN_MODE || "same").toLowerCase();
   const feeToken = (process.env.FEE_TOKEN_ADDRESS || process.env.FEE_TOKEN || token).trim();
   const userOpSignature = String(process.env.USEROP_SIGNATURE || "").trim();
+  const userOpDraftRaw = process.env.USEROP_DRAFT_JSON;
+  const userOpDraft = userOpDraftRaw ? JSON.parse(userOpDraftRaw) : null;
   const authRaw = process.env.AUTH_JSON;
   const authJson = authRaw ? JSON.parse(authRaw) : null;
 
   void feeTokenMode;
 
-  if (finalFeeToken <= 0n) throw new Error("FINAL_FEE (token units) missing");
-  if (maxFeeUsd6 <= 0n) throw new Error("MAX_FEE_USDC6 missing");
-  if (toLower(feeToken) !== toLower(token)) {
-    throw new Error(`feeToken must equal token for EIP-3009. feeToken=${feeToken} token=${token}`);
-  }
-  if (finalFeeToken > amount) {
-    throw new Error(`FINAL_FEE must be <= AMOUNT. amount=${amount} finalFee=${finalFeeToken}`);
-  }
-  if (!authJson || authJson.type !== "EIP3009") {
-    throw new Error("AUTH_JSON missing for EIP3009");
+  if (!userOpDraft) {
+    if (finalFeeToken <= 0n) throw new Error("FINAL_FEE (token units) missing");
+    if (maxFeeUsd6 <= 0n) throw new Error("MAX_FEE_USDC6 missing");
+    if (toLower(feeToken) !== toLower(token)) {
+      throw new Error(`feeToken must equal token for EIP-3009. feeToken=${feeToken} token=${token}`);
+    }
+    if (finalFeeToken > amount) {
+      throw new Error(`FINAL_FEE must be <= AMOUNT. amount=${amount} finalFee=${finalFeeToken}`);
+    }
+    if (!authJson || authJson.type !== "EIP3009") {
+      throw new Error("AUTH_JSON missing for EIP3009");
+    }
   }
 
   const netAmount = amount - finalFeeToken;
@@ -136,6 +172,83 @@ async function main() {
   const supportedLower = (supported || []).map((a) => toLower(a));
   if (!supportedLower.includes(toLower(entryPoint))) {
     throw new Error(`Bundler does not support entryPoint ${entryPoint}. Supported: ${JSON.stringify(supported)}`);
+  }
+
+  if (userOpDraft) {
+    if (!userOpSignature) {
+      throw new Error("USEROP_SIGNATURE missing for USEROP_DRAFT_JSON");
+    }
+    if (userOpDraft.factory && !userOpDraft.factoryData) {
+      throw new Error("USEROP_DRAFT_JSON missing factoryData");
+    }
+    if (userOpDraft.factoryData && !userOpDraft.factory) {
+      throw new Error("USEROP_DRAFT_JSON missing factory");
+    }
+
+    const draftUserOp = {
+      sender: requireDraftField(userOpDraft, "sender"),
+      nonce: requireDraftField(userOpDraft, "nonce"),
+      factory: userOpDraft.factory || undefined,
+      factoryData: userOpDraft.factoryData || undefined,
+      callData: requireDraftField(userOpDraft, "callData"),
+      callGasLimit: requireDraftField(userOpDraft, "callGasLimit"),
+      verificationGasLimit: requireDraftField(userOpDraft, "verificationGasLimit"),
+      preVerificationGas: requireDraftField(userOpDraft, "preVerificationGas"),
+      maxFeePerGas: requireDraftField(userOpDraft, "maxFeePerGas"),
+      maxPriorityFeePerGas: requireDraftField(userOpDraft, "maxPriorityFeePerGas"),
+      paymaster: requireDraftField(userOpDraft, "paymaster"),
+      paymasterVerificationGasLimit: requireDraftField(userOpDraft, "paymasterVerificationGasLimit"),
+      paymasterPostOpGasLimit: requireDraftField(userOpDraft, "paymasterPostOpGasLimit"),
+      paymasterData: requireDraftField(userOpDraft, "paymasterData"),
+      signature: userOpSignature,
+    };
+
+    const userOpHash = await getUserOpHash(publicRpc, entryPoint, buildPackedUserOpFromUserOp(draftUserOp));
+    // --- PROBE: confirm Railway env & draft consistency ---
+    console.log(`ENTRYPOINT=${entryPoint}`);
+    console.log(`PAYMASTER_ENV=${paymasterAddr}`);
+    console.log(`PAYMASTER_DRAFT=${draftUserOp.paymaster}`);
+    console.log(`FACTORY=${factoryAddr}`);
+    console.log(`OWNER_EOA=${ownerEoa}`);
+
+    // Optional: prove the draft sender matches factory(owner,0)
+    try {
+      const factoryAbi = ["function getAddress(address owner, uint256 salt) view returns (address)"];
+      const factory = new ethers.Contract(factoryAddr, factoryAbi, publicRpc);
+      const expectedSender = await factory.getAddress(ownerEoa, 0n);
+      console.log(`EXPECTED_SENDER=${expectedSender}`);
+    } catch (e) {
+      console.log(`EXPECTED_SENDER_ERROR=${String(e?.message || e)}`);
+    }
+
+    // --- PROBE: prove what the signature corresponds to ---
+    const recoveredRaw = ethers.recoverAddress(userOpHash, userOpSignature);
+    const recoveredEip191 = ethers.recoverAddress(
+      ethers.hashMessage(ethers.getBytes(userOpHash)),
+      userOpSignature
+    );
+    console.log(`USEROP_HASH=${userOpHash}`);
+    console.log(`RECOVER_RAW=${recoveredRaw}`);
+    console.log(`RECOVER_EIP191=${recoveredEip191}`);
+
+    const bundlerHash = await bundlerRpc.send("eth_sendUserOperation", [draftUserOp, entryPoint]);
+    void bundlerHash;
+
+    let txHash = null;
+    for (let i = 0; i < 15; i += 1) {
+      const receipt = await bundlerRpc.send("eth_getUserOperationReceipt", [bundlerHash]);
+      txHash = receipt?.receipt?.transactionHash ?? receipt?.transactionHash ?? null;
+      if (txHash) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    writeJson(jsonOut, {
+      ok: true,
+      lane: "EIP3009",
+      userOpHash,
+      txHash,
+    });
+    return;
   }
 
   const factoryAbi = [
@@ -279,6 +392,23 @@ async function main() {
       lane: "EIP3009",
       userOpHash,
       message: "SIGN_THIS_USEROP_HASH_WITH_eth_sign",
+      userOpDraft: {
+        lane: "EIP3009",
+        sender: userOp.sender,
+        nonce: userOp.nonce,
+        factory: userOp.factory,
+        factoryData: userOp.factoryData,
+        callData: userOp.callData,
+        callGasLimit: userOp.callGasLimit,
+        verificationGasLimit: userOp.verificationGasLimit,
+        preVerificationGas: userOp.preVerificationGas,
+        maxFeePerGas: userOp.maxFeePerGas,
+        maxPriorityFeePerGas: userOp.maxPriorityFeePerGas,
+        paymaster: userOp.paymaster,
+        paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit,
+        paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit,
+        paymasterData,
+      },
     });
     process.exit(2);
   }

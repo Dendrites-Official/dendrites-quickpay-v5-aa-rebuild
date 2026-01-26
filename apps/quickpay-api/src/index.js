@@ -93,6 +93,7 @@ app.post("/send", async (request, reply) => {
       auth,
       feeToken,
       userOpSignature,
+        userOpDraft,
     } = body;
 
     if (!ownerEoa || !token || !to || !amount || !receiptId) {
@@ -183,6 +184,7 @@ app.post("/send", async (request, reply) => {
         feeToken: normalizedFeeToken,
         smart,
         userOpSignature,
+        userOpDraft,
       });
     }
 
