@@ -362,6 +362,7 @@ export default function QuickPay() {
           args: [senderLower as `0x${string}`, token as `0x${string}`, spender as `0x${string}`],
         });
         const now = Math.floor(Date.now() / 1000);
+        const permitExpiration = now + 60 * 60 * 24 * 30;
         const sigDeadline = now + 60 * 30;
         const typedData = {
           domain: {
@@ -387,7 +388,7 @@ export default function QuickPay() {
             details: {
               token,
               amount: BigInt(amountRaw),
-              expiration: BigInt(sigDeadline),
+              expiration: BigInt(permitExpiration),
               nonce: BigInt(allowance[2] ?? 0n),
             },
             spender,

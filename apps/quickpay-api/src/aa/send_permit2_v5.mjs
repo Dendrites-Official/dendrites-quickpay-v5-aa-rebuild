@@ -151,6 +151,11 @@ async function main() {
   const userOpDraft = userOpDraftRaw ? JSON.parse(userOpDraftRaw) : null;
   const authRaw = process.env.AUTH_JSON;
   const authJson = authRaw ? JSON.parse(authRaw) : null;
+  const permit2Addr = String(process.env.PERMIT2 || "").trim();
+
+  if (!ethers.isAddress(permit2Addr)) {
+    throw new Error("PERMIT2 env missing or invalid");
+  }
 
   if (!userOpDraft) {
     if (finalFeeToken <= 0n) throw new Error("FINAL_FEE (token units) missing");
@@ -253,10 +258,52 @@ async function main() {
 
   const factoryData = factory.interface.encodeFunctionData("createAccount", [ownerEoa, salt]);
 
+  const permit2Addr = String(process.env.PERMIT2 || "").trim();
+  if (!ethers.isAddress(permit2Addr)) {
+    throw new Error("PERMIT2 env missing or invalid");
+  }
+
   const routerAbi = [
     "function sendERC20Permit2Sponsored(address from,address token,address to,uint256 amount,address feeToken,uint256 finalFee,address owner)",
   ];
+  const permit2Abi = [
+    "function permit(address owner,((address token,uint160 amount,uint48 expiration,uint48 nonce) details,address spender,uint256 sigDeadline) permitSingle,bytes signature)",
+  ];
   const router = new ethers.Contract(routerAddr, routerAbi, publicRpc);
+  const permit2 = new ethers.Contract(permit2Addr, permit2Abi, publicRpc);
+
+  if (!authJson?.signature) {
+    throw new Error("AUTH_JSON missing signature for PERMIT2");
+  }
+  if (!authJson?.details || !authJson?.spender || !authJson?.sigDeadline) {
+    throw new Error("AUTH_JSON missing Permit2 fields");
+  }
+  if (toLower(authJson.spender) !== toLower(routerAddr)) {
+    throw new Error(`PERMIT2 spender mismatch. auth.spender=${authJson.spender} router=${routerAddr}`);
+  }
+  if (toLower(authJson.details.token) !== toLower(token)) {
+    throw new Error(`PERMIT2 token mismatch. auth.details.token=${authJson.details.token} token=${token}`);
+  }
+  if (BigInt(authJson.details.amount || 0) < amount) {
+    throw new Error(`PERMIT2 amount too low. auth.details.amount=${authJson.details.amount} amount=${amount}`);
+  }
+
+  const permitSingle = {
+    details: {
+      token: authJson.details.token,
+      amount: BigInt(authJson.details.amount),
+      expiration: BigInt(authJson.details.expiration),
+      nonce: BigInt(authJson.details.nonce),
+    },
+    spender: authJson.spender,
+    sigDeadline: BigInt(authJson.sigDeadline),
+  };
+
+  const permitCallData = permit2.interface.encodeFunctionData("permit", [
+    ownerEoa,
+    permitSingle,
+    authJson.signature,
+  ]);
 
   const routerCallData = router.interface.encodeFunctionData("sendERC20Permit2Sponsored", [
     ownerEoa,
@@ -268,9 +315,16 @@ async function main() {
     ownerEoa,
   ]);
 
-  const accountAbi = ["function execute(address dest,uint256 value,bytes func)"];
+  const accountAbi = [
+    "function execute(address dest,uint256 value,bytes func)",
+    "function executeBatch(address[] dest,uint256[] value,bytes[] func)",
+  ];
   const accountIface = new ethers.Interface(accountAbi);
-  const callData = accountIface.encodeFunctionData("execute", [routerAddr, 0n, routerCallData]);
+  const callData = accountIface.encodeFunctionData("executeBatch", [
+    [permit2Addr, routerAddr],
+    [0n, 0n],
+    [permitCallData, routerCallData],
+  ]);
 
   const { maxFeePerGas, maxPriorityFeePerGas } = await getPimlicoGasPriceStandard(bundlerRpc);
 
