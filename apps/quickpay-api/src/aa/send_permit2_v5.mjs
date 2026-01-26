@@ -152,9 +152,9 @@ async function main() {
   const authRaw = process.env.AUTH_JSON;
   const authJson = authRaw ? JSON.parse(authRaw) : null;
   // Permit2 address is required for on-chain permit + transfer.
-  const permit2Addr = String(process.env.PERMIT2 || "").trim();
+  const permit2Address = String(process.env.PERMIT2 || "").trim();
 
-  if (!ethers.isAddress(permit2Addr)) {
+  if (!ethers.isAddress(permit2Address)) {
     throw new Error("PERMIT2 env missing or invalid");
   }
 
@@ -266,7 +266,7 @@ async function main() {
     "function permit(address owner,((address token,uint160 amount,uint48 expiration,uint48 nonce) details,address spender,uint256 sigDeadline) permitSingle,bytes signature)",
   ];
   const router = new ethers.Contract(routerAddr, routerAbi, publicRpc);
-  const permit2 = new ethers.Contract(permit2Addr, permit2Abi, publicRpc);
+  const permit2 = new ethers.Contract(permit2Address, permit2Abi, publicRpc);
 
   if (!authJson?.signature) {
     throw new Error("AUTH_JSON missing signature for PERMIT2");
@@ -317,7 +317,7 @@ async function main() {
   ];
   const accountIface = new ethers.Interface(accountAbi);
   const callData = accountIface.encodeFunctionData("executeBatch", [
-    [permit2Addr, routerAddr],
+    [permit2Address, routerAddr],
     [0n, 0n],
     [permitCallData, routerCallData],
   ]);
