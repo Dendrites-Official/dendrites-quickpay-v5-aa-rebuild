@@ -2,6 +2,10 @@ import "dotenv/config";
 import { ethers } from "ethers";
 import fs from "node:fs";
 
+const PAYMASTER_ABI = [
+  "function quoteFeeUsd6(address payer,uint8 mode,uint8 speed,uint256 nowTs) view returns (uint256,uint256,uint256,uint256,uint256,bool)",
+];
+
 function hexlify(value) {
   return ethers.toBeHex(value);
 }
@@ -138,6 +142,8 @@ async function main() {
   const maxFeeUsd6 = BigInt(
     process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || process.env.MAX_FEE_USDC || "0"
   );
+  const speedRaw = String(process.env.SPEED ?? "").trim();
+  const speed = speedRaw === "" ? 1 : Number(speedRaw);
   const feeTokenMode = String(process.env.FEE_TOKEN_MODE || "same").toLowerCase();
   const feeToken = (process.env.FEE_TOKEN_ADDRESS || process.env.FEE_TOKEN || token).trim();
   const userOpSignature = String(process.env.USEROP_SIGNATURE || "").trim();
@@ -167,6 +173,11 @@ async function main() {
   const publicRpc = new ethers.JsonRpcProvider(rpcUrl);
   const bundlerRpc = new ethers.JsonRpcProvider(bundlerUrl);
   const nowTs = Math.floor(Date.now() / 1000);
+  const paymasterContract = new ethers.Contract(paymasterAddr, PAYMASTER_ABI, publicRpc);
+  const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speed, nowTs);
+  const feeUsd6 = BigInt(quoteRaw[0]);
+  const baselineUsd6 = BigInt(quoteRaw[2]);
+  const surchargeUsd6 = BigInt(quoteRaw[3]);
 
   const supported = await bundlerRpc.send("eth_supportedEntryPoints", []);
   const supportedLower = (supported || []).map((a) => toLower(a));
@@ -230,6 +241,9 @@ async function main() {
     console.log(`USEROP_HASH=${userOpHash}`);
     console.log(`RECOVER_RAW=${recoveredRaw}`);
     console.log(`RECOVER_EIP191=${recoveredEip191}`);
+    console.log(
+      `SPEED=${speed} FEE_USD6=${feeUsd6} BASELINE_USD6=${baselineUsd6} SURCHARGE_USD6=${surchargeUsd6} FINAL_FEE_TOKEN=${finalFeeToken}`
+    );
 
     const bundlerHash = await bundlerRpc.send("eth_sendUserOperation", [draftUserOp, entryPoint]);
     void bundlerHash;
@@ -320,7 +334,9 @@ async function main() {
 
   const { maxFeePerGas, maxPriorityFeePerGas } = await getPimlicoGasPriceStandard(bundlerRpc);
 
-  const speed = 0;
+  console.log(
+    `SPEED=${speed} FEE_USD6=${feeUsd6} BASELINE_USD6=${baselineUsd6} SURCHARGE_USD6=${surchargeUsd6} FINAL_FEE_TOKEN=${finalFeeToken}`
+  );
   console.log(`NET_AMOUNT=${netAmount}`);
 
   const now = BigInt(nowTs);
