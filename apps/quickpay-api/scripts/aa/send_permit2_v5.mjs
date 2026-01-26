@@ -160,6 +160,7 @@ async function main() {
   const factoryData = factory.interface.encodeFunctionData("createAccount", [ownerEoa, salt]);
 
   const permit2Address = String(process.env.PERMIT2 || "").trim();
+  // NOTE: keep this near the top so build changes propagate reliably.
   if (!ethers.isAddress(permit2Address)) {
     throw new Error("PERMIT2 env missing or invalid");
   }

@@ -153,6 +153,7 @@ async function main() {
   const authJson = authRaw ? JSON.parse(authRaw) : null;
   // Permit2 address is required for on-chain permit + transfer.
   const permit2Address = String(process.env.PERMIT2 || "").trim();
+  // NOTE: keep this near the top so build changes propagate reliably.
 
   if (!ethers.isAddress(permit2Address)) {
     throw new Error("PERMIT2 env missing or invalid");
