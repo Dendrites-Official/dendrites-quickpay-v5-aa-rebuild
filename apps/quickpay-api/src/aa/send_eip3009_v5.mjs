@@ -6,6 +6,11 @@ const PAYMASTER_ABI = [
   "function quoteFeeUsd6(address payer,uint8 mode,uint8 speed,uint256 nowTs) view returns (uint256,uint256,uint256,uint256,uint256,bool)",
 ];
 
+const ACCOUNT_ABI = ["function execute(address dest,uint256 value,bytes func)"];
+const ROUTER_ABI = [
+  "function sendERC20EIP3009Sponsored(address from,address token,address to,uint256 amount,address feeToken,uint256 finalFee,address owner,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s)",
+];
+
 function hexlify(value) {
   return ethers.toBeHex(value);
 }
@@ -123,6 +128,71 @@ function buildPackedUserOpFromUserOp(userOp) {
   };
 }
 
+function decodePaymasterData(paymasterData) {
+  const coder = ethers.AbiCoder.defaultAbiCoder();
+  const [mode, speed, feeToken, maxFeeUsd6, validUntil, validAfter] = coder.decode(
+    ["uint8", "uint8", "address", "uint256", "uint48", "uint48"],
+    paymasterData
+  );
+  return { mode, speed, feeToken, maxFeeUsd6, validUntil, validAfter };
+}
+
+function decodeFinalFeeFromCallData(callData) {
+  const accountIface = new ethers.Interface(ACCOUNT_ABI);
+  const routerIface = new ethers.Interface(ROUTER_ABI);
+  const decodedAccount = accountIface.decodeFunctionData("execute", callData);
+  const routerCallData = decodedAccount?.[2];
+  const decodedRouter = routerIface.decodeFunctionData("sendERC20EIP3009Sponsored", routerCallData);
+  const finalFee = decodedRouter?.[5];
+  return {
+    finalFee,
+    feeToken: decodedRouter?.[4],
+    routerCallData,
+  };
+}
+
+function assertDraftFees({
+  draft,
+  feeUsd6,
+  feeTokenAmount,
+  maxFeeUsd6,
+  token,
+  callData,
+  paymasterData,
+}) {
+  if (feeUsd6 <= 0n || feeTokenAmount <= 0n) {
+    throw new Error("Missing feeUsd6/feeTokenAmount in draft; would cause AA33 finalFee mismatch");
+  }
+  if (maxFeeUsd6 < feeUsd6) {
+    throw new Error(`draft maxFeeUsd6 < feeUsd6 (${maxFeeUsd6} < ${feeUsd6})`);
+  }
+
+  const { finalFee, feeToken } = decodeFinalFeeFromCallData(callData);
+  const { maxFeeUsd6: pmMaxFeeUsd6 } = decodePaymasterData(paymasterData);
+
+  if (finalFee == null) {
+    throw new Error("Unable to decode finalFee from callData");
+  }
+  if (BigInt(finalFee) !== feeTokenAmount) {
+    throw new Error(`draft finalFee mismatch: callData=${finalFee} draft.feeTokenAmount=${feeTokenAmount}`);
+  }
+  if (toLower(feeToken) === toLower(token) && feeUsd6 !== feeTokenAmount) {
+    throw new Error(`draft feeUsd6 must equal feeTokenAmount for USDC (feeUsd6=${feeUsd6} feeTokenAmount=${feeTokenAmount})`);
+  }
+  if (feeUsd6 > pmMaxFeeUsd6) {
+    throw new Error(`draft feeUsd6 exceeds paymaster maxFeeUsd6 (${feeUsd6} > ${pmMaxFeeUsd6})`);
+  }
+
+  const baseline = draft?.baselineUsd6 != null ? BigInt(draft.baselineUsd6) : 0n;
+  const surcharge = draft?.surchargeUsd6 != null ? BigInt(draft.surchargeUsd6) : 0n;
+  if (baseline > 0n || surcharge > 0n) {
+    const sum = baseline + surcharge;
+    if (sum !== feeUsd6) {
+      throw new Error(`draft feeUsd6 must equal baseline+surcharge (${feeUsd6} != ${sum})`);
+    }
+  }
+}
+
 async function main() {
   const jsonOut = getJsonOutPath();
   const rpcUrl = requireEnv("RPC_URL");
@@ -173,11 +243,16 @@ async function main() {
   const publicRpc = new ethers.JsonRpcProvider(rpcUrl);
   const bundlerRpc = new ethers.JsonRpcProvider(bundlerUrl);
   const nowTs = Math.floor(Date.now() / 1000);
-  const paymasterContract = new ethers.Contract(paymasterAddr, PAYMASTER_ABI, publicRpc);
-  const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speed, nowTs);
-  const feeUsd6 = BigInt(quoteRaw[0]);
-  const baselineUsd6 = BigInt(quoteRaw[2]);
-  const surchargeUsd6 = BigInt(quoteRaw[3]);
+  let feeUsd6 = 0n;
+  let baselineUsd6 = 0n;
+  let surchargeUsd6 = 0n;
+  if (!userOpDraft) {
+    const paymasterContract = new ethers.Contract(paymasterAddr, PAYMASTER_ABI, publicRpc);
+    const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speed, nowTs);
+    baselineUsd6 = BigInt(quoteRaw[2]);
+    surchargeUsd6 = BigInt(quoteRaw[3]);
+    feeUsd6 = baselineUsd6 + surchargeUsd6;
+  }
 
   const supported = await bundlerRpc.send("eth_supportedEntryPoints", []);
   const supportedLower = (supported || []).map((a) => toLower(a));
@@ -195,6 +270,12 @@ async function main() {
     if (userOpDraft.factoryData && !userOpDraft.factory) {
       throw new Error("USEROP_DRAFT_JSON missing factory");
     }
+
+    const draftFeeUsd6 = BigInt(requireDraftField(userOpDraft, "feeUsd6"));
+    const draftFeeTokenAmount = BigInt(requireDraftField(userOpDraft, "feeTokenAmount"));
+    const draftMaxFeeUsd6 = BigInt(requireDraftField(userOpDraft, "maxFeeUsd6"));
+    const draftBaselineUsd6 = BigInt(requireDraftField(userOpDraft, "baselineUsd6"));
+    const draftSurchargeUsd6 = BigInt(requireDraftField(userOpDraft, "surchargeUsd6"));
 
     const draftUserOp = {
       sender: requireDraftField(userOpDraft, "sender"),
@@ -242,8 +323,18 @@ async function main() {
     console.log(`RECOVER_RAW=${recoveredRaw}`);
     console.log(`RECOVER_EIP191=${recoveredEip191}`);
     console.log(
-      `SPEED=${speed} FEE_USD6=${feeUsd6} BASELINE_USD6=${baselineUsd6} SURCHARGE_USD6=${surchargeUsd6} FINAL_FEE_TOKEN=${finalFeeToken}`
+      `DRAFT feeUsd6=${draftFeeUsd6} feeTokenAmount=${draftFeeTokenAmount} maxFeeUsd6=${draftMaxFeeUsd6} baselineUsd6=${draftBaselineUsd6} surchargeUsd6=${draftSurchargeUsd6}`
     );
+
+    assertDraftFees({
+      draft: userOpDraft,
+      feeUsd6: draftFeeUsd6,
+      feeTokenAmount: draftFeeTokenAmount,
+      maxFeeUsd6: draftMaxFeeUsd6,
+      token,
+      callData: draftUserOp.callData,
+      paymasterData: draftUserOp.paymasterData,
+    });
 
     const bundlerHash = await bundlerRpc.send("eth_sendUserOperation", [draftUserOp, entryPoint]);
     void bundlerHash;
@@ -410,6 +501,15 @@ async function main() {
       message: "SIGN_THIS_USEROP_HASH_WITH_eth_sign",
       userOpDraft: {
         lane: "EIP3009",
+        feeUsd6: feeUsd6.toString(),
+        feeTokenAmount: finalFeeToken.toString(),
+        baselineUsd6: baselineUsd6.toString(),
+        surchargeUsd6: surchargeUsd6.toString(),
+        maxFeeUsd6: BigInt(maxFeeUsd6).toString(),
+        token,
+        to,
+        amount: amount.toString(),
+        smartSender: sender,
         sender: userOp.sender,
         nonce: userOp.nonce,
         factory: userOp.factory,

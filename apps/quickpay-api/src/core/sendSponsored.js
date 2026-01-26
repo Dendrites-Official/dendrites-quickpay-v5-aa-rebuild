@@ -106,6 +106,7 @@ export async function sendSponsored({
   auth,
   userOpSignature,
   userOpDraft,
+  smart,
 }) {
   const feeModeNorm = String(feeMode || "eco").trim().toLowerCase();
   const speedNum = feeModeNorm === "instant" ? 0 : 1;
@@ -130,7 +131,88 @@ export async function sendSponsored({
   if (!/^\d+$/.test(amt)) throw new Error(`Invalid amount (must be uint string): "${amt}"`);
 
   if (userOpDraft && userOpSignature) {
-    const draftLane = String(userOpDraft?.lane || "").toUpperCase();
+    const draftError = (code, message) => {
+      const err = new Error(message);
+      err.status = 400;
+      err.code = code;
+      return err;
+    };
+
+    const requireDraftField = (key, message) => {
+      const value = userOpDraft?.[key];
+      if (value == null || value === "") {
+        throw draftError("DRAFT_MISSING_FIELD", message ?? `Missing draft.${key}`);
+      }
+      return value;
+    };
+
+    const requireDraftBigInt = (key) => {
+      const raw = requireDraftField(
+        key,
+        `Missing draft.${key} – would cause AA33 finalFee mismatch. Re-run /quote (step-1).`
+      );
+      let value;
+      try {
+        value = BigInt(raw);
+      } catch (err) {
+        throw draftError("DRAFT_INVALID_FIELD", `Invalid draft.${key}: ${raw}`);
+      }
+      if (value <= 0n) {
+        throw draftError(
+          "DRAFT_INVALID_FIELD",
+          `Missing draft.${key} – would cause AA33 finalFee mismatch. Re-run /quote (step-1).`
+        );
+      }
+      return value;
+    };
+
+    const draftLane = String(requireDraftField("lane", "Missing draft.lane")).toUpperCase();
+    requireDraftField("sender", "Missing draft.sender");
+    requireDraftField("nonce", "Missing draft.nonce");
+    requireDraftField("callData", "Missing draft.callData");
+    requireDraftField("paymaster", "Missing draft.paymaster");
+    requireDraftField("paymasterData", "Missing draft.paymasterData");
+    requireDraftField("callGasLimit", "Missing draft.callGasLimit");
+    requireDraftField("verificationGasLimit", "Missing draft.verificationGasLimit");
+    requireDraftField("preVerificationGas", "Missing draft.preVerificationGas");
+    requireDraftField("maxFeePerGas", "Missing draft.maxFeePerGas");
+    requireDraftField("maxPriorityFeePerGas", "Missing draft.maxPriorityFeePerGas");
+
+    const draftFeeUsd6 = requireDraftBigInt("feeUsd6");
+    const draftFeeTokenAmount = requireDraftBigInt("feeTokenAmount");
+    const draftMaxFeeUsd6 = requireDraftBigInt("maxFeeUsd6");
+    requireDraftBigInt("baselineUsd6");
+    requireDraftBigInt("surchargeUsd6");
+
+    if (draftMaxFeeUsd6 < draftFeeUsd6) {
+      throw draftError("DRAFT_INVALID_FIELD", "draft.maxFeeUsd6 must be >= draft.feeUsd6");
+    }
+    if (draftFeeTokenAmount <= 0n) {
+      throw draftError(
+        "DRAFT_INVALID_FIELD",
+        "Missing draft.feeTokenAmount – would cause AA33 finalFee mismatch. Re-run /quote (step-1)."
+      );
+    }
+
+    const envPaymaster = String(paymaster || process.env.PAYMASTER || "").trim();
+    if (envPaymaster && String(userOpDraft?.paymaster || "").toLowerCase() !== envPaymaster.toLowerCase()) {
+      throw draftError("DRAFT_MISMATCH_PAYMASTER", "draft.paymaster does not match PAYMASTER env");
+    }
+
+    const envFactory = String(factory || process.env.FACTORY || "").trim();
+    if (userOpDraft?.factory && envFactory) {
+      if (String(userOpDraft.factory).toLowerCase() !== envFactory.toLowerCase()) {
+        throw draftError("DRAFT_MISMATCH_FACTORY", "draft.factory does not match FACTORY env");
+      }
+    }
+
+    const expectedSender = smart?.sender || userOpDraft?.smartSender || null;
+    if (expectedSender) {
+      if (String(userOpDraft.sender).toLowerCase() !== String(expectedSender).toLowerCase()) {
+        throw draftError("DRAFT_MISMATCH_SENDER", "draft.sender does not match smartSender");
+      }
+    }
+
     let scriptName;
     if (draftLane === "EIP3009") scriptName = "send_eip3009_v5.mjs";
     else if (draftLane === "PERMIT2") scriptName = "send_permit2_v5.mjs";
