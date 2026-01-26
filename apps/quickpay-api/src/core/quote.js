@@ -165,14 +165,14 @@ export async function getQuote({
   const paymasterContract = new ethers.Contract(ethers.getAddress(paymaster), PAYMASTER_ABI, provider);
   const nowTs = Math.floor(Date.now() / 1000);
   const quoteRaw = await paymasterContract.quoteFeeUsd6(ownerEoa, 0, speedVal, nowTs);
-  const feeUsd6 = BigInt(quoteRaw[0]);
   const maxFeeUsd6 = BigInt(quoteRaw[1]);
   const baselineUsd6 = BigInt(quoteRaw[2]);
   const firstTxSurchargeUsd6 = BigInt(quoteRaw[3]);
   const capBps = BigInt(quoteRaw[4]);
   const firstTxSurchargeApplies = Boolean(quoteRaw[5]);
   const surchargeUsd6 = firstTxSurchargeApplies ? firstTxSurchargeUsd6 : 0n;
-  const totalUsd6 = feeUsd6;
+  const finalFeeUsd6 = baselineUsd6 + surchargeUsd6;
+  const totalUsd6 = finalFeeUsd6;
   const decimals = Number(await paymasterContract.feeTokenDecimals(token));
   const price = BigInt(await paymasterContract.usd6PerWholeToken(token));
   const pow10 = 10n ** BigInt(decimals);
