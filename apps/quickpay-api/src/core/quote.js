@@ -60,6 +60,7 @@ export async function getQuote({
   feeMode,
   speed,
   mode,
+  maxFeeUsd6,
   eip3009Tokens,
   eip2612Tokens,
 }) {
@@ -175,17 +176,33 @@ export async function getQuote({
   const surchargeUsd6 = firstTxSurchargeApplies ? firstTxSurchargeUsd6 : 0n;
   const feeUsd6Final = baselineUsd6 + surchargeUsd6;
   const totalUsd6 = feeUsd6Final;
-  const maxFromCap = ceilDiv(feeUsd6Final * capBps, 10000n);
-  const envOverrideRaw =
-    process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || process.env.MAX_FEE_USDC || "";
-  const envOverride = /^\d+$/.test(String(envOverrideRaw)) ? BigInt(envOverrideRaw) : 0n;
-  const maxFeeUsd6 = [feeUsd6Final, maxFromCap, envOverride].reduce(
-    (max, value) => (value > max ? value : max),
-    0n
-  );
-  if (maxFeeUsd6 < feeUsd6Final) {
-    throw new Error("BUG: maxFeeUsd6 < feeUsd6");
+  const requestMaxFeeUsd6Raw = maxFeeUsd6 != null ? String(maxFeeUsd6).trim() : "";
+  const envMaxFeeUsd6Raw = String(
+    process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || process.env.MAX_FEE_USDC || ""
+  ).trim();
+  const maxFeeUsd6UsedRaw = requestMaxFeeUsd6Raw || envMaxFeeUsd6Raw || "1000000";
+  if (!/^\d+$/.test(maxFeeUsd6UsedRaw)) {
+    return {
+      ok: false,
+      error: "invalid_request",
+      details: { maxFeeUsd6: "expected_integer_string" },
+      statusCode: 400,
+    };
   }
+  const maxFeeUsd6Used = BigInt(maxFeeUsd6UsedRaw);
+
+  if (maxFeeUsd6Used < feeUsd6Final) {
+    return {
+      ok: false,
+      error: "MAX_FEE_TOO_LOW",
+      feeUsd6: feeUsd6Final.toString(),
+      maxFeeUsd6: maxFeeUsd6Used.toString(),
+      requiredMinMaxFeeUsd6: feeUsd6Final.toString(),
+      statusCode: 400,
+    };
+  }
+
+  console.log(`QUOTE_INVARIANTS feeUsd6=${feeUsd6Final} maxFeeUsd6=${maxFeeUsd6Used}`);
   const decimals = Number(await paymasterContract.feeTokenDecimals(token));
   const price = BigInt(await paymasterContract.usd6PerWholeToken(token));
   const pow10 = 10n ** BigInt(decimals);
@@ -202,7 +219,7 @@ export async function getQuote({
     lane,
     feeUsd6: totalUsd6.toString(),
     feeTokenAmount: feeTokenAmount.toString(),
-    maxFeeUsd6: maxFeeUsd6.toString(),
+    maxFeeUsd6: maxFeeUsd6Used.toString(),
     baselineUsd6: baselineUsd6.toString(),
     surchargeUsd6: surchargeUsd6.toString(),
     capBps: capBps.toString(),
