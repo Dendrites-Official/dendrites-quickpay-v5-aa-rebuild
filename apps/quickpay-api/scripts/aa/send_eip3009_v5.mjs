@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { ethers } from "ethers";
+import fs from "node:fs";
 
 function hexlify(value) {
   return ethers.toBeHex(value);
@@ -19,14 +20,6 @@ function requireEnv(name) {
     throw new Error(`Missing required env var: ${name}`);
   }
   return String(value).trim();
-}
-
-function requirePrivateKey(name) {
-  const pk = requireEnv(name);
-  if (!pk.startsWith("0x") || pk.length !== 66) {
-    throw new Error(`Invalid ${name} (must be 0x-prefixed 32-byte hex, length 66)`);
-  }
-  return pk;
 }
 
 function requireChainId() {
@@ -83,7 +76,19 @@ async function getUserOpHash(publicRpc, entryPoint, packedUserOp) {
   return await ep.getUserOpHash(packedUserOp);
 }
 
+function getJsonOutPath() {
+  const idx = process.argv.indexOf("--json-out");
+  if (idx >= 0 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return null;
+}
+
+function writeJson(outPath, obj) {
+  if (!outPath) return;
+  fs.writeFileSync(outPath, JSON.stringify(obj));
+}
+
 async function main() {
+  const jsonOut = getJsonOutPath();
   const rpcUrl = requireEnv("RPC_URL");
   const bundlerUrl = requireEnv("BUNDLER_URL");
   const chainId = requireChainId();
@@ -103,6 +108,9 @@ async function main() {
   );
   const feeTokenMode = String(process.env.FEE_TOKEN_MODE || "same").toLowerCase();
   const feeToken = (process.env.FEE_TOKEN_ADDRESS || process.env.FEE_TOKEN || token).trim();
+  const userOpSignature = String(process.env.USEROP_SIGNATURE || "").trim();
+  const authRaw = process.env.AUTH_JSON;
+  const authJson = authRaw ? JSON.parse(authRaw) : null;
 
   void feeTokenMode;
 
@@ -114,17 +122,15 @@ async function main() {
   if (finalFeeToken > amount) {
     throw new Error(`FINAL_FEE must be <= AMOUNT. amount=${amount} finalFee=${finalFeeToken}`);
   }
+  if (!authJson || authJson.type !== "EIP3009") {
+    throw new Error("AUTH_JSON missing for EIP3009");
+  }
 
   const netAmount = amount - finalFeeToken;
 
-  const signer = new ethers.Wallet(requirePrivateKey("PRIVATE_KEY_TEST_USER"));
-  if (toLower(signer.address) !== toLower(ownerEoa)) {
-    throw new Error(`OWNER_EOA must equal SimpleAccount owner. owner=${signer.address} ownerEoa=${ownerEoa}`);
-  }
-
   const publicRpc = new ethers.JsonRpcProvider(rpcUrl);
   const bundlerRpc = new ethers.JsonRpcProvider(bundlerUrl);
-  const ownerSigner = signer.connect(publicRpc);
+  const nowTs = Math.floor(Date.now() / 1000);
 
   const supported = await bundlerRpc.send("eth_supportedEntryPoints", []);
   const supportedLower = (supported || []).map((a) => toLower(a));
@@ -147,56 +153,32 @@ async function main() {
 
   const factoryData = factory.interface.encodeFunctionData("createAccount", [ownerEoa, salt]);
 
-  const erc3009Abi = [
-    "function name() view returns (string)",
-    "function version() view returns (string)",
-  ];
-  const tokenContract = new ethers.Contract(token, erc3009Abi, publicRpc);
-  const tokenName = await tokenContract.name();
-  let tokenVersion = "2";
-  try {
-    const v = await tokenContract.version();
-    if (typeof v === "string" && v.trim() !== "") {
-      tokenVersion = v;
-    }
-  } catch {
-    tokenVersion = "2";
+  let validAfter;
+  let validBefore;
+  let nonce;
+  let v;
+  let r;
+  let s;
+
+  if (!authJson?.signature) {
+    throw new Error("AUTH_JSON missing for EIP3009");
   }
-
-  const nowTs = Math.floor(Date.now() / 1000);
-  const validAfter = BigInt(nowTs - 60);
-  const validBefore = BigInt(nowTs + 3600);
-  const nonce = ethers.hexlify(ethers.randomBytes(32));
-
-  const domain = {
-    name: tokenName,
-    version: tokenVersion,
-    chainId,
-    verifyingContract: token,
-  };
-
-  const types = {
-    ReceiveWithAuthorization: [
-      { name: "from", type: "address" },
-      { name: "to", type: "address" },
-      { name: "value", type: "uint256" },
-      { name: "validAfter", type: "uint256" },
-      { name: "validBefore", type: "uint256" },
-      { name: "nonce", type: "bytes32" },
-    ],
-  };
-
-  const message = {
-    from: ownerEoa,
-    to: routerAddr,
-    value: amount,
-    validAfter,
-    validBefore,
-    nonce,
-  };
-
-  const sig = await ownerSigner.signTypedData(domain, types, message);
-  const { v, r, s } = ethers.Signature.from(sig);
+  if (authJson.from && toLower(authJson.from) !== toLower(ownerEoa)) {
+    throw new Error(`auth.from mismatch`);
+  }
+  if (authJson.to && toLower(authJson.to) !== toLower(routerAddr)) {
+    throw new Error(`auth.to mismatch (must be router)`);
+  }
+  if (authJson.value != null && String(authJson.value) !== String(amount)) {
+    throw new Error(`auth.value mismatch`);
+  }
+  validAfter = BigInt(authJson.validAfter || 0);
+  validBefore = BigInt(authJson.validBefore || 0);
+  nonce = authJson.nonce;
+  const sig = ethers.Signature.from(String(authJson.signature));
+  v = sig.v;
+  r = sig.r;
+  s = sig.s;
 
   const routerAbi = [
     "function sendERC20EIP3009Sponsored(address from,address token,address to,uint256 amount,address feeToken,uint256 finalFee,address owner,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s)",
@@ -264,7 +246,7 @@ async function main() {
     signature: "0x",
   };
 
-  const signWithGasFields = async () => {
+  const buildPackedUserOp = () => {
     const initCode = senderDeployed ? "0x" : packInitCode(factoryAddr, factoryData);
     const accountGasLimits = packUint128Pair(BigInt(userOp.verificationGasLimit), BigInt(userOp.callGasLimit));
     const gasFees = packUint128Pair(BigInt(userOp.maxPriorityFeePerGas), BigInt(userOp.maxFeePerGas));
@@ -275,7 +257,7 @@ async function main() {
       paymasterData
     );
 
-    const packed = {
+    return {
       sender,
       nonce: userOpNonce,
       initCode,
@@ -284,32 +266,151 @@ async function main() {
       preVerificationGas: BigInt(userOp.preVerificationGas),
       gasFees,
       paymasterAndData,
-      signature: "0x",
+      signature: userOp.signature || "0x",
     };
-
-    const userOpHash = await getUserOpHash(publicRpc, entryPoint, packed);
-    userOp.signature = ownerSigner.signingKey.sign(userOpHash).serialized;
-    return userOpHash;
   };
 
-  await signWithGasFields();
+  if (!userOpSignature) {
+    userOp.signature = "0x";
+    const userOpHash = await getUserOpHash(publicRpc, entryPoint, buildPackedUserOp());
+    writeJson(jsonOut, {
+      ok: false,
+      needsUserOpSignature: true,
+      lane: "EIP3009",
+      userOpHash,
+      message: "SIGN_THIS_USEROP_HASH_WITH_eth_sign",
+    });
+    process.exit(2);
+  }
 
-  const estimate = await bundlerRpc.send("eth_estimateUserOperationGas", [userOp, entryPoint]);
-
-  userOp.callGasLimit = estimate.callGasLimit ?? userOp.callGasLimit;
-  userOp.verificationGasLimit = estimate.verificationGasLimit ?? userOp.verificationGasLimit;
-  userOp.preVerificationGas = estimate.preVerificationGas ?? userOp.preVerificationGas;
-  userOp.paymasterVerificationGasLimit = estimate.paymasterVerificationGasLimit ?? userOp.paymasterVerificationGasLimit;
-  userOp.paymasterPostOpGasLimit = estimate.paymasterPostOpGasLimit ?? userOp.paymasterPostOpGasLimit;
-
-  const finalHash = await signWithGasFields();
-  console.log(`USEROP_HASH=${finalHash}`);
-
+  userOp.signature = userOpSignature;
+  const userOpHash = await getUserOpHash(publicRpc, entryPoint, buildPackedUserOp());
   const bundlerHash = await bundlerRpc.send("eth_sendUserOperation", [userOp, entryPoint]);
-  console.log(`TX_SENT_USEROP=${bundlerHash}`);
+  void bundlerHash;
+
+  let txHash = null;
+  for (let i = 0; i < 15; i += 1) {
+    const receipt = await bundlerRpc.send("eth_getUserOperationReceipt", [userOpHash]);
+    txHash = receipt?.receipt?.transactionHash ?? receipt?.transactionHash ?? null;
+    if (txHash) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  writeJson(jsonOut, {
+    ok: true,
+    lane: "EIP3009",
+    userOpHash,
+    txHash,
+  });
 }
 
 main().catch((err) => {
   console.error(err);
   process.exitCode = 1;
 });
+    const accountIface = new ethers.Interface(accountAbi);
+    const callData = accountIface.encodeFunctionData("execute", [routerAddr, 0n, routerCallData]);
+
+    const { maxFeePerGas, maxPriorityFeePerGas } = await getPimlicoGasPriceStandard(bundlerRpc);
+
+    const speed = 0;
+    console.log(`NET_AMOUNT=${netAmount}`);
+
+    const now = BigInt(nowTs);
+    const paymasterValidAfter = now - 60n;
+    const paymasterValidUntil = now + 3600n;
+    const coder = ethers.AbiCoder.defaultAbiCoder();
+    const paymasterData = coder.encode(
+      ["uint8", "uint8", "address", "uint256", "uint48", "uint48"],
+      [0, speed, feeToken, BigInt(maxFeeUsd6), paymasterValidUntil, paymasterValidAfter]
+    );
+
+    const userOpNonce = await getNonce(publicRpc, entryPoint, sender);
+
+    const gasDefaults = {
+      callGasLimit: 500_000n,
+      verificationGasLimit: 300_000n,
+      preVerificationGas: 100_000n,
+      paymasterVerificationGasLimit: 200_000n,
+      paymasterPostOpGasLimit: 200_000n,
+    };
+
+    const userOp = {
+      sender,
+      nonce: hexlify(userOpNonce),
+      ...(senderDeployed ? {} : { factory: factoryAddr, factoryData }),
+      callData,
+      callGasLimit: hexlify(gasDefaults.callGasLimit),
+      verificationGasLimit: hexlify(gasDefaults.verificationGasLimit),
+      preVerificationGas: hexlify(gasDefaults.preVerificationGas),
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      paymaster: paymasterAddr,
+      paymasterVerificationGasLimit: hexlify(gasDefaults.paymasterVerificationGasLimit),
+      paymasterPostOpGasLimit: hexlify(gasDefaults.paymasterPostOpGasLimit),
+      paymasterData,
+      signature: "0x",
+    };
+
+    const buildPackedUserOp = () => {
+      const initCode = senderDeployed ? "0x" : packInitCode(factoryAddr, factoryData);
+      const accountGasLimits = packUint128Pair(BigInt(userOp.verificationGasLimit), BigInt(userOp.callGasLimit));
+      const gasFees = packUint128Pair(BigInt(userOp.maxPriorityFeePerGas), BigInt(userOp.maxFeePerGas));
+      const paymasterAndData = packPaymasterAndData(
+        paymasterAddr,
+        BigInt(userOp.paymasterVerificationGasLimit),
+        BigInt(userOp.paymasterPostOpGasLimit),
+        paymasterData
+      );
+
+      return {
+        sender,
+        nonce: userOpNonce,
+        initCode,
+        callData,
+        accountGasLimits,
+        preVerificationGas: BigInt(userOp.preVerificationGas),
+        gasFees,
+        paymasterAndData,
+        signature: userOp.signature || "0x",
+      };
+    };
+
+    if (!userOpSignature) {
+      userOp.signature = "0x";
+      const userOpHash = await getUserOpHash(publicRpc, entryPoint, buildPackedUserOp());
+      writeJson(jsonOut, {
+        ok: false,
+        needsUserOpSignature: true,
+        lane: "EIP3009",
+        userOpHash,
+        message: "SIGN_THIS_USEROP_HASH_WITH_eth_sign",
+      });
+      process.exit(2);
+    }
+
+    userOp.signature = userOpSignature;
+    const userOpHash = await getUserOpHash(publicRpc, entryPoint, buildPackedUserOp());
+    const bundlerHash = await bundlerRpc.send("eth_sendUserOperation", [userOp, entryPoint]);
+    void bundlerHash;
+
+    let txHash = null;
+    for (let i = 0; i < 15; i += 1) {
+      const receipt = await bundlerRpc.send("eth_getUserOperationReceipt", [userOpHash]);
+      txHash = receipt?.receipt?.transactionHash ?? receipt?.transactionHash ?? null;
+      if (txHash) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    writeJson(jsonOut, {
+      ok: true,
+      lane: "EIP3009",
+      userOpHash,
+      txHash,
+    });
+  }
+
+  main().catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  });

@@ -1,23 +1,22 @@
+// IMPORTANT: scripts must run from apps/quickpay-api/scripts/aa to avoid stale Railway builds.
 import { ethers } from "ethers";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getQuote } from "./quote.js";
 
 function isAddr(x) {
   return typeof x === "string" && ethers.isAddress(x.trim());
 }
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const appRoot = path.resolve(__dirname, "..", "..", "..");
+
 function resolveScriptPath(scriptName) {
-  const cwd = process.cwd();
-  const candidates = [
-    path.join(cwd, "scripts", "aa", scriptName),
-    path.join(cwd, "..", "..", "scripts", "aa", scriptName),
-    path.join(cwd, "..", "scripts", "aa", scriptName),
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
+  const candidate = path.join(appRoot, "scripts", "aa", scriptName);
+  if (fs.existsSync(candidate)) return candidate;
   return null;
 }
 
@@ -58,6 +57,9 @@ function runLaneScript({ scriptName, lane, env }) {
     }
     const err = new Error(`Lane ${lane} script failed: ${stderr}`.trim());
     err.details = { stdout, stderr, exitCode };
+    if (env?.QUICKPAY_DEBUG === "1") {
+      err.details.scriptPath = scriptPath;
+    }
     throw err;
   }
 
