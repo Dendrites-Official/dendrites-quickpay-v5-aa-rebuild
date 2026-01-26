@@ -32,8 +32,10 @@ export default function QuickPay() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<any>(null);
+  const [status, setStatus] = useState("");
 
   const isValidAddress = (value: string) => /^0x[0-9a-fA-F]{40}$/.test(value);
+  const isUserOpHash = (value: string) => /^0x[0-9a-fA-F]{64}$/.test(value);
   const amountValid = useMemo(() => {
     try {
       return ethers.parseUnits(amount, decimals) > 0n;
@@ -193,6 +195,7 @@ export default function QuickPay() {
     }
     setLoading(true);
     setError("");
+    setStatus("");
     setReceipt(null);
     let receiptId: string | null = null;
     try {
@@ -353,13 +356,35 @@ export default function QuickPay() {
       if (mode === "SPONSORED" && lane === "EIP3009" && eip3009Router) {
         sendPayload.router = eip3009Router;
       }
-      const sendRes = await fetch(qpUrl("/send"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sendPayload),
-      });
-      const data = await sendRes.json().catch(() => ({}));
-      if (!sendRes.ok) throw new Error(data?.error || "Failed to send");
+      const postSend = async (payload: any) => {
+        const res = await fetch(qpUrl("/send"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Failed to send");
+        return data;
+      };
+
+      let data = await postSend(sendPayload);
+      const needsUserOpSig =
+        data?.needsUserOpSignature === true && isUserOpHash(String(data?.userOpHash || ""));
+
+      if (needsUserOpSig && !sendPayload.userOpSignature) {
+        setStatus("Waiting for wallet signature (UserOp)…");
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        let sig: string;
+        try {
+          const signer = await provider.getSigner();
+          sig = await signer.signMessage(ethers.getBytes(data.userOpHash));
+        } catch {
+          sig = await provider.send("eth_sign", [senderLower, data.userOpHash]);
+        }
+        setStatus("Submitting sponsored transaction…");
+        data = await postSend({ ...sendPayload, userOpSignature: sig });
+      }
+
       const userOpHash = data?.userOpHash || data?.userOp?.userOpHash;
       const txHash = data?.txHash ?? data?.tx_hash ?? null;
 
@@ -514,6 +539,7 @@ export default function QuickPay() {
       </form>
 
       {quoteBusy ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>Quote: loading…</div> : null}
+      {status ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>{status}</div> : null}
       {quoteError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{quoteError}</div> : null}
       {quote ? (
         <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>

@@ -46,14 +46,20 @@ function runLaneScript({ scriptName, lane, env }) {
   const stderr = result.stderr || "";
   const exitCode = typeof result.status === "number" ? result.status : null;
 
+  let json = null;
+  if (fs.existsSync(tmpFile)) {
+    const raw = fs.readFileSync(tmpFile, "utf-8");
+    json = JSON.parse(raw);
+  }
+
   if (result.error || exitCode !== 0) {
+    if (json && json.needsUserOpSignature === true) {
+      return { ...json, lane, ok: false };
+    }
     const err = new Error(`Lane ${lane} script failed: ${stderr}`.trim());
     err.details = { stdout, stderr, exitCode };
     throw err;
   }
-
-  const raw = fs.readFileSync(tmpFile, "utf-8");
-  const json = JSON.parse(raw);
 
   return {
     ok: true,
@@ -81,6 +87,7 @@ export async function sendSponsored({
   feeMode,
   speed,
   auth,
+  userOpSignature,
 }) {
   const routerAddr = String(router || process.env.ROUTER || "").trim();
   const owner = String(ownerEoa || "").trim();
@@ -164,6 +171,7 @@ export async function sendSponsored({
     FINAL_FEE: String(q.feeTokenAmount),
   };
   if (auth) env.AUTH_JSON = JSON.stringify(auth);
+  if (userOpSignature) env.USEROP_SIGNATURE = String(userOpSignature).trim();
 
   return runLaneScript({ scriptName, lane: q.lane, env });
 }
