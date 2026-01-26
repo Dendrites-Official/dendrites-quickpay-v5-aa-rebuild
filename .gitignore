@@ -38,3 +38,11 @@ Thumbs.db
 .railway/
 supabase/.temp/
 supabase/.branches/
+node_modules/
+dist/
+build/
+.vite/
+.env
+.env.*
+*.log
+.DS_Store
