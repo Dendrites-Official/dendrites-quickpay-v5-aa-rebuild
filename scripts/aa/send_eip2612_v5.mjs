@@ -4,7 +4,7 @@ import fs from "node:fs";
 
 function hexlify(value) {
   return ethers.toBeHex(value);
-}
+} 
 
 function isHexString(v) {
   return typeof v === "string" && /^0x[0-9a-fA-F]*$/.test(v) && v.length >= 2;
