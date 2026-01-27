@@ -437,13 +437,26 @@ export function registerFaucetRoutes(app) {
         return reply.code(403).send({ ok: false, error: "NOT_WAITLISTED" });
       }
 
+      const normalizedAddress = String(address).toLowerCase();
+
+      const { count: totalCount, error: totalError } = await quickpayDb
+        .from("faucet_claims")
+        .select("id", { count: "exact", head: true })
+        .eq("kind", "mdndx")
+        .eq("address", normalizedAddress);
+
+      if (totalError) return sendServerError(reply, totalError);
+      if (Number(totalCount || 0) >= 3) {
+        return reply.code(429).send({ ok: false, error: "HARD_CAP" });
+      }
+
       const cutoff = new Date(Date.now() - MDNDX_COOLDOWN_SEC * 1000);
       const { data: recent, error: recentError } = await quickpayDb
         .from("faucet_claims")
         .select("created_at")
         .eq("kind", "mdndx")
+        .eq("address", normalizedAddress)
         .gte("created_at", cutoff.toISOString())
-        .or(`address.eq.${String(address).toLowerCase()},email.eq.${normalizedEmail},ip_hash.eq.${ipHash}`)
         .order("created_at", { ascending: false })
         .limit(1);
 
@@ -502,7 +515,7 @@ export function registerFaucetRoutes(app) {
       const { error: claimError } = await quickpayDb.from("faucet_claims").insert({
         chain_id: CHAIN_ID,
         kind: "mdndx",
-        address: String(address).toLowerCase(),
+        address: normalizedAddress,
         email: normalizedEmail,
         token_address: mdndx.token,
         token_amount: dripUnits.toString(),
