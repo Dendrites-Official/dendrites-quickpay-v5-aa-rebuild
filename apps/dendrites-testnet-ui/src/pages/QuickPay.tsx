@@ -338,6 +338,8 @@ export default function QuickPay() {
         if (!ethers.isAddress(spender)) {
           throw new Error("Missing router address for Permit2");
         }
+        // Do not attempt approve here. Server will return NEEDS_APPROVE
+        // and optionally stipend ETH for first-time wallets.
         const permit2Abi = [
           {
             type: "function",
@@ -517,6 +519,42 @@ export default function QuickPay() {
       };
 
       let data = await postSend(sendPayload);
+      if (data?.code === "NEEDS_APPROVE" && data?.approve?.to && data?.approve?.data) {
+        setStatus("Approval required…");
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+        const approveTx = await signer.sendTransaction({
+          to: data.approve.to,
+          data: data.approve.data,
+        });
+        setStatus("Waiting for approval confirmation…");
+        await approveTx.wait(1);
+        if (publicClient && data?.approve?.spender) {
+          const allowanceAbi = [
+            {
+              type: "function",
+              name: "allowance",
+              stateMutability: "view",
+              inputs: [
+                { name: "owner", type: "address" },
+                { name: "spender", type: "address" },
+              ],
+              outputs: [{ name: "", type: "uint256" }],
+            },
+          ] as const;
+          const allowance = await publicClient.readContract({
+            address: data.approve.to as `0x${string}`,
+            abi: allowanceAbi,
+            functionName: "allowance",
+            args: [senderLower as `0x${string}`, data.approve.spender as `0x${string}`],
+          });
+          if (BigInt(allowance) <= 0n) {
+            throw new Error("Approval not detected on Base Sepolia. Check wallet network and try again.");
+          }
+        }
+        setStatus("Submitting sponsored transaction…");
+        data = await postSend(sendPayload);
+      }
       const needsUserOpSig =
         data?.needsUserOpSignature === true && isUserOpHash(String(data?.userOpHash || ""));
 

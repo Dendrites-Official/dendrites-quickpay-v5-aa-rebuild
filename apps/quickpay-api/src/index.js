@@ -9,6 +9,7 @@ import { resolveSmartAccount } from "./core/smartAccount.js";
 import { sendSponsored } from "./core/sendSponsored.js";
 import { sendSelfPay } from "./core/sendSelfPay.js";
 import { normalizeAddress } from "./core/normalizeAddress.js";
+import { resolveRpcUrl } from "./core/resolveRpcUrl.js";
 
 const app = Fastify({ logger: true });
 
@@ -29,7 +30,11 @@ const corsOrigins = String(process.env.CORS_ORIGIN ?? "")
   .filter(Boolean);
 const allowedOrigins = corsOrigins.length
   ? corsOrigins
-  : ["http://localhost:5173", "https://dendrites-testnet-ui.vercel.app"];
+  : [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "https://dendrites-testnet-ui.vercel.app",
+    ];
 
 await app.register(cors, {
   origin: allowedOrigins,
@@ -54,8 +59,16 @@ app.post("/quote", async (request, reply) => {
   if (!ownerEoa || !token || !to || !amount) {
     return reply.code(400).send({ ok: false, error: "missing_fields" });
   }
-  const result = await getQuote({
+  const chain = chainId ?? Number(process.env.CHAIN_ID ?? 84532);
+  const resolvedRpcUrl = await resolveRpcUrl({
     rpcUrl: process.env.RPC_URL,
+    bundlerUrl: process.env.BUNDLER_URL,
+    chainId: chain,
+  });
+  const result = await getQuote({
+    chainId: chain,
+    rpcUrl: resolvedRpcUrl,
+    bundlerUrl: process.env.BUNDLER_URL,
     paymaster: process.env.PAYMASTER_ADDRESS ?? process.env.PAYMASTER,
     factoryAddress: process.env.FACTORY,
     router: process.env.ROUTER,
@@ -102,8 +115,12 @@ app.post("/send", async (request, reply) => {
     }
 
     const chain = chainId ?? Number(process.env.CHAIN_ID ?? 84532);
-    const rpcUrl = process.env.RPC_URL;
-    const provider = new JsonRpcProvider(rpcUrl);
+    const resolvedRpcUrl = await resolveRpcUrl({
+      rpcUrl: process.env.RPC_URL,
+      bundlerUrl: process.env.BUNDLER_URL,
+      chainId: chain,
+    });
+    const provider = new JsonRpcProvider(resolvedRpcUrl);
 
     let normalizedOwnerEoa;
     let normalizedToken;
@@ -148,7 +165,7 @@ app.post("/send", async (request, reply) => {
     const factoryRaw = process.env.FACTORY ?? "";
     const factory = factoryRaw.trim();
     const smart = await resolveSmartAccount({
-      rpcUrl,
+      rpcUrl: resolvedRpcUrl,
       factoryAddress: factory,
       factorySource: "env.FACTORY",
       ownerEoa: normalizedOwnerEoa,
@@ -173,6 +190,8 @@ app.post("/send", async (request, reply) => {
     } else {
       result = await sendSponsored({
         chainId: chain,
+        rpcUrl: resolvedRpcUrl,
+        bundlerUrl: process.env.BUNDLER_URL,
         ownerEoa: normalizedOwnerEoa,
         token: normalizedToken,
         to: normalizedTo,
@@ -189,6 +208,9 @@ app.post("/send", async (request, reply) => {
       });
     }
 
+    if (result?.code === "NEEDS_APPROVE") {
+      return reply.send({ reqId, ...result });
+    }
     if (result?.needsUserOpSignature === true) {
       return reply.send({ reqId, ...result });
     }
