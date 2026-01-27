@@ -105,11 +105,15 @@ function sendValidation(reply, message) {
 }
 
 function sendServerError(reply, err) {
+  const debug = String(process.env.QUICKPAY_DEBUG || "").trim() === "1";
   const isProd = process.env.NODE_ENV === "production";
+  if (debug) {
+    console.error("Faucet error:", err);
+  }
   return reply.code(500).send({
     ok: false,
     error: "SERVER_ERROR",
-    details: isProd ? undefined : String(err?.message || err),
+    details: !isProd || debug ? String(err?.message || err) : undefined,
   });
 }
 

@@ -19,9 +19,6 @@ export default function Faucet() {
   const [configError, setConfigError] = useState("");
   const [verifyStatus, setVerifyStatus] = useState<"idle" | "verified" | "not_found">("idle");
   const [txHash, setTxHash] = useState("");
-  const [joinPassword, setJoinPassword] = useState("");
-  const [joinReferral, setJoinReferral] = useState("");
-  const [postJoinHint, setPostJoinHint] = useState("");
 
   const usdcAddress = String(config?.usdc?.address ?? import.meta.env.VITE_USDC_ADDRESS ?? DEFAULT_USDC).trim();
   const mdndxAddress = String(config?.mdndx?.address ?? import.meta.env.VITE_MDNDX_ADDRESS ?? TODO_MDNDX).trim();
@@ -32,8 +29,7 @@ export default function Faucet() {
   const statusChain = chainId ? String(chainId) : "Not available";
 
   const canVerify = Boolean(isConnected && address && mdndxReady && email.trim());
-  const canJoin = Boolean(isConnected && address && mdndxReady && email.trim());
-  const canClaim = Boolean(isConnected && address && mdndxReady && email.trim());
+  const canClaim = Boolean(isConnected && address && mdndxReady && email.trim() && verifyStatus === "verified");
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -95,7 +91,7 @@ export default function Faucet() {
     }
   };
 
-  const performClaim = async () => {
+  const handleClaim = async () => {
     setError("");
     setSuccess("");
     setTxHash("");
@@ -109,6 +105,10 @@ export default function Faucet() {
     }
     if (!mdndxReady) {
       setError("mDNDX contract address is not configured yet.");
+      return;
+    }
+    if (verifyStatus !== "verified") {
+      setError("Verify your waitlist status first.");
       return;
     }
     setLoading(true);
@@ -149,20 +149,22 @@ export default function Faucet() {
       });
       if (claim?.txHash) setTxHash(String(claim.txHash));
       setSuccess("Claim submitted successfully.");
-      return true;
     } catch (err: any) {
       const code = err?.code || err?.details?.error;
       if (code === "NOT_WAITLISTED") {
-        setError("Not on waitlist. Please Join then Verify.");
+        setError("Not on waitlist. Join at waitlist.dendrites.ai, then Verify again.");
       } else if (code === "COOLDOWN") {
         const nextAt = err?.details?.nextEligibleAt;
         setError(`Try again at ${nextAt || "later"}.`);
+      } else if (code === "HARD_CAP") {
+        setError("Claim limit reached (3 total). Try another wallet.");
       } else if (code === "INSUFFICIENT_FAUCET_INVENTORY") {
         setError("Faucet inventory low. Try later.");
+      } else if (err?.message === "SERVER_ERROR" && err?.details?.details) {
+        setError(String(err.details.details));
       } else {
         setError(err?.message || "Claim failed.");
       }
-      return false;
     } finally {
       setLoading(false);
     }
@@ -190,103 +192,10 @@ export default function Faucet() {
         setError("Not found");
       }
     } catch (err: any) {
-      setError(err?.message || "Verify failed.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleClaimFlow = async () => {
-    setError("");
-    setSuccess("");
-    setTxHash("");
-    setPostJoinHint("");
-    if (!canClaim) {
-      setError("Connect your wallet and enter email to claim.");
-      return;
-    }
-    setLoading(true);
-    try {
-      const verifyResult = await postJson("/faucet/mdndx/verify", {
-        email: email.trim(),
-        address,
-      });
-      const verified = Boolean(verifyResult?.verified);
-      setVerifyStatus(verified ? "verified" : "not_found");
-
-      if (!verified) {
-        if (!joinPassword.trim()) {
-          setError("Create a password to join the waitlist first.");
-          return;
-        }
-        await postJson("/faucet/mdndx/join", {
-          email: email.trim(),
-          password: joinPassword,
-          address,
-          referral: joinReferral.trim() || undefined,
-        });
-
-        const verifyAfterJoin = await postJson("/faucet/mdndx/verify", {
-          email: email.trim(),
-          address,
-        });
-        const joinedVerified = Boolean(verifyAfterJoin?.verified);
-        setVerifyStatus(joinedVerified ? "verified" : "not_found");
-        if (!joinedVerified) {
-          setPostJoinHint("Account created. Click Claim again in 10 seconds.");
-          return;
-        }
-      }
-    } catch (err: any) {
-      const code = err?.code || err?.details?.error;
-      if (code === "EMAIL_NOT_VERIFIED") {
-        setError("Check email to verify, then click Claim again.");
-      } else if (code === "JOIN_BLOCKED") {
-        setError("Signup blocked. Try another email.");
-      } else if (code === "INVALID_INPUT") {
-        setError("Invalid input.");
+      if (err?.message === "SERVER_ERROR" && err?.details?.details) {
+        setError(String(err.details.details));
       } else {
-        setError(err?.message || "Waitlist check failed.");
-      }
-      return;
-    } finally {
-      setLoading(false);
-    }
-
-    await performClaim();
-  };
-
-  const handleJoin = async () => {
-    setError("");
-    setSuccess("");
-    setTxHash("");
-    setPostJoinHint("");
-    if (!canJoin) {
-      setError("Connect your wallet and enter email to join.");
-      return;
-    }
-    setLoading(true);
-    try {
-      await postJson("/faucet/mdndx/join", {
-        email: email.trim(),
-        password: joinPassword,
-        address,
-        referral: joinReferral.trim() || undefined,
-      });
-      await handleVerify();
-      if (verifyStatus !== "verified") {
-        setPostJoinHint("Account created. Click Verify again in 10 seconds.");
-      }
-    } catch (err: any) {
-      const code = err?.code || err?.details?.error;
-      if (code === "EMAIL_NOT_VERIFIED") {
-        setError("Check email to verify, then click Verify again.");
-      } else if (code === "JOIN_BLOCKED") {
-        setError("Signup blocked. Try another email.");
-      } else if (code === "INVALID_INPUT") {
-        setError("Invalid input.");
-      } else {
-        setError(err?.message || "Join failed.");
+        setError(err?.message || "Verify failed.");
       }
     } finally {
       setLoading(false);
@@ -385,9 +294,14 @@ export default function Faucet() {
             {configLoading ? <div style={{ color: "#bdbdbd" }}>Loading faucet config...</div> : null}
             {configError ? <div style={{ color: "#ff7a7a" }}>{configError}</div> : null}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <button onClick={handleClaimFlow} disabled={!canClaim || loading}>
-                Claim {mdndxDripLabel} mDNDX
+              <button onClick={handleVerify} disabled={!canVerify || loading}>
+                Verify waitlist status
               </button>
+              {verifyStatus === "verified" ? (
+                <button onClick={handleClaim} disabled={!canClaim || loading}>
+                  Claim {mdndxDripLabel} mDNDX
+                </button>
+              ) : null}
               <button
                 onClick={() => handleAddToken({ address: mdndxAddress, symbol: "mDNDX", decimals: 18 })}
                 disabled={!mdndxReady || loading}
@@ -405,40 +319,13 @@ export default function Faucet() {
               <div style={{ color: "#7aff9a" }}>✅ Verified</div>
             ) : null}
             {verifyStatus === "not_found" ? (
-              <div style={{ color: "#ffb74d" }}>Not found</div>
-            ) : null}
-            <div style={{ marginTop: 8, display: "grid", gap: 8, maxWidth: 360 }}>
-              <div style={{ color: "#bdbdbd", fontSize: 12 }}>
-                New user? Add a password (used to join the waitlist).
+              <div style={{ color: "#ffb74d" }}>
+                Not found. Join the waitlist at{" "}
+                <a href="https://waitlist.dendrites.ai" target="_blank" rel="noreferrer">
+                  waitlist.dendrites.ai
+                </a>
+                , then click Verify again.
               </div>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span>Password</span>
-                <input
-                  type="password"
-                  value={joinPassword}
-                  onChange={(e) => setJoinPassword(e.target.value)}
-                  placeholder="Create a password"
-                  style={{ padding: 8 }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span>Referral code (optional)</span>
-                <input
-                  value={joinReferral}
-                  onChange={(e) => setJoinReferral(e.target.value)}
-                  placeholder="Referral code"
-                  style={{ padding: 8 }}
-                />
-              </label>
-              <button onClick={handleVerify} disabled={!canVerify || loading}>
-                Verify waitlist status
-              </button>
-              <button onClick={handleJoin} disabled={!canJoin || loading || !joinPassword.trim()}>
-                Join waitlist only
-              </button>
-            </div>
-            {postJoinHint ? (
-              <div style={{ color: "#bdbdbd", marginTop: 6 }}>{postJoinHint}</div>
             ) : null}
             {txHash ? (
               <div style={{ color: "#bdbdbd" }}>Tx: {txHash}</div>
