@@ -10,6 +10,7 @@ import { sendSponsored } from "./core/sendSponsored.js";
 import { sendSelfPay } from "./core/sendSelfPay.js";
 import { normalizeAddress } from "./core/normalizeAddress.js";
 import { resolveRpcUrl } from "./core/resolveRpcUrl.js";
+import { registerFaucetRoutes } from "./routes/faucet.js";
 
 const app = Fastify({ logger: true });
 
@@ -47,6 +48,8 @@ await app.register(cors, {
 const supabaseUrl = process.env.SUPABASE_URL || "";
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseServiceRole);
+
+registerFaucetRoutes(app);
 
 app.get("/health", async () => ({
   ok: true,

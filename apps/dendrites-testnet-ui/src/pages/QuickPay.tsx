@@ -36,6 +36,17 @@ export default function QuickPay() {
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<any>(null);
   const [status, setStatus] = useState("");
+  const [phase, setPhase] = useState<
+    | "idle"
+    | "approve"
+    | "permit2"
+    | "eip3009"
+    | "eip2612"
+    | "userop"
+    | "send"
+    | "done"
+    | "error"
+  >("idle");
 
   const isValidAddress = (value: string) => /^0x[0-9a-fA-F]{40}$/.test(value);
   const isUserOpHash = (value: string) => /^0x[0-9a-fA-F]{64}$/.test(value);
@@ -59,13 +70,13 @@ export default function QuickPay() {
       {
         value: "weth",
         label: "WETH (Base Sepolia)",
-        address: "",
+        address: "0x4200000000000000000000000000000000000006",
         decimals: 18,
       },
       {
         value: "aero",
-        label: "AERO",
-        address: "",
+        label: "AERO (Base mainnet)",
+        address: "0x940181a94A35A4569E4529A3CDfB74e38FD98631",
         decimals: 18,
       },
       {
@@ -252,6 +263,7 @@ export default function QuickPay() {
     setError("");
     setStatus("");
     setReceipt(null);
+    setPhase("idle");
     let receiptId: string | null = null;
     try {
       const chainId = 84532;
@@ -268,6 +280,7 @@ export default function QuickPay() {
       let auth: any = null;
       let eip3009Router: string | undefined;
       if (mode === "SPONSORED" && lane === "EIP3009") {
+        setPhase("eip3009");
         const routerAddr = String(activeQuote?.router ?? getQuickPayChainConfig(chainId)?.router ?? "");
         if (!ethers.isAddress(routerAddr)) {
           setError("Missing router address for EIP3009");
@@ -329,7 +342,75 @@ export default function QuickPay() {
         const signature = await signTypedDataAsync(typedData);
         auth = { type: "EIP3009", ...typedData.message, signature };
       }
+      if (mode === "SPONSORED" && lane === "EIP2612") {
+        setPhase("eip2612");
+        const routerAddr = String(activeQuote?.router ?? getQuickPayChainConfig(chainId)?.router ?? "");
+        if (!ethers.isAddress(routerAddr)) {
+          setError("Missing router address for EIP2612");
+          setLoading(false);
+          return;
+        }
+        const permitAbi = [
+          { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+          { type: "function", name: "version", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+          { type: "function", name: "nonces", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+        ] as const;
+        let tokenName = "Token";
+        let tokenVersion = "1";
+        let nonce = 0n;
+        try {
+          tokenName = await publicClient.readContract({
+            address: token as `0x${string}`,
+            abi: permitAbi,
+            functionName: "name",
+          });
+        } catch {}
+        try {
+          tokenVersion = await publicClient.readContract({
+            address: token as `0x${string}`,
+            abi: permitAbi,
+            functionName: "version",
+          });
+        } catch {}
+        try {
+          nonce = await publicClient.readContract({
+            address: token as `0x${string}`,
+            abi: permitAbi,
+            functionName: "nonces",
+            args: [senderLower as `0x${string}`],
+          });
+        } catch {}
+        const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
+        const typedData = {
+          domain: {
+            name: tokenName,
+            version: tokenVersion,
+            chainId,
+            verifyingContract: token,
+          },
+          types: {
+            Permit: [
+              { name: "owner", type: "address" },
+              { name: "spender", type: "address" },
+              { name: "value", type: "uint256" },
+              { name: "nonce", type: "uint256" },
+              { name: "deadline", type: "uint256" },
+            ],
+          },
+          primaryType: "Permit",
+          message: {
+            owner: senderLower,
+            spender: routerAddr,
+            value: BigInt(amountRaw),
+            nonce: BigInt(nonce),
+            deadline: BigInt(deadline),
+          },
+        } as const;
+        const signature = await signTypedDataAsync(typedData);
+        auth = { type: "EIP2612", ...typedData.message, signature };
+      }
       if (mode === "SPONSORED" && lane === "PERMIT2") {
+        setPhase("permit2");
         const permit2Address = String(activeQuote?.permit2 ?? "0x000000000022D473030F116dDEE9F6B43aC78BA3");
         const spender = String(activeQuote?.router ?? "");
         if (!ethers.isAddress(permit2Address)) {
@@ -434,6 +515,7 @@ export default function QuickPay() {
       }
 
       if (mode === "SELF_PAY") {
+        setPhase("send");
         setStatus("Sending wallet transaction…");
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();
@@ -520,7 +602,8 @@ export default function QuickPay() {
 
       let data = await postSend(sendPayload);
       if (data?.code === "NEEDS_APPROVE" && data?.approve?.to && data?.approve?.data) {
-        setStatus("Approval required…");
+        setPhase("approve");
+        setStatus("Approval required (popup 1 of 2)…");
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();
         const approveTx = await signer.sendTransaction({
@@ -552,6 +635,7 @@ export default function QuickPay() {
             throw new Error("Approval not detected on Base Sepolia. Check wallet network and try again.");
           }
         }
+        setPhase("send");
         setStatus("Submitting sponsored transaction…");
         data = await postSend(sendPayload);
       }
@@ -559,7 +643,8 @@ export default function QuickPay() {
         data?.needsUserOpSignature === true && isUserOpHash(String(data?.userOpHash || ""));
 
       if (needsUserOpSig && !sendPayload.userOpSignature) {
-        setStatus("Waiting for wallet signature (UserOp)…");
+        setPhase("userop");
+        setStatus("Waiting for wallet signature (popup 2 of 2)…");
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         let sig: string;
         try {
@@ -580,9 +665,11 @@ export default function QuickPay() {
         });
         if (!data?.userOpDraft) {
           setError("Missing userOpDraft from server response.");
+          setPhase("error");
           setLoading(false);
           return;
         }
+        setPhase("send");
         setStatus("Submitting sponsored transaction…");
         data = await postSend({ ...sendPayload, userOpSignature: sig, userOpDraft: data.userOpDraft });
       }
@@ -598,19 +685,23 @@ export default function QuickPay() {
 
       if (receiptId) {
         navigate(`/r/${receiptId}`);
+        setPhase("done");
         return;
       }
       if (userOpHash) {
         navigate(`/receipts?uop=${userOpHash}`);
+        setPhase("done");
         return;
       }
       if (txHash) {
         navigate(`/receipts?tx=${txHash}`);
+        setPhase("done");
         return;
       }
       if (data) setReceipt(data);
     } catch (err: any) {
       setError(err?.message || "Failed to send");
+      setPhase("error");
       if (receiptId) {
         updateReceiptStatus(receiptId, "FAILED").catch(() => undefined);
       }
@@ -742,6 +833,56 @@ export default function QuickPay() {
 
       {quoteBusy ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>Quote: loading…</div> : null}
       {status ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>{status}</div> : null}
+      {loading ? (
+        <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Guided steps</div>
+          {mode === "SPONSORED" ? (
+            <div style={{ color: "#bdbdbd", marginBottom: 8 }}>
+              First-time send may show extra MetaMask popups.
+            </div>
+          ) : (
+            <div style={{ color: "#bdbdbd", marginBottom: 8 }}>
+              You’ll confirm a normal wallet transfer.
+            </div>
+          )}
+          <ol style={{ margin: 0, paddingLeft: 20, color: "#d6d6d6" }}>
+            {mode === "SELF_PAY" ? (
+              <li style={{ fontWeight: phase === "send" ? 700 : 400 }}>
+                Confirm wallet transfer
+              </li>
+            ) : (
+              <>
+                {Array.isArray(quote?.setupNeeded) && quote?.setupNeeded?.includes("permit2_allowance_missing") && ( 
+                  <li style={{ marginBottom: 6, fontWeight: phase === "approve" ? 700 : 400 }}>
+                    Approve token for Permit2
+                  </li>
+                )}
+                {String(quote?.lane ?? "").toUpperCase() === "PERMIT2" ? (
+                  <li style={{ marginBottom: 6, fontWeight: phase === "permit2" ? 700 : 400 }}>
+                    Sign Permit2 authorization
+                  </li>
+                ) : null}
+                {String(quote?.lane ?? "").toUpperCase() === "EIP3009" ? (
+                  <li style={{ marginBottom: 6, fontWeight: phase === "eip3009" ? 700 : 400 }}>
+                    Sign EIP‑3009 authorization
+                  </li>
+                ) : null}
+                {String(quote?.lane ?? "").toUpperCase() === "EIP2612" ? (
+                  <li style={{ marginBottom: 6, fontWeight: phase === "eip2612" ? 700 : 400 }}>
+                    Sign EIP‑2612 permit
+                  </li>
+                ) : null}
+                <li style={{ marginBottom: 6, fontWeight: phase === "userop" ? 700 : 400 }}>
+                  Sign send request
+                </li>
+                <li style={{ fontWeight: phase === "send" ? 700 : 400 }}>
+                  Sending transaction
+                </li>
+              </>
+            )}
+          </ol>
+        </div>
+      ) : null}
       {quoteError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{quoteError}</div> : null}
       {quote && quote.lane !== "SELF_PAY" ? (
         <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>
@@ -756,9 +897,17 @@ export default function QuickPay() {
               ? quote.setupNeeded.join(", ")
               : "none"}
           </div>
+          {Array.isArray(quote.setupNeeded) && quote.setupNeeded.includes("permit2_allowance_missing") ? (
+            <div style={{ marginTop: 8, color: "#bdbdbd" }}>
+              First-time send: we’ll fund gas if needed, then ask you to approve once.
+            </div>
+          ) : null}
           <div>
             <strong>First-time surcharge:</strong>{" "}
             {quote.firstTxSurchargePaid ? "already paid" : "applied"}
+          </div>
+          <div style={{ marginTop: 6, color: "#bdbdbd" }}>
+            Surcharge applies only on the first sponsored send per smart account. After a confirmed send, it should drop to $0.00.
           </div>
         </div>
       ) : null}
@@ -782,13 +931,31 @@ export default function QuickPay() {
             <div style={{ color: "#ff7a7a" }}>{selfPayGasError}</div>
           ) : null}
           <div>
-            <strong>Fee USD:</strong>{" "}
+            <strong>Fee USD (total):</strong>{" "}
             {`$${(Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)}`}
           </div>
+          {quote.lane !== "SELF_PAY" ? (
+            <div>
+              <strong>Baseline USD:</strong>{" "}
+              {`$${(Number(quote.baselineUsd6 ?? 0) / 1e6).toFixed(6)}`}
+            </div>
+          ) : null}
+          {quote.lane !== "SELF_PAY" ? (
+            <div>
+              <strong>Surcharge USD:</strong>{" "}
+              {`$${(Number(quote.surchargeUsd6 ?? 0) / 1e6).toFixed(6)}`}
+            </div>
+          ) : null}
           <div>
-            <strong>Fee token:</strong>{" "}
+            <strong>Fee token amount:</strong>{" "}
             {quote.feeTokenAmount ? ethers.formatUnits(quote.feeTokenAmount, decimals) : "0"}
           </div>
+          {quote.lane !== "SELF_PAY" ? (
+            <div>
+              <strong>Fee token:</strong>{" "}
+              {quote.feeTokenMode === "same" ? "same as send token" : quote.feeTokenMode || "—"}
+            </div>
+          ) : null}
           <div>
             <strong>Net token:</strong>{" "}
             {quote.netAmount || quote.netAmountRaw

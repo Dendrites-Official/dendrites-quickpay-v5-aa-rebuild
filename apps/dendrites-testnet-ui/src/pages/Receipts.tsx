@@ -104,7 +104,7 @@ export default function Receipts() {
       <h2>Receipts</h2>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <input
-          style={{ minWidth: 360, padding: 8 }}
+          style={{ width: "100%", maxWidth: 420, padding: 8 }}
           placeholder="Receipt ID / UserOpHash / TxHash"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
