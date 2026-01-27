@@ -56,7 +56,12 @@ function getSaltOrThrow() {
 }
 
 function getMdndxConfig() {
-  const token = String(process.env.FAUCET_MDNDX_TOKEN || "").trim();
+  const token = String(
+    process.env.FAUCET_MDNDX_TOKEN ||
+      process.env.MDNDX ||
+      process.env.MDNDX_TOKEN ||
+      ""
+  ).trim();
   const decimalsRaw = String(process.env.FAUCET_MDNDX_DECIMALS || "").trim();
   const decimals = Number(decimalsRaw || "18");
   const dripUnitsRaw = String(process.env.FAUCET_MDNDX_DRIP_UNITS || "").trim();
