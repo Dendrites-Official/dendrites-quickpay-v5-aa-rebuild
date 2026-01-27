@@ -24,10 +24,33 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
+  display: block;
   min-width: 320px;
   min-height: 100vh;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+input, select, textarea {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+  background-color: #1b1b1b;
+  color: inherit;
+}
+
+textarea {
+  resize: vertical;
+}
+
+@media (max-width: 640px) {
+  body {
+    padding: 12px;
+  }
 }
 
 h1 {

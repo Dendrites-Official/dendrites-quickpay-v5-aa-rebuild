@@ -109,7 +109,7 @@ export default function ReceiptsList() {
       <h2>Receipts Explorer</h2>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <input
-          style={{ minWidth: 320, padding: 8 }}
+          style={{ width: "100%", maxWidth: 420, padding: 8 }}
           placeholder="Search receiptId / txHash / userOpHash"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
