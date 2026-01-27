@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getQuote } from "./quote.js";
 import { normalizeSpeed } from "./normalizeSpeed.js";
+import { resolveRpcUrl } from "./resolveRpcUrl.js";
 
 function isAddr(x) {
   return typeof x === "string" && ethers.isAddress(x.trim());
@@ -89,6 +90,109 @@ function runLaneScript({ scriptName, lane, env }) {
   };
 }
 
+const PERMIT2_ALLOWANCE_ABI = [
+  "function allowance(address owner,address token,address spender) view returns (uint160 amount,uint48 expiration,uint48 nonce)",
+];
+
+const ERC20_ALLOWANCE_ABI = [
+  "function allowance(address owner,address spender) view returns (uint256)",
+];
+
+const ERC20_BALANCE_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+];
+
+const APPROVE_GAS_FALLBACK = 65000n;
+const MAX_FEE_FALLBACK = 2_000_000_000n; // 2 gwei
+
+function parseList(value) {
+  return new Set(
+    String(value ?? "")
+      .split(",")
+      .map((v) => v.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+async function estimateApproveCost({ provider, owner, token, spender }) {
+  try {
+    const erc20 = new ethers.Contract(token, ["function approve(address spender,uint256 value)"], provider);
+    const gas = await erc20.approve.estimateGas(spender, ethers.MaxUint256, { from: owner });
+    const feeData = await provider.getFeeData();
+    const maxFeePerGas = feeData.maxFeePerGas ?? feeData.gasPrice ?? MAX_FEE_FALLBACK;
+    return BigInt(gas) * BigInt(maxFeePerGas);
+  } catch {
+    return APPROVE_GAS_FALLBACK * MAX_FEE_FALLBACK;
+  }
+}
+
+async function maybeNeedsApprove({
+  provider,
+  owner,
+  token,
+  permit2Addr,
+  amount,
+  funderPk,
+}) {
+  const tokenContract = new ethers.Contract(token, ERC20_ALLOWANCE_ABI, provider);
+  const erc20Allowance = await tokenContract.allowance(owner, permit2Addr);
+  if (BigInt(erc20Allowance ?? 0n) >= BigInt(amount)) return null;
+
+  const balContract = new ethers.Contract(token, ERC20_BALANCE_ABI, provider);
+  const ownerBal = await balContract.balanceOf(owner);
+  if (BigInt(ownerBal ?? 0n) < BigInt(amount)) {
+    const err = new Error("INSUFFICIENT_TOKEN_BALANCE");
+    err.status = 400;
+    err.code = "BALANCE_TOO_LOW";
+    err.details = { required: String(amount), balance: String(ownerBal ?? "0") };
+    throw err;
+  }
+
+  const ethBal = await provider.getBalance(owner);
+  const ethNeeded = await estimateApproveCost({
+    provider,
+    owner,
+    token,
+    spender: permit2Addr,
+  });
+  let stipendTxHash = null;
+  if (ethBal < ethNeeded) {
+    if (!funderPk) {
+      const err = new Error("Missing stipend funder key");
+      err.status = 400;
+      err.code = "MISSING_STIPEND_FUNDER_KEY";
+      throw err;
+    }
+
+    const stipendWei = BigInt(process.env.STIPEND_WEI || "120000000000000");
+    const funder = new ethers.Wallet(funderPk, provider);
+    const stipendTx = await funder.sendTransaction({ to: owner, value: stipendWei });
+    await stipendTx.wait(1);
+    stipendTxHash = stipendTx.hash;
+  }
+
+  const approveIface = new ethers.Interface([
+    "function approve(address spender,uint256 value) returns (bool)",
+  ]);
+  const approveData = approveIface.encodeFunctionData("approve", [permit2Addr, ethers.MaxUint256]);
+
+  return {
+    ok: false,
+    code: "NEEDS_APPROVE",
+    setupNeeded: ["permit2_allowance_missing"],
+    approve: {
+      token,
+      spender: permit2Addr,
+      amount: ethers.MaxUint256.toString(),
+      to: token,
+      data: approveData,
+    },
+    stipendTxHash,
+    next: { endpoint: "/send", requires: "approveConfirmed" },
+  };
+}
+
+
 export async function sendSponsored({
   chainId,
   rpcUrl,
@@ -131,6 +235,32 @@ export async function sendSponsored({
     if (!isAddr(v)) throw new Error(`Invalid ${k} address: "${v}"`);
   }
   if (!/^\d+$/.test(amt)) throw new Error(`Invalid amount (must be uint string): "${amt}"`);
+
+  const resolvedRpc = await resolveRpcUrl({ rpcUrl: rpc, bundlerUrl, chainId });
+  const provider = new ethers.JsonRpcProvider(resolvedRpc);
+
+  const permit2Addr = String(process.env.PERMIT2 || "").trim();
+  const funderPk = String(
+    process.env.STIPEND_FUNDER_PRIVATE_KEY || process.env.TESTNET_RELAYER_PRIVATE_KEY || ""
+  ).trim();
+  const eip3009Set = parseList(process.env.EIP3009_TOKENS);
+  const eip2612Set = parseList(process.env.EIP2612_TOKENS);
+  const tokenLower = tokenAddr.toLowerCase();
+  const lane = eip3009Set.has(tokenLower) ? "EIP3009" : eip2612Set.has(tokenLower) ? "EIP2612" : "PERMIT2";
+
+  if (lane === "PERMIT2" && permit2Addr && ethers.isAddress(permit2Addr)) {
+    const preflight = await maybeNeedsApprove({
+      provider,
+      owner,
+      token: tokenAddr,
+      permit2Addr,
+      amount: amt,
+      funderPk,
+    });
+    if (preflight) {
+      return preflight;
+    }
+  }
 
   if (userOpDraft && userOpSignature) {
     console.log(
@@ -224,9 +354,26 @@ export async function sendSponsored({
     else if (draftLane === "EIP2612") scriptName = "send_eip2612_v5.mjs";
     else throw new Error(`Unsupported lane for this send endpoint: ${draftLane}`);
 
+    if (draftLane === "PERMIT2") {
+      if (!permit2Addr || !ethers.isAddress(permit2Addr)) {
+        throw new Error("Missing PERMIT2 env address");
+      }
+      const preflight = await maybeNeedsApprove({
+        provider,
+        owner,
+        token: tokenAddr,
+        permit2Addr,
+        amount: amt,
+        funderPk,
+      });
+      if (preflight) {
+        return preflight;
+      }
+    }
+
     const env = {
       ...process.env,
-      RPC_URL: rpc,
+      RPC_URL: resolvedRpc,
       BUNDLER_URL: bundlerUrl || process.env.BUNDLER_URL,
       CHAIN_ID: String(chainId),
       ENTRYPOINT: entryPoint || process.env.ENTRYPOINT,
@@ -255,7 +402,7 @@ export async function sendSponsored({
 
   const q = await getQuote({
     chainId,
-    rpcUrl: rpc,
+    rpcUrl: resolvedRpc,
     bundlerUrl,
     entryPoint,
     router: routerAddr,
@@ -292,6 +439,23 @@ export async function sendSponsored({
     }
   }
 
+  if (q.lane === "PERMIT2") {
+    if (!permit2Addr || !ethers.isAddress(permit2Addr)) {
+      throw new Error("Missing PERMIT2 env address");
+    }
+    const preflight = await maybeNeedsApprove({
+      provider,
+      owner,
+      token: tokenAddr,
+      permit2Addr,
+      amount: amt,
+      funderPk,
+    });
+    if (preflight) {
+      return preflight;
+    }
+  }
+
   let scriptName;
   if (q.lane === "EIP3009") scriptName = "send_eip3009_v5.mjs";
   else if (q.lane === "PERMIT2") scriptName = "send_permit2_v5.mjs";
@@ -308,7 +472,7 @@ export async function sendSponsored({
 
   const env = {
     ...process.env,
-    RPC_URL: rpc,
+    RPC_URL: resolvedRpc,
     BUNDLER_URL: bundlerUrl || process.env.BUNDLER_URL,
     CHAIN_ID: String(chainId),
     ENTRYPOINT: entryPoint || process.env.ENTRYPOINT,

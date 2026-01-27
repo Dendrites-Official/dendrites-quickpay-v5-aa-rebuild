@@ -395,7 +395,7 @@ contract QuickPayV5Paymaster is BasePaymaster {
             require(block.timestamp <= validUntil, "QuickPayV5Paymaster: expired");
         }
 
-        // Parse SimpleAccount.execute(dest,value,inner)
+        // Parse SimpleAccount.execute(...) for activate lanes.
         bytes calldata cd = userOp.callData;
         require(cd.length >= 4, "QuickPayV5Paymaster: callData too short");
 
@@ -403,9 +403,14 @@ contract QuickPayV5Paymaster is BasePaymaster {
         assembly {
             sel := calldataload(cd.offset)
         }
-        require(sel == 0xb61d27f6, "QuickPayV5Paymaster: not execute()");
 
-        (address dest, uint256 value, bytes memory func) = abi.decode(cd[4:], (address, uint256, bytes));
+        address dest;
+        uint256 value;
+        bytes memory func;
+        if (mode != 0) {
+            require(sel == 0xb61d27f6, "QuickPayV5Paymaster: not execute()");
+            (dest, value, func) = abi.decode(cd[4:], (address, uint256, bytes));
+        }
 
         if (mode == 2) {
             // ACTIVATE_STIPEND: execute(router, 0, activatePermit2Stipend(...))
@@ -464,6 +469,7 @@ contract QuickPayV5Paymaster is BasePaymaster {
             return (context, validationData);
         }
 
+        // mode == 0: SEND (allow execute or executeBatch)
         (address token, uint256 amount, uint256 finalFee) = _parseAndValidateRouterCall(userOp, feeToken);
         _computeAndValidateFee(userOp.sender, mode, speed, feeToken, maxFeeUsd6, token, amount, finalFee);
 

@@ -1010,173 +1010,47 @@ async function main(options = {}) {
     }
 
     const allowanceErc20 = await tokenContract.allowance(ownerEoa, permit2Address);
-    const permit2Abi = [
-      "function allowance(address owner,address token,address spender) view returns (uint160,uint48,uint48)",
-      "function approve(address token,address spender,uint160 amount,uint48 expiration)",
-    ];
-    const permit2 = new ethers.Contract(permit2Address, permit2Abi, publicRpc);
-    const [permit2Amount, permit2Exp] = await permit2.allowance(ownerEoa, token, router);
-
-    const nowUnix = BigInt(Math.floor(Date.now() / 1000));
-    const hasTokenApprove = BigInt(allowanceErc20) > 0n;
-    const hasPermit2Approve = BigInt(permit2Amount) > 0n && BigInt(permit2Exp) > nowUnix;
-    const needsSetup = !(hasTokenApprove && hasPermit2Approve);
+    const hasTokenApprove = BigInt(allowanceErc20) >= required;
+    const needsSetup = !hasTokenApprove;
 
     emitUx("PERMIT2_SETUP_STATUS", {
       hasTokenApprove,
-      hasPermit2Approve,
       tokenAllowance: allowanceErc20.toString(),
-      permit2Amount: permit2Amount.toString(),
-      permit2Expiration: permit2Exp.toString(),
       needsSetup,
     });
 
     if (needsSetup) {
       emitUx("SETUP_REQUIRED", { type: "PERMIT2_SETUP" });
 
-      const autoSetupPermit2 = process.env.AUTO_SETUP_PERMIT2 === "1";
-      const autoStipendPermit2 = process.env.AUTO_STIPEND_PERMIT2 === "1";
-      const MIN_OWNER_ETH_FOR_SETUP_WEI = BigInt(process.env.STIPEND_WEI || "120000000000000");
-      const MAX_WAIT_MS = 65000;
-
-      if (needsSetup && autoSetupPermit2 && ownerEthBalWei < MIN_OWNER_ETH_FOR_SETUP_WEI && !autoStipendPermit2) {
-        emitUx("PERMIT2_STIPEND_REQUIRED_BUT_DISABLED", {
-          owner: ownerEoa,
-          ownerEthBalWei: ownerEthBalWei.toString(),
-          targetWei: MIN_OWNER_ETH_FOR_SETUP_WEI.toString(),
-        });
-        throw new Error("PERMIT2_STIPEND_REQUIRED_BUT_DISABLED");
+      if (mustUseEip3009 || mustUseEip2612) {
+        throw new Error("CANONICAL_VIOLATION: stipend forbidden for supported token lanes");
       }
 
-      if (!autoSetupPermit2) {
-        result.lane.reasons.push("PERMIT2_SETUP_REQUIRED");
-        console.log("REASON=PERMIT2_SETUP_REQUIRED");
-        return result;
+      const stipendWei = BigInt(process.env.STIPEND_WEI || "120000000000000");
+      const funderPk =
+        (process.env.STIPEND_FUNDER_PRIVATE_KEY || process.env.TESTNET_RELAYER_PRIVATE_KEY || "").trim();
+      if (!funderPk) {
+        throw new Error("MISSING_STIPEND_FUNDER_PRIVATE_KEY");
       }
 
-      if (needsSetup && autoSetupPermit2 && autoStipendPermit2) {
-        if (ownerEthBalWei < MIN_OWNER_ETH_FOR_SETUP_WEI) {
-          emitUx("PERMIT2_STIPEND_BEFORE_SETUP", { ownerEthBalWei: ownerEthBalWei.toString() });
-          const stipendRes = spawnSync("node", ["scripts/aa/activate_permit2_stipend_v5.mjs"], {
-            stdio: ["ignore", "pipe", "pipe"],
-            encoding: "utf8",
-            env: { ...process.env },
-          });
-          if (stipendRes.stdout) process.stdout.write(stipendRes.stdout);
-          if (stipendRes.stderr) process.stderr.write(stipendRes.stderr);
-          if (stipendRes.status !== 0) {
-            const outText = String(stipendRes.stdout || "");
-            const errText = String(stipendRes.stderr || "");
-            const tailLines = `${outText}\n${errText}`
-              .split(/\r?\n/)
-              .filter(Boolean)
-              .slice(-6)
-              .join("\n");
-            console.error("ERROR=PERMIT2_STIPEND_FAILED");
-            if (tailLines) console.error(tailLines);
-            process.exit(1);
-          }
+      const funder = new ethers.Wallet(funderPk, publicRpc);
+      const stipendTx = await funder.sendTransaction({ to: ownerEoa, value: stipendWei });
+      console.log(`STIPEND_SENT txHash=${stipendTx.hash}`);
+      await stipendTx.wait(1);
+      ownerEthBalWei = await publicRpc.getBalance(ownerEoa);
+      console.log(`STIPEND_CONFIRMED balanceWei=${ownerEthBalWei}`);
 
-          const stdoutText = String(stipendRes.stdout || "");
-          const patterns = [
-            /ACTIVATE_STIPEND_USEROP_HASH=(0x[0-9a-fA-F]{64})/,
-            /TX_SENT_USEROP=(0x[0-9a-fA-F]{64})/,
-            /USEROP_HASH=(0x[0-9a-fA-F]{64})/,
-          ];
-          for (const pattern of patterns) {
-            const match = stdoutText.match(pattern);
-            if (match) {
-              stipendUserOpHash = match[1];
-              break;
-            }
-          }
-
-          emitUx("PERMIT2_STIPEND_WAIT_START", {
-            owner: ownerEoa,
-            targetWei: MIN_OWNER_ETH_FOR_SETUP_WEI.toString(),
-            timeoutMs: String(MAX_WAIT_MS),
-            stipendUserOpHash: stipendUserOpHash || "",
-          });
-          ownerEthBalWei = await waitForStipendSettlement({
-            provider: publicRpc,
-            owner: ownerEoa,
-            targetWei: MIN_OWNER_ETH_FOR_SETUP_WEI,
-            timeoutMs: MAX_WAIT_MS,
-            stipendUserOpHash: stipendUserOpHash || "",
-          });
-          emitUx("OWNER_BAL_AFTER_STIPEND", { ownerEthBalWei: ownerEthBalWei.toString() });
-          result.ownerSender.ownerEthBalWei = ownerEthBalWei.toString();
-        } else {
-          emitUx("PERMIT2_STIPEND_SKIP", { ownerEthBalWei: ownerEthBalWei.toString() });
-        }
+      if (!ownerPk) {
+        throw new Error("MISSING_PRIVATE_KEY_TEST_USER");
       }
-
-      const setupJsonPath = "out/permit2_setup_last.json";
-      const res = spawnSync("node", ["scripts/aa/activate_permit2_setup_v5.mjs", "--token", token, "--json-out", setupJsonPath], {
-        stdio: ["ignore", "pipe", "pipe"],
-        encoding: "utf8",
-        env: { ...process.env },
-      });
-      if (res.stdout) process.stdout.write(res.stdout);
-      if (res.stderr) process.stderr.write(res.stderr);
-      if (res.status !== 0) {
-        result.lane.reasons.push("PERMIT2_SETUP_FAILED");
-        return result;
-      }
-
-      try {
-        const raw = fs.readFileSync(setupJsonPath, "utf8");
-        const parsed = JSON.parse(raw);
-        tokenApproveTxHash = parsed?.tokenApproveTxHash || tokenApproveTxHash;
-        permit2ApproveTxHash = parsed?.permit2ApproveTxHash || permit2ApproveTxHash;
-      } catch {
-        // ignore json read errors
-      }
-
-      let allowanceErc20After = 0n;
-      let permit2AmountAfter = 0n;
-      let permit2ExpAfter = 0n;
-      let hasTokenApproveAfter = false;
-      let hasPermit2ApproveAfter = false;
-      let blockTag = undefined;
-      try {
-        if (tokenApproveTxHash && tokenApproveTxHash !== "none") {
-          const tx = await publicRpc.getTransactionReceipt(tokenApproveTxHash);
-          if (tx?.blockNumber != null) blockTag = tx.blockNumber;
-        }
-        if (permit2ApproveTxHash && permit2ApproveTxHash !== "none") {
-          const tx = await publicRpc.getTransactionReceipt(permit2ApproveTxHash);
-          if (tx?.blockNumber != null) blockTag = Math.max(blockTag ?? 0, tx.blockNumber);
-        }
-      } catch {
-        blockTag = undefined;
-      }
-
-      for (let i = 0; i < 5; i += 1) {
-        try {
-          allowanceErc20After = await tokenContract.allowance(ownerEoa, permit2Address, { blockTag });
-        } catch {
-          blockTag = undefined;
-          allowanceErc20After = await tokenContract.allowance(ownerEoa, permit2Address);
-        }
-        try {
-          [permit2AmountAfter, permit2ExpAfter] = await permit2.allowance(ownerEoa, token, router, { blockTag });
-        } catch {
-          blockTag = undefined;
-          [permit2AmountAfter, permit2ExpAfter] = await permit2.allowance(ownerEoa, token, router);
-        }
-        hasTokenApproveAfter = BigInt(allowanceErc20After) > 0n;
-        hasPermit2ApproveAfter =
-          BigInt(permit2AmountAfter) > 0n && BigInt(permit2ExpAfter) > BigInt(Math.floor(Date.now() / 1000));
-        if (hasTokenApproveAfter && hasPermit2ApproveAfter) break;
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-
-      if (!(hasTokenApproveAfter && hasPermit2ApproveAfter)) {
-        result.lane.reasons.push("PERMIT2_ALLOWANCE_STILL_LOW");
-        console.log("REASON=PERMIT2_ALLOWANCE_STILL_LOW");
-        return result;
-      }
+      const ownerSigner = new ethers.Wallet(ownerPk, publicRpc);
+      const tokenWithSigner = tokenContract.connect(ownerSigner);
+      const approveTx = await tokenWithSigner.approve(permit2Address, ethers.MaxUint256);
+      console.log(`PERMIT2_APPROVE_SENT txHash=${approveTx.hash}`);
+      await approveTx.wait(1);
+      const allowanceAfter = await tokenContract.allowance(ownerEoa, permit2Address);
+      console.log(`PERMIT2_APPROVE_CONFIRMED allowance=${allowanceAfter}`);
+      tokenApproveTxHash = approveTx.hash;
     }
 
     console.log(`USING_FINAL_FEE=${finalFeeTokenAmount} (source=paymaster_quote)`);
@@ -1210,7 +1084,10 @@ async function main(options = {}) {
     if (res.stderr) process.stderr.write(res.stderr);
     userOpHash = extractUserOpHash(res.stdout || "");
     result.userOp.userOpHash = userOpHash;
-    if (userOpHash) emitUx("SEND_SUBMITTED", { userOpHash, lane: "PERMIT2" });
+    if (userOpHash) {
+      console.log(`PERMIT2_SEND_SUBMITTED userOpHash=${userOpHash}`);
+      emitUx("SEND_SUBMITTED", { userOpHash, lane: "PERMIT2" });
+    }
     result.status = "SUBMITTED";
     const receipt = userOpHash ? await waitForUserOpReceipt(userOpHash) : null;
     if (!receipt) {
@@ -1219,6 +1096,7 @@ async function main(options = {}) {
       return result;
     }
     const txHash = receipt.receipt?.transactionHash || "";
+    if (txHash) console.log(`PERMIT2_SEND_INCLUDED txHash=${txHash}`);
     emitUx("RECEIPT_CONFIRMED", { userOpHash, txHash, success: receipt.success });
     result.status = "CONFIRMED";
     result.txHash = txHash;
