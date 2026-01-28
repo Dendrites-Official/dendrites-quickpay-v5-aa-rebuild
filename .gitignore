@@ -7,9 +7,6 @@ out/
 /broadcast/*/31337/
 /broadcast/**/dry-run/
 
-# Docs
-docs/
-
 # Node modules
 **/node_modules/
 
@@ -23,6 +20,7 @@ docs/
 # Dotenv files
 **/.env
 **/.env.*
+**/.env.local
 !**/.env.example
 
 # Logs
