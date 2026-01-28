@@ -41,6 +41,7 @@ export default function WalletHealth() {
   const [tagMap, setTagMap] = useState<Record<string, string>>({});
   const codeCacheRef = useRef<Map<string, boolean>>(new Map());
   const tokenMetaRef = useRef<Record<string, { symbol: string; decimals: number }>>({});
+  const tagMapRef = useRef<Record<string, string>>({});
 
   const providerAvailable = Boolean((window as any)?.ethereum);
   const statusAddress = isConnected && address ? address : "Not connected";
@@ -175,6 +176,10 @@ export default function WalletHealth() {
     tokenMetaRef.current = tokenMeta;
   }, [tokenMeta]);
 
+  useEffect(() => {
+    tagMapRef.current = tagMap;
+  }, [tagMap]);
+
   const loadActivity = useCallback(async () => {
     setActivityError("");
     if (!address || !isConnected) {
@@ -249,7 +254,7 @@ export default function WalletHealth() {
 
       rows.sort((a, b) => b.lastSeen - a.lastSeen);
 
-      const nextTagMap: Record<string, string> = { ...tagMap };
+      const nextTagMap: Record<string, string> = { ...tagMapRef.current };
       for (const row of rows) {
         const key = `walletHealthTag:${chainId ?? "0"}:${row.address.toLowerCase()}`;
         if (nextTagMap[row.address] == null) {
@@ -260,7 +265,12 @@ export default function WalletHealth() {
         }
       }
 
-      setTagMap(nextTagMap);
+      const tagsChanged = Object.keys(nextTagMap).some(
+        (key) => nextTagMap[key] !== tagMapRef.current[key]
+      );
+      if (tagsChanged) {
+        setTagMap(nextTagMap);
+      }
       setExplorerBaseUrl(String(data?.explorerBaseUrl || ""));
       setActivityRows(rows);
     } catch (err: any) {
@@ -268,7 +278,7 @@ export default function WalletHealth() {
     } finally {
       setActivityLoading(false);
     }
-  }, [address, chainId, isConnected, tagMap]);
+  }, [address, chainId, isConnected]);
 
   const unknownContracts = useMemo(
     () => activityRows.filter((row) => !(tagMap[row.address] ?? "").trim()),
