@@ -28,6 +28,7 @@ const waitlistDb = createClient(
 let waitlistHasWalletColumn = null;
 let waitlistHasReferralColumn = null;
 let waitlistHasReferralAltColumn = null;
+let faucetClaimsHasWalletColumn = null;
 
 function isAddress(value) {
   return /^0x[a-fA-F0-9]{40}$/.test(String(value || ""));
@@ -183,6 +184,29 @@ async function resolveWaitlistReferralAltColumn() {
   } catch {
     waitlistHasReferralAltColumn = false;
     return waitlistHasReferralAltColumn;
+  }
+}
+
+async function resolveFaucetClaimsWalletColumn() {
+  if (faucetClaimsHasWalletColumn !== null) return faucetClaimsHasWalletColumn;
+  try {
+    const { error } = await quickpayDb
+      .from("faucet_claims")
+      .select("wallet_address")
+      .limit(1);
+    if (error) {
+      const msg = String(error.message || "").toLowerCase();
+      if (msg.includes("wallet_address") && msg.includes("column")) {
+        faucetClaimsHasWalletColumn = false;
+        return faucetClaimsHasWalletColumn;
+      }
+      throw error;
+    }
+    faucetClaimsHasWalletColumn = true;
+    return faucetClaimsHasWalletColumn;
+  } catch {
+    faucetClaimsHasWalletColumn = false;
+    return faucetClaimsHasWalletColumn;
   }
 }
 
@@ -516,7 +540,8 @@ export function registerFaucetRoutes(app) {
 
       const tx = await erc20.transfer(address, dripUnits);
 
-      const { error: claimError } = await quickpayDb.from("faucet_claims").insert({
+      const hasWalletAddress = await resolveFaucetClaimsWalletColumn();
+      const claimPayload = {
         chain_id: CHAIN_ID,
         kind: "mdndx",
         address: normalizedAddress,
@@ -531,7 +556,12 @@ export function registerFaucetRoutes(app) {
           challengeId,
           dripHuman: MDNDX_DRIP_HUMAN,
         },
-      });
+      };
+      if (hasWalletAddress) {
+        claimPayload.wallet_address = normalizedAddress;
+      }
+
+      const { error: claimError } = await quickpayDb.from("faucet_claims").insert(claimPayload);
 
       if (claimError) return sendServerError(reply, claimError);
 
