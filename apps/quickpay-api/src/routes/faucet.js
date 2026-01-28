@@ -29,6 +29,7 @@ let waitlistHasWalletColumn = null;
 let waitlistHasReferralColumn = null;
 let waitlistHasReferralAltColumn = null;
 let faucetClaimsHasWalletColumn = null;
+let faucetClaimsHasAmountColumn = null;
 
 function isAddress(value) {
   return /^0x[a-fA-F0-9]{40}$/.test(String(value || ""));
@@ -207,6 +208,29 @@ async function resolveFaucetClaimsWalletColumn() {
   } catch {
     faucetClaimsHasWalletColumn = false;
     return faucetClaimsHasWalletColumn;
+  }
+}
+
+async function resolveFaucetClaimsAmountColumn() {
+  if (faucetClaimsHasAmountColumn !== null) return faucetClaimsHasAmountColumn;
+  try {
+    const { error } = await quickpayDb
+      .from("faucet_claims")
+      .select("amount")
+      .limit(1);
+    if (error) {
+      const msg = String(error.message || "").toLowerCase();
+      if (msg.includes("amount") && msg.includes("column")) {
+        faucetClaimsHasAmountColumn = false;
+        return faucetClaimsHasAmountColumn;
+      }
+      throw error;
+    }
+    faucetClaimsHasAmountColumn = true;
+    return faucetClaimsHasAmountColumn;
+  } catch {
+    faucetClaimsHasAmountColumn = false;
+    return faucetClaimsHasAmountColumn;
   }
 }
 
@@ -541,6 +565,7 @@ export function registerFaucetRoutes(app) {
       const tx = await erc20.transfer(address, dripUnits);
 
       const hasWalletAddress = await resolveFaucetClaimsWalletColumn();
+      const hasAmountColumn = await resolveFaucetClaimsAmountColumn();
       const claimPayload = {
         chain_id: CHAIN_ID,
         kind: "mdndx",
@@ -559,6 +584,9 @@ export function registerFaucetRoutes(app) {
       };
       if (hasWalletAddress) {
         claimPayload.wallet_address = normalizedAddress;
+      }
+      if (hasAmountColumn) {
+        claimPayload.amount = dripUnits.toString();
       }
 
       const { error: claimError } = await quickpayDb.from("faucet_claims").insert(claimPayload);
