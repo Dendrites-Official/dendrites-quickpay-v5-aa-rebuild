@@ -88,17 +88,9 @@ begin
 
   if amount_type is not null then
     if amount_type in ('numeric', 'integer', 'bigint', 'double precision', 'real', 'smallint') then
-      execute $$
-        update public.faucet_claims
-        set amount = coalesce(amount, nullif(token_amount, '')::numeric)
-        where amount is null and token_amount is not null
-      $$;
+      execute 'update public.faucet_claims set amount = coalesce(amount, nullif(token_amount, '''')::numeric) where amount is null and token_amount is not null';
     else
-      execute $$
-        update public.faucet_claims
-        set amount = coalesce(amount, token_amount)
-        where amount is null and token_amount is not null
-      $$;
+      execute 'update public.faucet_claims set amount = coalesce(amount, token_amount) where amount is null and token_amount is not null';
     end if;
   end if;
 end $$;
