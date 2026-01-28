@@ -68,13 +68,40 @@ set
   chain_id = coalesce(chain_id, 84532),
   kind = coalesce(kind, 'mdndx'),
   wallet_address = coalesce(wallet_address, address),
-  amount = coalesce(amount, token_amount),
   status = coalesce(status, 'submitted'),
   meta = coalesce(meta, '{}'::jsonb)
 where chain_id is null
    or kind is null
    or status is null
    or meta is null;
+
+do $$
+declare
+  amount_type text;
+begin
+  select data_type
+    into amount_type
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name = 'faucet_claims'
+    and column_name = 'amount';
+
+  if amount_type is not null then
+    if amount_type in ('numeric', 'integer', 'bigint', 'double precision', 'real', 'smallint') then
+      execute $$
+        update public.faucet_claims
+        set amount = coalesce(amount, nullif(token_amount, '')::numeric)
+        where amount is null and token_amount is not null
+      $$;
+    else
+      execute $$
+        update public.faucet_claims
+        set amount = coalesce(amount, token_amount)
+        where amount is null and token_amount is not null
+      $$;
+    end if;
+  end if;
+end $$;
 
 alter table public.faucet_claims
   alter column chain_id set not null,
