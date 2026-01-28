@@ -20,6 +20,7 @@ create table if not exists public.faucet_claims (
   kind text not null,
   address text not null,
   wallet_address text null,
+  amount text null,
   email text null,
   token_address text null,
   token_amount text null,
@@ -37,6 +38,7 @@ alter table if exists public.faucet_claims
   add column if not exists kind text,
   add column if not exists address text,
   add column if not exists wallet_address text,
+  add column if not exists amount text,
   add column if not exists email text,
   add column if not exists token_address text,
   add column if not exists token_amount text,
@@ -66,6 +68,7 @@ set
   chain_id = coalesce(chain_id, 84532),
   kind = coalesce(kind, 'mdndx'),
   wallet_address = coalesce(wallet_address, address),
+  amount = coalesce(amount, token_amount),
   status = coalesce(status, 'submitted'),
   meta = coalesce(meta, '{}'::jsonb)
 where chain_id is null
