@@ -68,7 +68,7 @@ export function registerWalletRoutes(app) {
     const apiKey = String(process.env.BASESCAN_API_KEY || "").trim();
     const explorerBaseUrl = String(process.env.BASESCAN_EXPLORER_BASE_URL || "").trim();
 
-    if (!apiBase || !apiKey) {
+    if (!apiBase) {
       return reply.code(501).send({ ok: false, error: "ACTIVITY_NOT_CONFIGURED" });
     }
 
@@ -79,17 +79,21 @@ export function registerWalletRoutes(app) {
     url.searchParams.set("page", String(pageNum));
     url.searchParams.set("offset", String(offsetNum));
     url.searchParams.set("sort", sortValue);
-    url.searchParams.set("apikey", apiKey);
+    if (apiKey) {
+      url.searchParams.set("apikey", apiKey);
+    }
 
     let data;
+    let resStatus = 0;
     try {
       const res = await fetch(url.toString());
+      resStatus = res.status;
       if (res.status === 429) {
         return reply.code(429).send({ ok: false, error: "RATE_LIMIT" });
       }
       data = await res.json();
     } catch {
-      return reply.code(502).send({ ok: false, error: "EXPLORER_ERROR" });
+      return reply.code(502).send({ ok: false, error: "EXPLORER_ERROR", details: "fetch_failed" });
     }
 
     const message = String(data?.message || "").toLowerCase();
@@ -110,7 +114,8 @@ export function registerWalletRoutes(app) {
     }
 
     if (!Array.isArray(result)) {
-      return reply.code(502).send({ ok: false, error: "EXPLORER_ERROR" });
+      const detail = data?.result || data?.message || `status_${resStatus}`;
+      return reply.code(502).send({ ok: false, error: "EXPLORER_ERROR", details: String(detail) });
     }
 
     const payload = {
