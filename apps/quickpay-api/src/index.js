@@ -11,6 +11,7 @@ import { sendSelfPay } from "./core/sendSelfPay.js";
 import { normalizeAddress } from "./core/normalizeAddress.js";
 import { resolveRpcUrl } from "./core/resolveRpcUrl.js";
 import { registerFaucetRoutes } from "./routes/faucet.js";
+import { registerWalletRoutes } from "./routes/wallet.js";
 
 const app = Fastify({ logger: true });
 
@@ -50,6 +51,7 @@ const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseServiceRole);
 
 registerFaucetRoutes(app);
+registerWalletRoutes(app);
 
 app.get("/health", async () => ({
   ok: true,
