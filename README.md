@@ -15,9 +15,13 @@ QuickPay V5 is a gas-abstracted transfer flow with receipts, faucet support, and
 - Docs: [docs/STATUS.md](docs/STATUS.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/ROUTES.md](docs/ROUTES.md), [docs/ENV.md](docs/ENV.md), [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), [docs/RUNBOOK.md](docs/RUNBOOK.md), [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## What’s Live
-- Railway URL: **<ADD_RAILWAY_URL>**
-- Health probe: `<ADD_RAILWAY_URL>/health`
-- Quote probe: `<ADD_RAILWAY_URL>/quote`
+- Railway URL: **https://dendrites-quickpay-v5-aa-rebuild-production.up.railway.app**
+- Health probe: `https://dendrites-quickpay-v5-aa-rebuild-production.up.railway.app/health`
+- Quote probe: `https://dendrites-quickpay-v5-aa-rebuild-production.up.railway.app/quote`
+- Default demo chain: Base Sepolia (84532)
+- Supabase project refs:
+	- QuickPay: jusjvgdvivvbafmidvmb
+	- Waitlist: aamfaukbrosljxnhiwsv
 
 ## What we built
 - [x] QuickPay V5 send (sponsored + self-pay)

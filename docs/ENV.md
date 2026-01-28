@@ -1,13 +1,13 @@
 # Environment Variables
 
-> Never commit secrets. Use `.env` or Railway variables. Only `.env.example` should exist in git.
+> Never commit secrets. Set secrets in Railway/Vercel variables; never commit .env. Only .env.example should exist in git.
 
 ## UI (VITE_*)
 
 | Variable | Required | Purpose | Example |
 | --- | --- | --- | --- |
-| VITE_SUPABASE_URL | ✅ | Supabase project URL | https://<project>.supabase.co |
-| VITE_SUPABASE_ANON_KEY | ✅ | Supabase anon key | eyJhbGciOi... |
+| VITE_SUPABASE_URL | ✅ | Supabase project URL | https://jusjvgdvivvbafmidvmb.supabase.co |
+| VITE_SUPABASE_ANON_KEY | ✅ | Supabase anon key | <VITE_SUPABASE_ANON_KEY> |
 | VITE_QUICKPAY_API_URL | Optional | API base URL (Railway) | https://<railway-app>.up.railway.app |
 | VITE_WALLETCONNECT_PROJECT_ID | Optional | WalletConnect project id | 0123456789abcdef |
 | VITE_USDC_ADDRESS | Optional | USDC token address | 0x... |
@@ -20,7 +20,7 @@
 | RPC_URL | ✅ | Chain RPC URL | https://base-sepolia.rpc... |
 | BUNDLER_URL | ✅ | Bundler endpoint | https://<bundler> |
 | CHAIN_ID | Optional | Chain id (default 84532) | 84532 |
-| PAYMASTER_ADDRESS (or PAYMASTER) | ✅ | Paymaster address | 0x... |
+| PAYMASTER | ✅ | Paymaster address | 0x... |
 | FACTORY | ✅ | Smart account factory | 0x... |
 | ROUTER | ✅ | QuickPay router | 0x... |
 | PERMIT2 | ✅ | Permit2 address | 0x... |
@@ -40,9 +40,9 @@
 
 | Variable | Required | Purpose | Example |
 | --- | --- | --- | --- |
-| SUPABASE_URL | ✅ | Supabase URL (faucet claims) | https://<project>.supabase.co |
+| SUPABASE_URL | ✅ | Supabase URL (faucet claims) | https://jusjvgdvivvbafmidvmb.supabase.co |
 | SUPABASE_SERVICE_ROLE_KEY | ✅ | Supabase service role | eyJhbGciOi... |
-| WAITLIST_SUPABASE_URL | ✅ | Waitlist Supabase URL | https://<waitlist>.supabase.co |
+| WAITLIST_SUPABASE_URL | ✅ | Waitlist Supabase URL | https://aamfaukbrosljxnhiwsv.supabase.co |
 | WAITLIST_SUPABASE_SERVICE_ROLE_KEY | ✅ | Waitlist service role | eyJhbGciOi... |
 | IP_HASH_SALT | ✅ | Hash salt for IP tracking | <random-string> |
 | FAUCET_MDNDX_TOKEN (or MDNDX/MDNDX_TOKEN) | ✅ | mDNDX token address | 0x... |
@@ -57,9 +57,12 @@
 
 | Variable | Required | Purpose | Example |
 | --- | --- | --- | --- |
-| SUPABASE_URL | ✅ | Project URL | https://<project>.supabase.co |
-| SUPABASE_ANON_KEY | ✅ | Public anon key | eyJhbGciOi... |
-| SUPABASE_SERVICE_ROLE_KEY | ✅ | Service role key | eyJhbGciOi... |
+| SUPABASE_URL | ✅ | Project URL | https://jusjvgdvivvbafmidvmb.supabase.co |
+| SUPABASE_ANON_KEY | ✅ | Public anon key | <SUPABASE_ANON_KEY> |
+| SUPABASE_SERVICE_ROLE_KEY | ✅ | Service role key | <SUPABASE_SERVICE_ROLE_KEY> |
+
+## Aliases (backwards compatible)
+- PAYMASTER_ADDRESS → PAYMASTER (preferred)
 
 ## Explorer Activity (Blockscout/Etherscan compatible)
 
