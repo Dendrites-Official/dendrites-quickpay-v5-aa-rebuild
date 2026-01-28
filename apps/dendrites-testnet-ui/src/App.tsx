@@ -4,6 +4,7 @@ import Receipts from "./pages/Receipts";
 import ReceiptsList from "./pages/ReceiptsList";
 import Faucet from "./pages/Faucet";
 import NonceRescue from "./pages/NonceRescue";
+import WalletHealth from "./pages/WalletHealth";
 import WalletButton from "./components/WalletButton";
 
 function Nav() {
@@ -12,6 +13,7 @@ function Nav() {
       <Link to="/quickpay">QuickPay</Link>
       <Link to="/receipts">Receipts</Link>
       <Link to="/faucet">Faucet</Link>
+      <Link to="/wallet">Wallet Health</Link>
       <Link to="/nonce-rescue">Nonce Rescue</Link>
       <div style={{ marginLeft: "auto" }}>
         <WalletButton />
@@ -31,6 +33,7 @@ export default function App() {
         <Route path="/receipts/:id" element={<Receipts />} />
         <Route path="/r/:id" element={<Receipts />} />
         <Route path="/faucet" element={<Faucet />} />
+        <Route path="/wallet" element={<WalletHealth />} />
         <Route path="/nonce-rescue" element={<NonceRescue />} />
       </Routes>
     </div>
