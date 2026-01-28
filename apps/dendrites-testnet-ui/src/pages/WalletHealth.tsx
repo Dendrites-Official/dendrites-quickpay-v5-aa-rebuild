@@ -40,6 +40,7 @@ export default function WalletHealth() {
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [tagMap, setTagMap] = useState<Record<string, string>>({});
   const codeCacheRef = useRef<Map<string, boolean>>(new Map());
+  const tokenMetaRef = useRef<Record<string, { symbol: string; decimals: number }>>({});
 
   const providerAvailable = Boolean((window as any)?.ethereum);
   const statusAddress = isConnected && address ? address : "Not connected";
@@ -123,7 +124,7 @@ export default function WalletHealth() {
         "function symbol() view returns (string)",
       ];
 
-      const metaUpdates: Record<string, { symbol: string; decimals: number }> = { ...tokenMeta };
+      const metaUpdates: Record<string, { symbol: string; decimals: number }> = { ...tokenMetaRef.current };
       const balanceUpdates: Record<string, string> = {};
 
       await Promise.all(
@@ -160,6 +161,7 @@ export default function WalletHealth() {
         })
       );
 
+      tokenMetaRef.current = metaUpdates;
       setTokenMeta(metaUpdates);
       setTokenBalances(balanceUpdates);
     } catch (err: any) {
@@ -167,7 +169,11 @@ export default function WalletHealth() {
     } finally {
       setLoading(false);
     }
-  }, [address, isConnected, mdndxAddress, mdndxDecimals, tokenMeta]);
+  }, [address, isConnected, mdndxAddress, mdndxDecimals]);
+
+  useEffect(() => {
+    tokenMetaRef.current = tokenMeta;
+  }, [tokenMeta]);
 
   const loadActivity = useCallback(async () => {
     setActivityError("");
