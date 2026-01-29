@@ -129,8 +129,13 @@ const faucetOptional = [
   "FAUCET_MDNDX_DRIP_UNITS",
 ];
 
-const explorerRequired = ["BASESCAN_API_URL"];
-const explorerOptional = ["BASESCAN_API_KEY", "BASESCAN_EXPLORER_BASE_URL", "ACTIVITY_CACHE_TTL_MS"];
+const explorerRequired = [
+  "BLOCKSCOUT_BASE_MAINNET_API_URL",
+  "BLOCKSCOUT_BASE_MAINNET_EXPLORER_BASE_URL",
+  "BLOCKSCOUT_BASE_SEPOLIA_API_URL",
+  "BLOCKSCOUT_BASE_SEPOLIA_EXPLORER_BASE_URL",
+];
+const explorerOptional = ["ACTIVITY_CACHE_TTL_MS"];
 
 const missing = [];
 missing.push(...printSection("UI", uiRequired, uiOptional));
@@ -144,8 +149,8 @@ missing.push(...printSection("Faucet (if enabled)", faucetRequired, faucetOption
 ]));
 missing.push(...printSection("Wallet Health (Explorer)", explorerRequired, explorerOptional));
 
-const apiUrl = String(getEnv("BASESCAN_API_URL") || "");
-const explorerUrl = String(getEnv("BASESCAN_EXPLORER_BASE_URL") || "");
+const apiUrl = String(getEnv("BLOCKSCOUT_BASE_SEPOLIA_API_URL") || "");
+const explorerUrl = String(getEnv("BLOCKSCOUT_BASE_SEPOLIA_EXPLORER_BASE_URL") || "");
 let provider = "Not configured";
 const providerHint = `${apiUrl} ${explorerUrl}`.toLowerCase();
 if (apiUrl || explorerUrl) {
@@ -162,3 +167,25 @@ if (missingRequired.length) {
 }
 
 console.log("\nAll required env vars present.");
+
+const apiBase = getEnv("VITE_QUICKPAY_API_URL") || "https://dendrites-quickpay-v5-aa-rebuild-production.up.railway.app";
+
+async function probe(name, path, payload) {
+  try {
+    const res = await fetch(`${apiBase}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const ok = res.ok;
+    console.log(`\nProbe ${name}: ${ok ? "PASS" : "FAIL"} (${res.status})`);
+  } catch (err) {
+    console.log(`\nProbe ${name}: FAIL (network_error)`);
+  }
+}
+
+await probe("events/log", "/events/log", { kind: "doctor_probe" });
+await probe("approvals/scan", "/wallet/approvals/scan", {
+  chainId: 84532,
+  owner: "0x0000000000000000000000000000000000000001",
+});

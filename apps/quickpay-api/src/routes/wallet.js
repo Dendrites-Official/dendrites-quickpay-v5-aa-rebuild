@@ -188,6 +188,156 @@ async function fetchExplorerData({
   return { explorerBaseUrl, items: result };
 }
 
+async function handleApprovalsScan(request, reply) {
+  const body = request.body ?? {};
+  const chainId = Number(body?.chainId);
+  const owner = String(body?.owner || "").trim();
+  const maxTokensInput = Number(body?.maxTokens);
+
+  if (![8453, 84532].includes(chainId)) {
+    return reply.code(400).send({ ok: false, error: "UNSUPPORTED_CHAIN", code: "UNSUPPORTED_CHAIN" });
+  }
+  if (!isAddress(owner)) {
+    return reply.code(400).send({ ok: false, error: "INVALID_OWNER", code: "INVALID_OWNER" });
+  }
+
+  const spendersInput = Array.isArray(body?.spenders) ? body.spenders : null;
+  const spenders = (spendersInput ?? getEnvList("APPROVAL_SCAN_SPENDERS"))
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  if (!spenders.length || !spenders.every(isAddress)) {
+    return reply.code(400).send({ ok: false, error: "INVALID_SPENDERS", code: "INVALID_SPENDERS" });
+  }
+
+  const rpcUrl = resolveRpcUrl(chainId);
+  if (!rpcUrl) {
+    return reply.code(500).send({ ok: false, error: "RPC_NOT_CONFIGURED", code: "RPC_NOT_CONFIGURED" });
+  }
+
+  const maxTokens = Number.isFinite(maxTokensInput) && maxTokensInput > 0 ? Math.min(maxTokensInput, 100) : DEFAULT_MAX_TOKENS;
+
+  let tokenTxItems = [];
+  try {
+    const { items } = await fetchExplorerData({
+      address: owner,
+      chainId,
+      page: 1,
+      offset: TOKEN_TX_OFFSET,
+      sort: "desc",
+      action: "tokentx",
+    });
+    tokenTxItems = items;
+  } catch (err) {
+    const status = err?.statusCode || 502;
+    const error = err?.message || "EXPLORER_ERROR";
+    const details = err?.details ? String(err.details) : undefined;
+    return reply.code(status).send({ ok: false, error, code: error, details });
+  }
+
+  if (!Array.isArray(tokenTxItems) || tokenTxItems.length === 0) {
+    return reply.send({ ok: true, chainId, owner, spenders, tokens: [] });
+  }
+
+  const tokenMetaByAddress = new Map();
+  const tokens = [];
+  for (const item of tokenTxItems) {
+    const tokenAddress = String(item?.contractAddress || "").trim();
+    if (!isAddress(tokenAddress)) continue;
+    if (tokenMetaByAddress.has(tokenAddress.toLowerCase())) continue;
+    tokenMetaByAddress.set(tokenAddress.toLowerCase(), {
+      tokenAddress,
+      tokenDecimal: item?.tokenDecimal,
+      tokenSymbol: item?.tokenSymbol,
+    });
+    tokens.push(tokenAddress);
+    if (tokens.length >= maxTokens) break;
+  }
+
+  const provider = new ethers.JsonRpcProvider(rpcUrl, chainId);
+  const erc20Abi = [
+    "function decimals() view returns (uint8)",
+    "function symbol() view returns (string)",
+    "function allowance(address owner, address spender) view returns (uint256)",
+  ];
+
+  const results = [];
+  let index = 0;
+
+  const runNext = async () => {
+    while (index < tokens.length) {
+      const tokenAddress = tokens[index++];
+      const metaHint = tokenMetaByAddress.get(tokenAddress.toLowerCase()) || {};
+      const entry = {
+        tokenAddress,
+        symbol: metaHint.tokenSymbol || null,
+        decimals: null,
+        allowances: [],
+        error: null,
+      };
+
+      try {
+        const contract = new ethers.Contract(tokenAddress, erc20Abi, provider);
+        let decimals = null;
+        let symbol = entry.symbol;
+
+        try {
+          const dec = await withTimeout(contract.decimals(), RPC_TIMEOUT_MS);
+          decimals = Number(dec);
+        } catch {
+          const fallback = Number(metaHint.tokenDecimal);
+          decimals = Number.isFinite(fallback) ? fallback : null;
+        }
+
+        if (!symbol) {
+          try {
+            symbol = String(await withTimeout(contract.symbol(), RPC_TIMEOUT_MS));
+          } catch {
+            symbol = metaHint.tokenSymbol || null;
+          }
+        }
+
+        entry.decimals = decimals;
+        entry.symbol = symbol;
+
+        for (const spender of spenders) {
+          try {
+            const allowance = await withTimeout(contract.allowance(owner, spender), RPC_TIMEOUT_MS);
+            const allowanceStr = allowance?.toString?.() ?? "0";
+            entry.allowances.push({
+              spender,
+              allowance: allowanceStr,
+              isUnlimited: BigInt(allowanceStr) >= ethers.MaxUint256 / 2n,
+            });
+          } catch {
+            entry.allowances.push({
+              spender,
+              allowance: "0",
+              isUnlimited: false,
+              error: "allowance_failed",
+            });
+          }
+        }
+      } catch (err) {
+        entry.error = String(err?.message || "token_failed");
+      }
+
+      results.push(entry);
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(TOKEN_SCAN_CONCURRENCY, tokens.length) }, () => runNext());
+  await Promise.all(workers);
+
+  return reply.send({
+    ok: true,
+    chainId,
+    owner,
+    spenders,
+    tokens: results,
+  });
+}
+
 export function registerWalletRoutes(app) {
   app.get("/wallet/activity/txlist", async (request, reply) => {
     const { address, chainId, page = "1", offset = "50", sort = "desc" } = request.query || {};
@@ -295,149 +445,7 @@ export function registerWalletRoutes(app) {
     }
   });
 
-  app.post("/wallet/approvals/scan", async (request, reply) => {
-    const body = request.body ?? {};
-    const chainId = Number(body?.chainId);
-    const owner = String(body?.owner || "").trim();
-    const maxTokensInput = Number(body?.maxTokens);
-
-    if (![8453, 84532].includes(chainId)) {
-      return reply.code(400).send({ ok: false, error: "UNSUPPORTED_CHAIN" });
-    }
-    if (!isAddress(owner)) {
-      return reply.code(400).send({ ok: false, error: "INVALID_OWNER" });
-    }
-
-    const spendersInput = Array.isArray(body?.spenders) ? body.spenders : null;
-    const spenders = (spendersInput ?? getEnvList("APPROVAL_SCAN_SPENDERS"))
-      .map((value) => String(value || "").trim())
-      .filter(Boolean);
-
-    if (!spenders.length || !spenders.every(isAddress)) {
-      return reply.code(400).send({ ok: false, error: "INVALID_SPENDERS" });
-    }
-
-    const rpcUrl = resolveRpcUrl(chainId);
-    if (!rpcUrl) {
-      return reply.code(500).send({ ok: false, error: "RPC_NOT_CONFIGURED" });
-    }
-
-    const maxTokens = Number.isFinite(maxTokensInput) && maxTokensInput > 0 ? Math.min(maxTokensInput, 100) : DEFAULT_MAX_TOKENS;
-
-    let tokenTxItems = [];
-    try {
-      const { items } = await fetchExplorerData({
-        address: owner,
-        chainId,
-        page: 1,
-        offset: TOKEN_TX_OFFSET,
-        sort: "desc",
-        action: "tokentx",
-      });
-      tokenTxItems = items;
-    } catch (err) {
-      const status = err?.statusCode || 502;
-      const error = err?.message || "EXPLORER_ERROR";
-      const details = err?.details ? String(err.details) : undefined;
-      return reply.code(status).send({ ok: false, error, details });
-    }
-
-    const tokenMetaByAddress = new Map();
-    const tokens = [];
-    for (const item of tokenTxItems) {
-      const tokenAddress = String(item?.contractAddress || "").trim();
-      if (!isAddress(tokenAddress)) continue;
-      if (tokenMetaByAddress.has(tokenAddress.toLowerCase())) continue;
-      tokenMetaByAddress.set(tokenAddress.toLowerCase(), {
-        tokenAddress,
-        tokenDecimal: item?.tokenDecimal,
-        tokenSymbol: item?.tokenSymbol,
-      });
-      tokens.push(tokenAddress);
-      if (tokens.length >= maxTokens) break;
-    }
-
-    const provider = new ethers.JsonRpcProvider(rpcUrl, chainId);
-    const erc20Abi = [
-      "function decimals() view returns (uint8)",
-      "function symbol() view returns (string)",
-      "function allowance(address owner, address spender) view returns (uint256)",
-    ];
-
-    const results = [];
-    let index = 0;
-
-    const runNext = async () => {
-      while (index < tokens.length) {
-        const tokenAddress = tokens[index++];
-        const metaHint = tokenMetaByAddress.get(tokenAddress.toLowerCase()) || {};
-        const entry = {
-          tokenAddress,
-          symbol: metaHint.tokenSymbol || null,
-          decimals: null,
-          allowances: [],
-          error: null,
-        };
-
-        try {
-          const contract = new ethers.Contract(tokenAddress, erc20Abi, provider);
-          let decimals = null;
-          let symbol = entry.symbol;
-
-          try {
-            const dec = await withTimeout(contract.decimals(), RPC_TIMEOUT_MS);
-            decimals = Number(dec);
-          } catch {
-            const fallback = Number(metaHint.tokenDecimal);
-            decimals = Number.isFinite(fallback) ? fallback : null;
-          }
-
-          if (!symbol) {
-            try {
-              symbol = String(await withTimeout(contract.symbol(), RPC_TIMEOUT_MS));
-            } catch {
-              symbol = metaHint.tokenSymbol || null;
-            }
-          }
-
-          entry.decimals = decimals;
-          entry.symbol = symbol;
-
-          for (const spender of spenders) {
-            try {
-              const allowance = await withTimeout(contract.allowance(owner, spender), RPC_TIMEOUT_MS);
-              const allowanceStr = allowance?.toString?.() ?? "0";
-              entry.allowances.push({
-                spender,
-                allowance: allowanceStr,
-                isUnlimited: BigInt(allowanceStr) >= ethers.MaxUint256 / 2n,
-              });
-            } catch {
-              entry.allowances.push({
-                spender,
-                allowance: "0",
-                isUnlimited: false,
-                error: "allowance_failed",
-              });
-            }
-          }
-        } catch (err) {
-          entry.error = String(err?.message || "token_failed");
-        }
-
-        results.push(entry);
-      }
-    };
-
-    const workers = Array.from({ length: Math.min(TOKEN_SCAN_CONCURRENCY, tokens.length) }, () => runNext());
-    await Promise.all(workers);
-
-    return reply.send({
-      ok: true,
-      chainId,
-      owner,
-      spenders,
-      tokens: results,
-    });
-  });
+  app.post("/wallet/approvals/scan", handleApprovalsScan);
+  app.post("/wallet/approvals/scan-v2", handleApprovalsScan);
+  app.post("/wallet/approvals_scan", handleApprovalsScan);
 }
