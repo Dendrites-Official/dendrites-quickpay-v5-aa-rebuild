@@ -85,18 +85,19 @@ app.post("/events/log", async (request, reply) => {
     return reply.send({ ok: false, error: "missing_kind" });
   }
 
-  const salt = String(process.env.IP_HASH_SALT || "");
-  if (!salt) {
-    return reply.send({ ok: false, error: "missing_ip_hash_salt" });
+  if (!supabaseUrl || !supabaseServiceRole) {
+    return reply.send({ ok: true, skipped: true, reason: "DB_NOT_CONFIGURED" });
   }
+
+  const salt = String(process.env.IP_HASH_SALT || "");
 
   const address = body?.address ? String(body.address).trim().toLowerCase() : null;
   const chainId = body?.chainId != null ? Number(body.chainId) : null;
   const meta = body?.meta && typeof body.meta === "object" ? body.meta : null;
   const ip = getClientIp(request);
   const ua = String(request?.headers?.["user-agent"] || "");
-  const ipHash = ip ? sha256Hex(`${salt}:${ip}`) : null;
-  const uaHash = ua ? sha256Hex(`${salt}:${ua}`) : null;
+  const ipHash = salt && ip ? sha256Hex(`${salt}:${ip}`) : null;
+  const uaHash = salt && ua ? sha256Hex(`${salt}:${ua}`) : null;
 
   try {
     const { error } = await supabase
@@ -111,11 +112,11 @@ app.post("/events/log", async (request, reply) => {
       });
 
     if (error) {
-      return reply.send({ ok: false, error: error.message || "insert_failed" });
+      return reply.send({ ok: true, skipped: true, reason: "INSERT_FAILED" });
     }
     return reply.send({ ok: true });
   } catch (err) {
-    return reply.send({ ok: false, error: String(err?.message || err) });
+    return reply.send({ ok: true, skipped: true, reason: "INSERT_FAILED" });
   }
 });
 

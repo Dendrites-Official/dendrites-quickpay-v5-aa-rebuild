@@ -26,5 +26,10 @@
 | POST /faucet/mdndx/challenge | Message signing challenge |
 | POST /faucet/mdndx/claim | Claim faucet drip |
 | GET /wallet/activity/txlist | Wallet activity proxy (explorer) |
+| GET /wallet/activity/tokentx | Token transfer discovery (explorer) |
+| POST /wallet/approvals/scan | Approvals scanner (canonical) |
+| POST /wallet/approvals/scan-v2 | Approvals scanner alias |
+| POST /wallet/approvals_scan | Approvals scanner alias |
+| POST /events/log | Analytics event logging |
 | POST /functions/v1/quickpay_receipt | Receipt resolution (Supabase Edge) |
 | GET/POST /functions/v1/quickpay_note | Private receipt notes (Supabase Edge) |
