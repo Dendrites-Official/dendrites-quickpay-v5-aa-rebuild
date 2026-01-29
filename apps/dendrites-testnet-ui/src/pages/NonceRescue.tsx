@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { ethers } from "ethers";
+import MainnetConfirmModal from "../components/MainnetConfirmModal";
+import { estimateTxCost } from "../lib/txEstimate";
+import { normalizeWalletError } from "../lib/walletErrors";
 
 export default function NonceRescue() {
   const { address, isConnected, chainId } = useAccount();
@@ -17,6 +20,7 @@ export default function NonceRescue() {
   const [cancelNonce, setCancelNonce] = useState("");
   const [cancelStatus, setCancelStatus] = useState("");
   const [cancelError, setCancelError] = useState("");
+  const [cancelErrorDetails, setCancelErrorDetails] = useState<string | null>(null);
   const [cancelTxHash, setCancelTxHash] = useState("");
   const [speedNonce, setSpeedNonce] = useState("");
   const [speedTo, setSpeedTo] = useState("");
@@ -26,7 +30,13 @@ export default function NonceRescue() {
   const [speedMaxPriorityFee, setSpeedMaxPriorityFee] = useState("");
   const [speedStatus, setSpeedStatus] = useState("");
   const [speedError, setSpeedError] = useState("");
+  const [speedErrorDetails, setSpeedErrorDetails] = useState<string | null>(null);
   const [speedTxHash, setSpeedTxHash] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmSummary, setConfirmSummary] = useState("");
+  const [confirmGasEstimate, setConfirmGasEstimate] = useState<string | null>(null);
+  const [confirmGasError, setConfirmGasError] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<null | (() => Promise<void>)>(null);
 
   const loadNonces = useCallback(async () => {
     setError("");
@@ -57,6 +67,30 @@ export default function NonceRescue() {
   useEffect(() => {
     loadNonces();
   }, [loadNonces]);
+
+  const withMainnetConfirm = async (
+    summary: string,
+    txRequest: ethers.TransactionRequest,
+    setStatus: (value: string) => void,
+    action: () => Promise<void>
+  ) => {
+    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const estimate = await estimateTxCost(provider, txRequest);
+    if (chainId === 8453) {
+      setConfirmSummary(summary);
+      setConfirmGasEstimate(estimate.costEth);
+      setConfirmGasError(estimate.error);
+      setConfirmAction(() => action);
+      setConfirmOpen(true);
+      return;
+    }
+    if (estimate.costEth) {
+      setStatus(`Estimated gas: ${estimate.costEth}`);
+    } else if (estimate.error) {
+      setStatus("Unable to estimate; wallet will show final gas.");
+    }
+    await action();
+  };
 
   const hasPending = nonceLatest != null && noncePending != null && noncePending > nonceLatest;
   const hasTxInfo = Boolean(txInfo);
@@ -249,6 +283,7 @@ export default function NonceRescue() {
           <button
             onClick={async () => {
               setCancelError("");
+              setCancelErrorDetails(null);
               setCancelStatus("");
               setCancelTxHash("");
               if (!isConnected || !address) {
@@ -265,9 +300,7 @@ export default function NonceRescue() {
                 return;
               }
               try {
-                setCancelStatus("Preparing replacement…");
                 const provider = new ethers.BrowserProvider(ethereum);
-                const signer = await provider.getSigner();
                 const feeData = await provider.getFeeData();
                 const maxPriority = feeData.maxPriorityFeePerGas
                   ? feeData.maxPriorityFeePerGas * 2n
@@ -275,19 +308,33 @@ export default function NonceRescue() {
                 const maxFee = feeData.maxFeePerGas
                   ? feeData.maxFeePerGas * 2n
                   : (feeData.gasPrice ? feeData.gasPrice * 2n : ethers.parseUnits("10", "gwei"));
-
-                const tx = await signer.sendTransaction({
+                const txRequest: ethers.TransactionRequest = {
                   to: address,
+                  from: address,
                   value: 0n,
                   data: "0x",
                   nonce: Number(cancelNonce),
                   maxPriorityFeePerGas: maxPriority,
                   maxFeePerGas: maxFee,
+                };
+                const summary = `Cancel nonce ${cancelNonce}`;
+                await withMainnetConfirm(summary, txRequest, setCancelStatus, async () => {
+                  setCancelStatus("Preparing replacement…");
+                  try {
+                    const signer = await provider.getSigner();
+                    const tx = await signer.sendTransaction(txRequest);
+                    setCancelTxHash(tx.hash);
+                    setCancelStatus("Replacement submitted.");
+                  } catch (err: any) {
+                    const normalized = normalizeWalletError(err);
+                    setCancelError(normalized.message);
+                    setCancelErrorDetails(normalized.details);
+                  }
                 });
-                setCancelTxHash(tx.hash);
-                setCancelStatus("Replacement submitted.");
               } catch (err: any) {
-                setCancelError(err?.message || "Failed to send replacement.");
+                const normalized = normalizeWalletError(err);
+                setCancelError(normalized.message);
+                setCancelErrorDetails(normalized.details);
               }
             }}
           >
@@ -296,7 +343,17 @@ export default function NonceRescue() {
         </div>
         {cancelStatus ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>{cancelStatus}</div> : null}
         {cancelTxHash ? <div style={{ color: "#bdbdbd", marginTop: 6 }}>Tx: {cancelTxHash}</div> : null}
-        {cancelError ? <div style={{ color: "#ff7a7a", marginTop: 6 }}>{cancelError}</div> : null}
+        {cancelError ? (
+          <div style={{ color: "#ff7a7a", marginTop: 6 }}>
+            {cancelError}
+            {cancelErrorDetails ? (
+              <details style={{ marginTop: 6, color: "#bdbdbd" }}>
+                <summary style={{ cursor: "pointer" }}>Technical details</summary>
+                <div style={{ marginTop: 4 }}>{cancelErrorDetails}</div>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
@@ -377,6 +434,7 @@ export default function NonceRescue() {
             <button
               onClick={async () => {
                 setSpeedError("");
+                setSpeedErrorDetails(null);
                 setSpeedStatus("");
                 setSpeedTxHash("");
                 if (!isConnected || !address) {
@@ -406,21 +464,34 @@ export default function NonceRescue() {
                   return;
                 }
                 try {
-                  setSpeedStatus("Preparing replacement…");
                   const provider = new ethers.BrowserProvider(ethereum);
-                  const signer = await provider.getSigner();
-                  const tx = await signer.sendTransaction({
+                  const txRequest: ethers.TransactionRequest = {
                     to: speedTo,
+                    from: address,
                     value: BigInt(speedValue),
                     data: dataField,
                     nonce: Number(speedNonce),
                     maxFeePerGas: speedMaxFee ? BigInt(speedMaxFee) : undefined,
                     maxPriorityFeePerGas: speedMaxPriorityFee ? BigInt(speedMaxPriorityFee) : undefined,
+                  };
+                  const summary = `Speed up nonce ${speedNonce}`;
+                  await withMainnetConfirm(summary, txRequest, setSpeedStatus, async () => {
+                    setSpeedStatus("Preparing replacement…");
+                    try {
+                      const signer = await provider.getSigner();
+                      const tx = await signer.sendTransaction(txRequest);
+                      setSpeedTxHash(tx.hash);
+                      setSpeedStatus("Replacement submitted.");
+                    } catch (err: any) {
+                      const normalized = normalizeWalletError(err);
+                      setSpeedError(normalized.message);
+                      setSpeedErrorDetails(normalized.details);
+                    }
                   });
-                  setSpeedTxHash(tx.hash);
-                  setSpeedStatus("Replacement submitted.");
                 } catch (err: any) {
-                  setSpeedError(err?.message || "Failed to send replacement.");
+                  const normalized = normalizeWalletError(err);
+                  setSpeedError(normalized.message);
+                  setSpeedErrorDetails(normalized.details);
                 }
               }}
             >
@@ -430,7 +501,17 @@ export default function NonceRescue() {
         </div>
         {speedStatus ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>{speedStatus}</div> : null}
         {speedTxHash ? <div style={{ color: "#bdbdbd", marginTop: 6 }}>Tx: {speedTxHash}</div> : null}
-        {speedError ? <div style={{ color: "#ff7a7a", marginTop: 6 }}>{speedError}</div> : null}
+        {speedError ? (
+          <div style={{ color: "#ff7a7a", marginTop: 6 }}>
+            {speedError}
+            {speedErrorDetails ? (
+              <details style={{ marginTop: 6, color: "#bdbdbd" }}>
+                <summary style={{ cursor: "pointer" }}>Technical details</summary>
+                <div style={{ marginTop: 4 }}>{speedErrorDetails}</div>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div style={{ marginTop: 16, maxWidth: 520 }}>
@@ -449,6 +530,31 @@ export default function NonceRescue() {
           <li>Speed up must match intent; be careful with to/value/data.</li>
         </ul>
       </div>
+
+      <MainnetConfirmModal
+        open={confirmOpen}
+        summary={confirmSummary}
+        gasEstimate={confirmGasEstimate}
+        gasEstimateError={confirmGasError}
+        onCancel={() => {
+          setConfirmOpen(false);
+          setConfirmAction(null);
+          setConfirmSummary("");
+          setConfirmGasEstimate(null);
+          setConfirmGasError(null);
+        }}
+        onConfirm={async () => {
+          const action = confirmAction;
+          setConfirmOpen(false);
+          setConfirmAction(null);
+          setConfirmSummary("");
+          setConfirmGasEstimate(null);
+          setConfirmGasError(null);
+          if (action) {
+            await action();
+          }
+        }}
+      />
     </div>
   );
 }

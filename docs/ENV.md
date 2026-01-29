@@ -45,7 +45,7 @@
 | WAITLIST_SUPABASE_URL | ✅ | Waitlist Supabase URL | https://aamfaukbrosljxnhiwsv.supabase.co |
 | WAITLIST_SUPABASE_SERVICE_ROLE_KEY | ✅ | Waitlist service role | eyJhbGciOi... |
 | IP_HASH_SALT | ✅ | Hash salt for IP tracking | <random-string> |
-| FAUCET_MDNDX_TOKEN (or MDNDX/MDNDX_TOKEN) | ✅ | mDNDX token address | 0x... |
+| FAUCET_MDNDX_TOKEN | ✅ | mDNDX token address | 0x... |
 | FAUCET_PRIVATE_KEY | ✅ | Faucet signer | <pk> |
 | RPC_URL | ✅ | Chain RPC URL | https://base-sepolia.rpc... |
 | TURNSTILE_DISABLED | Optional | Disable Turnstile (true/false) | false |
@@ -63,12 +63,14 @@
 
 ## Aliases (backwards compatible)
 - PAYMASTER_ADDRESS → PAYMASTER (preferred)
+- MDNDX, MDNDX_TOKEN → FAUCET_MDNDX_TOKEN (preferred)
 
-## Explorer Activity (Blockscout/Etherscan compatible)
+## Explorer Activity (Blockscout)
 
 | Variable | Required | Purpose | Example |
 | --- | --- | --- | --- |
-| BASESCAN_API_URL | ✅ | Explorer API base | https://base-sepolia.blockscout.com/api |
-| BASESCAN_API_KEY | Optional | Explorer API key | <key> |
-| BASESCAN_EXPLORER_BASE_URL | Optional | Explorer site URL | https://base-sepolia.blockscout.com |
+| BLOCKSCOUT_BASE_MAINNET_API_URL | ✅ | Base mainnet API | https://base.blockscout.com/api |
+| BLOCKSCOUT_BASE_MAINNET_EXPLORER_BASE_URL | ✅ | Base mainnet explorer | https://base.blockscout.com |
+| BLOCKSCOUT_BASE_SEPOLIA_API_URL | ✅ | Base Sepolia API | https://base-sepolia.blockscout.com/api |
+| BLOCKSCOUT_BASE_SEPOLIA_EXPLORER_BASE_URL | ✅ | Base Sepolia explorer | https://base-sepolia.blockscout.com |
 | ACTIVITY_CACHE_TTL_MS | Optional | Cache TTL (ms) | 30000 |

@@ -15,6 +15,16 @@ import { registerWalletRoutes } from "./routes/wallet.js";
 
 const app = Fastify({ logger: true });
 
+function getEnv(name, aliases = []) {
+  const direct = process.env[name];
+  if (direct != null && direct !== "") return direct;
+  for (const alias of aliases) {
+    const value = process.env[alias];
+    if (value != null && value !== "") return value;
+  }
+  return "";
+}
+
 app.setErrorHandler((err, request, reply) => {
   const status = err?.status || 500;
   reply.code(status).send({
@@ -50,6 +60,16 @@ const supabaseUrl = process.env.SUPABASE_URL || "";
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseServiceRole);
 
+function getClientIp(request) {
+  const forwarded = String(request?.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
+  if (forwarded) return forwarded;
+  return String(request?.ip || "");
+}
+
+function sha256Hex(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
 registerFaucetRoutes(app);
 registerWalletRoutes(app);
 
@@ -57,6 +77,47 @@ app.get("/health", async () => ({
   ok: true,
   build: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.BUILD_ID || new Date().toISOString(),
 }));
+
+app.post("/events/log", async (request, reply) => {
+  const body = request.body ?? {};
+  const kind = String(body?.kind || "").trim();
+  if (!kind) {
+    return reply.send({ ok: false, error: "missing_kind" });
+  }
+
+  const salt = String(process.env.IP_HASH_SALT || "");
+  if (!salt) {
+    return reply.send({ ok: false, error: "missing_ip_hash_salt" });
+  }
+
+  const address = body?.address ? String(body.address).trim().toLowerCase() : null;
+  const chainId = body?.chainId != null ? Number(body.chainId) : null;
+  const meta = body?.meta && typeof body.meta === "object" ? body.meta : null;
+  const ip = getClientIp(request);
+  const ua = String(request?.headers?.["user-agent"] || "");
+  const ipHash = ip ? sha256Hex(`${salt}:${ip}`) : null;
+  const uaHash = ua ? sha256Hex(`${salt}:${ua}`) : null;
+
+  try {
+    const { error } = await supabase
+      .from("app_events")
+      .insert({
+        kind,
+        address,
+        chain_id: Number.isFinite(chainId) ? chainId : null,
+        meta,
+        ip_hash: ipHash,
+        ua_hash: uaHash,
+      });
+
+    if (error) {
+      return reply.send({ ok: false, error: error.message || "insert_failed" });
+    }
+    return reply.send({ ok: true });
+  } catch (err) {
+    return reply.send({ ok: false, error: String(err?.message || err) });
+  }
+});
 
 app.post("/quote", async (request, reply) => {
   const body = request.body ?? {};
@@ -74,7 +135,7 @@ app.post("/quote", async (request, reply) => {
     chainId: chain,
     rpcUrl: resolvedRpcUrl,
     bundlerUrl: process.env.BUNDLER_URL,
-    paymaster: process.env.PAYMASTER_ADDRESS ?? process.env.PAYMASTER,
+    paymaster: getEnv("PAYMASTER", ["PAYMASTER_ADDRESS"]),
     factoryAddress: process.env.FACTORY,
     router: process.env.ROUTER,
     permit2: process.env.PERMIT2,
