@@ -8,6 +8,7 @@ import { logEvent } from "../lib/analytics";
 import MainnetConfirmModal from "../components/MainnetConfirmModal";
 import { estimateTxCost } from "../lib/txEstimate";
 import { normalizeWalletError } from "../lib/walletErrors";
+import { switchToBase, switchToBaseSepolia } from "../lib/switchChain";
 
 export default function WalletHealth() {
   const { address, isConnected, chainId } = useAccount();
@@ -54,6 +55,7 @@ export default function WalletHealth() {
   const [confirmGasEstimate, setConfirmGasEstimate] = useState<string | null>(null);
   const [confirmGasError, setConfirmGasError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<null | (() => Promise<void>)>(null);
+  const [switchStatus, setSwitchStatus] = useState("");
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
   const [activityRows, setActivityRows] = useState<
@@ -70,6 +72,7 @@ export default function WalletHealth() {
   const providerAvailable = Boolean((window as any)?.ethereum);
   const statusAddress = isConnected && address ? address : "Not connected";
   const networkLabel = chainId === 84532 ? "Base Sepolia" : chainId ? `Chain ${chainId}` : "Not available";
+  const displayChainLabel = chainId === 8453 ? "Base" : chainId === 84532 ? "Base Sepolia" : networkLabel;
   const statusChain = chainId ? `${chainId} (${networkLabel})` : "Not available";
   const quickpayConfig = getQuickPayChainConfig(chainId ?? undefined);
   const quickpayRouter = quickpayConfig?.router;
@@ -639,6 +642,36 @@ export default function WalletHealth() {
   }, [activeTab, loadMdndxConfig, loadOverview]);
 
   useEffect(() => {
+    if (!address || !isConnected) return;
+    if (activeTab === "overview" || activeTab === "risk") {
+      loadOverview();
+    }
+    if (activeTab === "activity" || activeTab === "risk") {
+      loadActivity();
+    }
+  }, [activeTab, address, chainId, isConnected, loadActivity, loadOverview]);
+
+  useEffect(() => {
+    const ethereum = (window as any)?.ethereum;
+    if (!ethereum?.on) return;
+    const handler = () => {
+      if (!address || !isConnected) return;
+      if (activeTab === "overview" || activeTab === "risk") {
+        loadOverview();
+      }
+      if (activeTab === "activity" || activeTab === "risk") {
+        loadActivity();
+      }
+    };
+    ethereum.on("chainChanged", handler);
+    return () => {
+      if (ethereum?.removeListener) {
+        ethereum.removeListener("chainChanged", handler);
+      }
+    };
+  }, [activeTab, address, isConnected, loadActivity, loadOverview]);
+
+  useEffect(() => {
     if (activeTab !== "activity") return;
     loadActivity();
   }, [activeTab, loadActivity]);
@@ -694,6 +727,45 @@ export default function WalletHealth() {
       <h2>Wallet Health Console</h2>
       <div style={{ color: "#bdbdbd", marginTop: 6 }}>
         Quick snapshot of wallet status and basic risk signals.
+      </div>
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+        <div style={{ color: "#cfcfcf" }}>
+          Network: {displayChainLabel} {chainId ? `(${chainId})` : ""}
+        </div>
+        <button
+          onClick={async () => {
+            setSwitchStatus("");
+            try {
+              const ethereum = (window as any)?.ethereum;
+              await switchToBase(ethereum);
+              setSwitchStatus("Switched to Base.");
+            } catch (err: any) {
+              setSwitchStatus(
+                `Switch failed: ${err?.message || "Unable to switch network"}. If using WalletConnect, open the wallet app and approve the change or add Base manually.`
+              );
+            }
+          }}
+        >
+          Switch to Base
+        </button>
+        <button
+          onClick={async () => {
+            setSwitchStatus("");
+            try {
+              const ethereum = (window as any)?.ethereum;
+              await switchToBaseSepolia(ethereum);
+              setSwitchStatus("Switched to Base Sepolia.");
+            } catch (err: any) {
+              setSwitchStatus(
+                `Switch failed: ${err?.message || "Unable to switch network"}. If using WalletConnect, open the wallet app and approve the change or add Base Sepolia manually.`
+              );
+            }
+          }}
+        >
+          Switch to Base Sepolia
+        </button>
+        {switchStatus ? <div style={{ color: "#9e9e9e" }}>{switchStatus}</div> : null}
       </div>
 
       <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
