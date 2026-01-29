@@ -206,7 +206,7 @@ async function handleApprovalsScan(request, reply) {
   const fallbackSpenders = [process.env.PERMIT2, process.env.ROUTER]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
-  const spenders = (spendersInput ?? envSpenders.length ? envSpenders : fallbackSpenders)
+  const spenders = (spendersInput ?? (envSpenders.length ? envSpenders : fallbackSpenders))
     .map((value) => String(value || "").trim())
     .filter(Boolean);
 
