@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { ethers } from "ethers";
 import MainnetConfirmModal from "../components/MainnetConfirmModal";
-import { estimateTxCost } from "../lib/txEstimate";
+import { buildEip1559Fees, estimateTxCost } from "../lib/txEstimate";
 import { normalizeWalletError } from "../lib/walletErrors";
 
 export default function NonceRescue() {
@@ -17,6 +17,7 @@ export default function NonceRescue() {
   const [txError, setTxError] = useState("");
   const [txInfo, setTxInfo] = useState<any>(null);
   const [draft, setDraft] = useState<any>(null);
+  const [txGuardMessage, setTxGuardMessage] = useState("");
   const [cancelNonce, setCancelNonce] = useState("");
   const [cancelStatus, setCancelStatus] = useState("");
   const [cancelError, setCancelError] = useState("");
@@ -37,6 +38,39 @@ export default function NonceRescue() {
   const [confirmGasEstimate, setConfirmGasEstimate] = useState<string | null>(null);
   const [confirmGasError, setConfirmGasError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<null | (() => Promise<void>)>(null);
+
+  const formatReplacementError = (err: any) => {
+    const normalized = normalizeWalletError(err);
+    const text = `${normalized.message} ${normalized.details ?? ""}`.toLowerCase();
+    if (text.includes("nonce too low")) {
+      return {
+        message: "Tx already confirmed; cannot replace. Use a pending tx hash.",
+        details: normalized.details,
+      };
+    }
+    if (text.includes("replacement transaction underpriced") || text.includes("fee too low") || text.includes("replacement fee")) {
+      return {
+        message: "Fee bump too small; try x1.5 or x2.",
+        details: normalized.details,
+      };
+    }
+    if (text.includes("insufficient funds")) {
+      const match = text.match(/have\s+(\d+)\s+want\s+(\d+)/i);
+      if (match?.[1] && match?.[2]) {
+        try {
+          const have = ethers.formatEther(BigInt(match[1]));
+          const want = ethers.formatEther(BigInt(match[2]));
+          return {
+            message: `Insufficient funds: have ${have} ETH, need ${want} ETH.`,
+            details: normalized.details,
+          };
+        } catch {
+          return { message: normalized.message, details: normalized.details };
+        }
+      }
+    }
+    return { message: normalized.message, details: normalized.details };
+  };
 
   const loadNonces = useCallback(async () => {
     setError("");
@@ -175,6 +209,7 @@ export default function NonceRescue() {
               setTxError("");
               setTxInfo(null);
               setDraft(null);
+              setTxGuardMessage("");
               if (!txHash.trim()) {
                 setTxError("Enter a tx hash.");
                 return;
@@ -193,6 +228,18 @@ export default function NonceRescue() {
                     "Could not fetch this tx from RPC. If the tx is only in your wallet UI, copy the nonce and fill the manual form."
                   );
                   return;
+                }
+                const receipt = await provider.getTransactionReceipt(txHash.trim());
+                let latestNonce = nonceLatest;
+                if (latestNonce == null && address) {
+                  try {
+                    latestNonce = Number(await provider.getTransactionCount(address, "latest"));
+                  } catch {
+                    latestNonce = null;
+                  }
+                }
+                if (receipt?.blockNumber || (latestNonce != null && Number(tx.nonce) < latestNonce)) {
+                  setTxGuardMessage("Tx already confirmed; cannot replace. Use a pending tx hash.");
                 }
                 setTxInfo(tx);
               } catch (err: any) {
@@ -235,15 +282,22 @@ export default function NonceRescue() {
                     value: txInfo.value?.toString?.() ?? "0",
                     data: txInfo.data ?? "0x",
                     type,
+                    maxFeePerGas: txInfo.maxFeePerGas?.toString?.() ?? null,
+                    maxPriorityFeePerGas: txInfo.maxPriorityFeePerGas?.toString?.() ?? null,
+                    gasPrice: txInfo.gasPrice?.toString?.() ?? null,
                   });
                   setSpeedNonce(String(txInfo.nonce ?? ""));
                   setSpeedTo(String(txInfo.to ?? ""));
                   setSpeedValue(String(txInfo.value?.toString?.() ?? "0"));
                   setSpeedData(String(txInfo.data ?? "0x"));
                 }}
+                disabled={Boolean(txGuardMessage)}
               >
                 Use for Speed Up
               </button>
+              {txGuardMessage ? (
+                <div style={{ marginTop: 8, color: "#ffb74d" }}>{txGuardMessage}</div>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -294,6 +348,10 @@ export default function NonceRescue() {
                 setCancelError("Nonce is required.");
                 return;
               }
+              if (nonceLatest != null && Number(cancelNonce) < nonceLatest) {
+                setCancelError("Tx already confirmed; cannot replace. Use a pending tx hash.");
+                return;
+              }
               const ethereum = (window as any)?.ethereum;
               if (!ethereum) {
                 setCancelError("Wallet provider not available.");
@@ -301,21 +359,17 @@ export default function NonceRescue() {
               }
               try {
                 const provider = new ethers.BrowserProvider(ethereum);
-                const feeData = await provider.getFeeData();
-                const maxPriority = feeData.maxPriorityFeePerGas
-                  ? feeData.maxPriorityFeePerGas * 2n
-                  : ethers.parseUnits("2", "gwei");
-                const maxFee = feeData.maxFeePerGas
-                  ? feeData.maxFeePerGas * 2n
-                  : (feeData.gasPrice ? feeData.gasPrice * 2n : ethers.parseUnits("10", "gwei"));
+                const fees = await buildEip1559Fees(provider, 1.2);
                 const txRequest: ethers.TransactionRequest = {
                   to: address,
                   from: address,
                   value: 0n,
                   data: "0x",
                   nonce: Number(cancelNonce),
-                  maxPriorityFeePerGas: maxPriority,
-                  maxFeePerGas: maxFee,
+                  gasLimit: 21000n,
+                  ...(fees.mode === "eip1559"
+                    ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }
+                    : { gasPrice: fees.gasPrice }),
                 };
                 const summary = `Cancel nonce ${cancelNonce}`;
                 await withMainnetConfirm(summary, txRequest, setCancelStatus, async () => {
@@ -326,15 +380,15 @@ export default function NonceRescue() {
                     setCancelTxHash(tx.hash);
                     setCancelStatus("Replacement submitted.");
                   } catch (err: any) {
-                    const normalized = normalizeWalletError(err);
-                    setCancelError(normalized.message);
-                    setCancelErrorDetails(normalized.details);
+                    const formatted = formatReplacementError(err);
+                    setCancelError(formatted.message);
+                    setCancelErrorDetails(formatted.details ?? null);
                   }
                 });
               } catch (err: any) {
-                const normalized = normalizeWalletError(err);
-                setCancelError(normalized.message);
-                setCancelErrorDetails(normalized.details);
+                const formatted = formatReplacementError(err);
+                setCancelError(formatted.message);
+                setCancelErrorDetails(formatted.details ?? null);
               }
             }}
           >
@@ -413,15 +467,18 @@ export default function NonceRescue() {
                 }
                 try {
                   const provider = new ethers.BrowserProvider(ethereum);
-                  const feeData = await provider.getFeeData();
-                  const maxPriority = feeData.maxPriorityFeePerGas
-                    ? feeData.maxPriorityFeePerGas * 2n
-                    : ethers.parseUnits("2", "gwei");
-                  const maxFee = feeData.maxFeePerGas
-                    ? feeData.maxFeePerGas * 2n
-                    : (feeData.gasPrice ? feeData.gasPrice * 2n : ethers.parseUnits("10", "gwei"));
-                  setSpeedMaxPriorityFee(maxPriority.toString());
-                  setSpeedMaxFee(maxFee.toString());
+                  const fees = await buildEip1559Fees(provider, 1.2, {
+                    maxFeePerGas: draft?.maxFeePerGas ? BigInt(draft.maxFeePerGas) : null,
+                    maxPriorityFeePerGas: draft?.maxPriorityFeePerGas ? BigInt(draft.maxPriorityFeePerGas) : null,
+                    gasPrice: draft?.gasPrice ? BigInt(draft.gasPrice) : null,
+                  });
+                  if (fees.mode === "eip1559") {
+                    setSpeedMaxPriorityFee(fees.maxPriorityFeePerGas.toString());
+                    setSpeedMaxFee(fees.maxFeePerGas.toString());
+                  } else {
+                    setSpeedMaxPriorityFee("");
+                    setSpeedMaxFee("");
+                  }
                 } catch (err: any) {
                   setSpeedError(err?.message || "Failed to load suggested fees.");
                 }
@@ -445,6 +502,10 @@ export default function NonceRescue() {
                   setSpeedError("Nonce is required.");
                   return;
                 }
+                if (nonceLatest != null && Number(speedNonce) < nonceLatest) {
+                  setSpeedError("Tx already confirmed; cannot replace. Use a pending tx hash.");
+                  return;
+                }
                 if (!speedTo || !ethers.isAddress(speedTo)) {
                   setSpeedError("Valid 'to' address required.");
                   return;
@@ -465,14 +526,20 @@ export default function NonceRescue() {
                 }
                 try {
                   const provider = new ethers.BrowserProvider(ethereum);
+                  const fees = await buildEip1559Fees(provider, 1.2, {
+                    maxFeePerGas: draft?.maxFeePerGas ? BigInt(draft.maxFeePerGas) : null,
+                    maxPriorityFeePerGas: draft?.maxPriorityFeePerGas ? BigInt(draft.maxPriorityFeePerGas) : null,
+                    gasPrice: draft?.gasPrice ? BigInt(draft.gasPrice) : null,
+                  });
                   const txRequest: ethers.TransactionRequest = {
                     to: speedTo,
                     from: address,
                     value: BigInt(speedValue),
                     data: dataField,
                     nonce: Number(speedNonce),
-                    maxFeePerGas: speedMaxFee ? BigInt(speedMaxFee) : undefined,
-                    maxPriorityFeePerGas: speedMaxPriorityFee ? BigInt(speedMaxPriorityFee) : undefined,
+                    ...(fees.mode === "eip1559"
+                      ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }
+                      : { gasPrice: fees.gasPrice }),
                   };
                   const summary = `Speed up nonce ${speedNonce}`;
                   await withMainnetConfirm(summary, txRequest, setSpeedStatus, async () => {
@@ -483,15 +550,15 @@ export default function NonceRescue() {
                       setSpeedTxHash(tx.hash);
                       setSpeedStatus("Replacement submitted.");
                     } catch (err: any) {
-                      const normalized = normalizeWalletError(err);
-                      setSpeedError(normalized.message);
-                      setSpeedErrorDetails(normalized.details);
+                      const formatted = formatReplacementError(err);
+                      setSpeedError(formatted.message);
+                      setSpeedErrorDetails(formatted.details ?? null);
                     }
                   });
                 } catch (err: any) {
-                  const normalized = normalizeWalletError(err);
-                  setSpeedError(normalized.message);
-                  setSpeedErrorDetails(normalized.details);
+                  const formatted = formatReplacementError(err);
+                  setSpeedError(formatted.message);
+                  setSpeedErrorDetails(formatted.details ?? null);
                 }
               }}
             >
