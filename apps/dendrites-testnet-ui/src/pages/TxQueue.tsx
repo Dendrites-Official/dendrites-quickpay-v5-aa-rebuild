@@ -7,6 +7,7 @@ import { logEvent } from "../lib/analytics";
 import MainnetConfirmModal from "../components/MainnetConfirmModal";
 import { estimateTxCost } from "../lib/txEstimate";
 import { normalizeWalletError } from "../lib/walletErrors";
+import { switchToBase, switchToBaseSepolia } from "../lib/switchChain";
 
 type ActivityItem = {
   hash?: string;
@@ -42,6 +43,7 @@ export default function TxQueue() {
   const [confirmGasEstimate, setConfirmGasEstimate] = useState<string | null>(null);
   const [confirmGasError, setConfirmGasError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<null | (() => Promise<void>)>(null);
+  const [switchStatus, setSwitchStatus] = useState("");
 
   const providerAvailable = Boolean((window as any)?.ethereum);
   const defaultAddress = isConnected && address ? address : "";
@@ -75,6 +77,7 @@ export default function TxQueue() {
 
   const onMainnet = chainId === 8453;
   const onSepolia = chainId === 84532;
+  const displayChainLabel = chainId === 8453 ? "Base" : chainId === 84532 ? "Base Sepolia" : chainId ? `Chain ${chainId}` : "Not available";
 
   const loadNonces = useCallback(
     async (target: string) => {
@@ -136,6 +139,32 @@ export default function TxQueue() {
       setActivityLoading(false);
     }
   }, [chainId]);
+
+  useEffect(() => {
+    if (!activeAddress) return;
+    setError("");
+    Promise.all([loadNonces(activeAddress), loadActivity(activeAddress)]).catch((err: any) => {
+      setError(err?.message || "Failed to refresh tx queue.");
+    });
+  }, [activeAddress, chainId, loadActivity, loadNonces]);
+
+  useEffect(() => {
+    const ethereum = (window as any)?.ethereum;
+    if (!ethereum?.on) return;
+    const handler = () => {
+      if (!activeAddress) return;
+      setError("");
+      Promise.all([loadNonces(activeAddress), loadActivity(activeAddress)]).catch((err: any) => {
+        setError(err?.message || "Failed to refresh tx queue.");
+      });
+    };
+    ethereum.on("chainChanged", handler);
+    return () => {
+      if (ethereum?.removeListener) {
+        ethereum.removeListener("chainChanged", handler);
+      }
+    };
+  }, [activeAddress, loadActivity, loadNonces]);
 
   const handleLoad = useCallback(async () => {
     setError("");
@@ -393,6 +422,44 @@ export default function TxQueue() {
   return (
     <div style={{ padding: 16 }}>
       <h2>Universal Transaction Queue (v1)</h2>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+        <div style={{ color: "#cfcfcf" }}>
+          Network: {displayChainLabel} {chainId ? `(${chainId})` : ""}
+        </div>
+        <button
+          onClick={async () => {
+            setSwitchStatus("");
+            try {
+              const ethereum = (window as any)?.ethereum;
+              await switchToBase(ethereum);
+              setSwitchStatus("Switched to Base.");
+            } catch (err: any) {
+              setSwitchStatus(
+                `Switch failed: ${err?.message || "Unable to switch network"}. If using WalletConnect, open the wallet app and approve the change or add Base manually.`
+              );
+            }
+          }}
+        >
+          Switch to Base
+        </button>
+        <button
+          onClick={async () => {
+            setSwitchStatus("");
+            try {
+              const ethereum = (window as any)?.ethereum;
+              await switchToBaseSepolia(ethereum);
+              setSwitchStatus("Switched to Base Sepolia.");
+            } catch (err: any) {
+              setSwitchStatus(
+                `Switch failed: ${err?.message || "Unable to switch network"}. If using WalletConnect, open the wallet app and approve the change or add Base Sepolia manually.`
+              );
+            }
+          }}
+        >
+          Switch to Base Sepolia
+        </button>
+        {switchStatus ? <div style={{ color: "#9e9e9e" }}>{switchStatus}</div> : null}
+      </div>
       <div style={{ color: "#bdbdbd", marginTop: 6 }}>
         Load a wallet’s recent tx history and nonce queue status.
       </div>

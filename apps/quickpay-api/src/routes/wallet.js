@@ -211,7 +211,12 @@ async function handleApprovalsScan(request, reply) {
     .filter(Boolean);
 
   if (!spenders.length) {
-    return reply.send({ ok: true, chainId, owner, spenders: [], tokens: [], warning: "NO_SPENDERS" });
+    return reply.code(501).send({
+      ok: false,
+      error: "SCANNER_NOT_CONFIGURED",
+      code: "SCANNER_NOT_CONFIGURED",
+      details: "No spenders configured for approvals scan.",
+    });
   }
   if (!spenders.every(isAddress)) {
     return reply.code(400).send({ ok: false, error: "INVALID_SPENDERS", code: "INVALID_SPENDERS" });
@@ -346,6 +351,26 @@ async function handleApprovalsScan(request, reply) {
 }
 
 export function registerWalletRoutes(app) {
+  app.get("/wallet/probe", async (_request, reply) => {
+    const mainnetApi = String(process.env.BLOCKSCOUT_BASE_MAINNET_API_URL || "").trim();
+    const mainnetExplorer = String(process.env.BLOCKSCOUT_BASE_MAINNET_EXPLORER_BASE_URL || "").trim();
+    const sepoliaApi = String(process.env.BLOCKSCOUT_BASE_SEPOLIA_API_URL || "").trim();
+    const sepoliaExplorer = String(process.env.BLOCKSCOUT_BASE_SEPOLIA_EXPLORER_BASE_URL || "").trim();
+
+    return reply.send({
+      ok: true,
+      chainSupport: {
+        8453: true,
+        84532: true,
+      },
+      blockscoutConfigured: {
+        8453: Boolean(mainnetApi && mainnetExplorer),
+        84532: Boolean(sepoliaApi && sepoliaExplorer),
+      },
+      now: new Date().toISOString(),
+    });
+  });
+
   app.get("/wallet/activity/txlist", async (request, reply) => {
     const { address, chainId, page = "1", offset = "50", sort = "desc" } = request.query || {};
 
