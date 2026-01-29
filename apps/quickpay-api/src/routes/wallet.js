@@ -1,4 +1,10 @@
+import { ethers } from "ethers";
+
 const DEFAULT_CACHE_TTL_MS = 30000;
+const TOKEN_SCAN_CONCURRENCY = 5;
+const DEFAULT_MAX_TOKENS = 30;
+const TOKEN_TX_OFFSET = 200;
+const RPC_TIMEOUT_MS = 6000;
 
 const cache = new Map();
 
@@ -6,8 +12,56 @@ function isAddress(value) {
   return /^0x[a-fA-F0-9]{40}$/.test(String(value || ""));
 }
 
-function getCacheKey({ address, page, offset, sort }) {
-  return `${address.toLowerCase()}_${page}_${offset}_${sort}`;
+function getCacheKey({ address, page, offset, sort, chainId, action }) {
+  return `${action}_${address.toLowerCase()}_${chainId}_${page}_${offset}_${sort}`;
+}
+
+function resolveExplorerConfig(chainId) {
+  if (chainId === 8453) {
+    return {
+      apiBase: String(process.env.BLOCKSCOUT_BASE_MAINNET_API_URL || "").trim(),
+      explorerBaseUrl: String(process.env.BLOCKSCOUT_BASE_MAINNET_EXPLORER_BASE_URL || "").trim(),
+    };
+  }
+  if (chainId === 84532) {
+    return {
+      apiBase: String(process.env.BLOCKSCOUT_BASE_SEPOLIA_API_URL || "").trim(),
+      explorerBaseUrl: String(process.env.BLOCKSCOUT_BASE_SEPOLIA_EXPLORER_BASE_URL || "").trim(),
+    };
+  }
+  return null;
+}
+
+function resolveRpcUrl(chainId) {
+  if (chainId === 8453) {
+    return String(process.env.RPC_URL_BASE_MAINNET || process.env.RPC_URL || "").trim();
+  }
+  if (chainId === 84532) {
+    return String(process.env.RPC_URL_BASE_SEPOLIA || process.env.RPC_URL || "").trim();
+  }
+  return String(process.env.RPC_URL || "").trim();
+}
+
+function getEnvList(name) {
+  const raw = String(process.env[name] || "").trim();
+  if (!raw) return [];
+  if (raw.startsWith("[") && raw.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map((v) => String(v));
+    } catch {
+      return [];
+    }
+  }
+  return raw.split(",").map((value) => value.trim()).filter(Boolean);
+}
+
+function withTimeout(promise, timeoutMs) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function getCacheTtlMs() {
@@ -45,9 +99,98 @@ function mapTx(tx) {
   };
 }
 
+function mapTokenTx(tx) {
+  return {
+    hash: tx.hash,
+    tokenAddress: tx.contractAddress,
+    tokenName: tx.tokenName,
+    tokenSymbol: tx.tokenSymbol,
+    tokenDecimal: tx.tokenDecimal,
+    from: tx.from,
+    to: tx.to,
+    value: tx.value,
+    timeStamp: tx.timeStamp,
+  };
+}
+
+async function fetchExplorerData({
+  address,
+  chainId,
+  page,
+  offset,
+  sort,
+  action,
+}) {
+  const explorerConfig = resolveExplorerConfig(chainId);
+  if (!explorerConfig) {
+    const err = new Error("ACTIVITY_UNSUPPORTED_CHAIN");
+    err.statusCode = 400;
+    throw err;
+  }
+  const { apiBase, explorerBaseUrl } = explorerConfig;
+  if (!apiBase) {
+    const err = new Error("ACTIVITY_NOT_CONFIGURED");
+    err.statusCode = 501;
+    throw err;
+  }
+
+  const url = new URL(apiBase);
+  url.searchParams.set("module", "account");
+  url.searchParams.set("action", action);
+  url.searchParams.set("address", String(address));
+  url.searchParams.set("page", String(page));
+  url.searchParams.set("offset", String(offset));
+  url.searchParams.set("sort", sort);
+
+  let data;
+  let resStatus = 0;
+  try {
+    const res = await fetch(url.toString());
+    resStatus = res.status;
+    if (res.status === 429) {
+      const err = new Error("RATE_LIMIT");
+      err.statusCode = 429;
+      throw err;
+    }
+    data = await res.json();
+  } catch (err) {
+    if (err?.statusCode) throw err;
+    const failure = new Error("EXPLORER_ERROR");
+    failure.statusCode = 502;
+    failure.details = "fetch_failed";
+    throw failure;
+  }
+
+  const message = String(data?.message || "").toLowerCase();
+  const result = data?.result;
+  const rateLimited =
+    message.includes("rate limit") ||
+    String(result || "").toLowerCase().includes("rate limit") ||
+    String(result || "").toLowerCase().includes("max rate limit");
+
+  if (rateLimited) {
+    const err = new Error("RATE_LIMIT");
+    err.statusCode = 429;
+    throw err;
+  }
+
+  if (data?.status === "0" && message.includes("no transactions")) {
+    return { explorerBaseUrl, items: [] };
+  }
+
+  if (!Array.isArray(result)) {
+    const err = new Error("EXPLORER_ERROR");
+    err.statusCode = 502;
+    err.details = data?.result || data?.message || `status_${resStatus}`;
+    throw err;
+  }
+
+  return { explorerBaseUrl, items: result };
+}
+
 export function registerWalletRoutes(app) {
   app.get("/wallet/activity/txlist", async (request, reply) => {
-    const { address, page = "1", offset = "50", sort = "desc" } = request.query || {};
+    const { address, chainId, page = "1", offset = "50", sort = "desc" } = request.query || {};
 
     if (!isAddress(address)) {
       return reply.code(400).send({ ok: false, error: "INVALID_ADDRESS" });
@@ -58,73 +201,243 @@ export function registerWalletRoutes(app) {
     const offsetNum = Math.min(Math.max(1, offsetNumRaw), 100);
     const sortValue = String(sort || "desc").toLowerCase() === "asc" ? "asc" : "desc";
 
-    const cacheKey = getCacheKey({ address, page: pageNum, offset: offsetNum, sort: sortValue });
+    const chain = Number.parseInt(String(chainId ?? process.env.CHAIN_ID ?? 84532), 10);
+    const cacheKey = getCacheKey({
+      address,
+      page: pageNum,
+      offset: offsetNum,
+      sort: sortValue,
+      chainId: chain,
+      action: "txlist",
+    });
     const cached = getCached(cacheKey);
     if (cached) {
       return reply.send(cached);
     }
-
-    const apiBase = String(process.env.BASESCAN_API_URL || "").trim();
-    const apiKey = String(process.env.BASESCAN_API_KEY || "").trim();
-    const explorerBaseUrl = String(process.env.BASESCAN_EXPLORER_BASE_URL || "").trim();
-
-    if (!apiBase) {
-      return reply.code(501).send({ ok: false, error: "ACTIVITY_NOT_CONFIGURED" });
-    }
-
-    const url = new URL(apiBase);
-    url.searchParams.set("module", "account");
-    url.searchParams.set("action", "txlist");
-    url.searchParams.set("address", String(address));
-    url.searchParams.set("page", String(pageNum));
-    url.searchParams.set("offset", String(offsetNum));
-    url.searchParams.set("sort", sortValue);
-    if (apiKey) {
-      url.searchParams.set("apikey", apiKey);
-    }
-
-    let data;
-    let resStatus = 0;
     try {
-      const res = await fetch(url.toString());
-      resStatus = res.status;
-      if (res.status === 429) {
-        return reply.code(429).send({ ok: false, error: "RATE_LIMIT" });
-      }
-      data = await res.json();
-    } catch {
-      return reply.code(502).send({ ok: false, error: "EXPLORER_ERROR", details: "fetch_failed" });
-    }
+      const { explorerBaseUrl, items } = await fetchExplorerData({
+        address,
+        chainId: chain,
+        page: pageNum,
+        offset: offsetNum,
+        sort: sortValue,
+        action: "txlist",
+      });
 
-    const message = String(data?.message || "").toLowerCase();
-    const result = data?.result;
-    const rateLimited =
-      message.includes("rate limit") ||
-      String(result || "").toLowerCase().includes("rate limit") ||
-      String(result || "").toLowerCase().includes("max rate limit");
+      const payload = {
+        ok: true,
+        explorerBaseUrl,
+        items: items.map(mapTx),
+      };
 
-    if (rateLimited) {
-      return reply.code(429).send({ ok: false, error: "RATE_LIMIT" });
-    }
-
-    if (data?.status === "0" && message.includes("no transactions")) {
-      const payload = { ok: true, explorerBaseUrl, items: [] };
       setCached(cacheKey, payload, getCacheTtlMs());
       return reply.send(payload);
+    } catch (err) {
+      const status = err?.statusCode || 502;
+      const error = err?.message || "EXPLORER_ERROR";
+      const details = err?.details ? String(err.details) : undefined;
+      return reply.code(status).send({ ok: false, error, details });
+    }
+  });
+
+  app.get("/wallet/activity/tokentx", async (request, reply) => {
+    const { address, chainId, page = "1", offset = "100", sort = "desc" } = request.query || {};
+
+    if (!isAddress(address)) {
+      return reply.code(400).send({ ok: false, error: "INVALID_ADDRESS" });
     }
 
-    if (!Array.isArray(result)) {
-      const detail = data?.result || data?.message || `status_${resStatus}`;
-      return reply.code(502).send({ ok: false, error: "EXPLORER_ERROR", details: String(detail) });
+    const chain = Number.parseInt(String(chainId ?? ""), 10);
+    if (![8453, 84532].includes(chain)) {
+      return reply.code(400).send({ ok: false, error: "UNSUPPORTED_CHAIN" });
     }
 
-    const payload = {
-      ok: true,
-      explorerBaseUrl,
-      items: result.map(mapTx),
+    const pageNum = Math.max(1, Number.parseInt(String(page), 10) || 1);
+    const offsetNumRaw = Number.parseInt(String(offset), 10) || 100;
+    const offsetNum = Math.min(Math.max(1, offsetNumRaw), 100);
+    const sortValue = String(sort || "desc").toLowerCase() === "asc" ? "asc" : "desc";
+
+    const cacheKey = getCacheKey({
+      address,
+      page: pageNum,
+      offset: offsetNum,
+      sort: sortValue,
+      chainId: chain,
+      action: "tokentx",
+    });
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return reply.send(cached);
+    }
+    try {
+      const { explorerBaseUrl, items } = await fetchExplorerData({
+        address,
+        chainId: chain,
+        page: pageNum,
+        offset: offsetNum,
+        sort: sortValue,
+        action: "tokentx",
+      });
+
+      const payload = {
+        ok: true,
+        explorerBaseUrl,
+        items: items.map(mapTokenTx),
+      };
+
+      setCached(cacheKey, payload, getCacheTtlMs());
+      return reply.send(payload);
+    } catch (err) {
+      const status = err?.statusCode || 502;
+      const error = err?.message || "EXPLORER_ERROR";
+      const details = err?.details ? String(err.details) : undefined;
+      return reply.code(status).send({ ok: false, error, details });
+    }
+  });
+
+  app.post("/wallet/approvals/scan", async (request, reply) => {
+    const body = request.body ?? {};
+    const chainId = Number(body?.chainId);
+    const owner = String(body?.owner || "").trim();
+    const maxTokensInput = Number(body?.maxTokens);
+
+    if (![8453, 84532].includes(chainId)) {
+      return reply.code(400).send({ ok: false, error: "UNSUPPORTED_CHAIN" });
+    }
+    if (!isAddress(owner)) {
+      return reply.code(400).send({ ok: false, error: "INVALID_OWNER" });
+    }
+
+    const spendersInput = Array.isArray(body?.spenders) ? body.spenders : null;
+    const spenders = (spendersInput ?? getEnvList("APPROVAL_SCAN_SPENDERS"))
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+
+    if (!spenders.length || !spenders.every(isAddress)) {
+      return reply.code(400).send({ ok: false, error: "INVALID_SPENDERS" });
+    }
+
+    const rpcUrl = resolveRpcUrl(chainId);
+    if (!rpcUrl) {
+      return reply.code(500).send({ ok: false, error: "RPC_NOT_CONFIGURED" });
+    }
+
+    const maxTokens = Number.isFinite(maxTokensInput) && maxTokensInput > 0 ? Math.min(maxTokensInput, 100) : DEFAULT_MAX_TOKENS;
+
+    let tokenTxItems = [];
+    try {
+      const { items } = await fetchExplorerData({
+        address: owner,
+        chainId,
+        page: 1,
+        offset: TOKEN_TX_OFFSET,
+        sort: "desc",
+        action: "tokentx",
+      });
+      tokenTxItems = items;
+    } catch (err) {
+      const status = err?.statusCode || 502;
+      const error = err?.message || "EXPLORER_ERROR";
+      const details = err?.details ? String(err.details) : undefined;
+      return reply.code(status).send({ ok: false, error, details });
+    }
+
+    const tokenMetaByAddress = new Map();
+    const tokens = [];
+    for (const item of tokenTxItems) {
+      const tokenAddress = String(item?.contractAddress || "").trim();
+      if (!isAddress(tokenAddress)) continue;
+      if (tokenMetaByAddress.has(tokenAddress.toLowerCase())) continue;
+      tokenMetaByAddress.set(tokenAddress.toLowerCase(), {
+        tokenAddress,
+        tokenDecimal: item?.tokenDecimal,
+        tokenSymbol: item?.tokenSymbol,
+      });
+      tokens.push(tokenAddress);
+      if (tokens.length >= maxTokens) break;
+    }
+
+    const provider = new ethers.JsonRpcProvider(rpcUrl, chainId);
+    const erc20Abi = [
+      "function decimals() view returns (uint8)",
+      "function symbol() view returns (string)",
+      "function allowance(address owner, address spender) view returns (uint256)",
+    ];
+
+    const results = [];
+    let index = 0;
+
+    const runNext = async () => {
+      while (index < tokens.length) {
+        const tokenAddress = tokens[index++];
+        const metaHint = tokenMetaByAddress.get(tokenAddress.toLowerCase()) || {};
+        const entry = {
+          tokenAddress,
+          symbol: metaHint.tokenSymbol || null,
+          decimals: null,
+          allowances: [],
+          error: null,
+        };
+
+        try {
+          const contract = new ethers.Contract(tokenAddress, erc20Abi, provider);
+          let decimals = null;
+          let symbol = entry.symbol;
+
+          try {
+            const dec = await withTimeout(contract.decimals(), RPC_TIMEOUT_MS);
+            decimals = Number(dec);
+          } catch {
+            const fallback = Number(metaHint.tokenDecimal);
+            decimals = Number.isFinite(fallback) ? fallback : null;
+          }
+
+          if (!symbol) {
+            try {
+              symbol = String(await withTimeout(contract.symbol(), RPC_TIMEOUT_MS));
+            } catch {
+              symbol = metaHint.tokenSymbol || null;
+            }
+          }
+
+          entry.decimals = decimals;
+          entry.symbol = symbol;
+
+          for (const spender of spenders) {
+            try {
+              const allowance = await withTimeout(contract.allowance(owner, spender), RPC_TIMEOUT_MS);
+              const allowanceStr = allowance?.toString?.() ?? "0";
+              entry.allowances.push({
+                spender,
+                allowance: allowanceStr,
+                isUnlimited: BigInt(allowanceStr) >= ethers.MaxUint256 / 2n,
+              });
+            } catch {
+              entry.allowances.push({
+                spender,
+                allowance: "0",
+                isUnlimited: false,
+                error: "allowance_failed",
+              });
+            }
+          }
+        } catch (err) {
+          entry.error = String(err?.message || "token_failed");
+        }
+
+        results.push(entry);
+      }
     };
 
-    setCached(cacheKey, payload, getCacheTtlMs());
-    return reply.send(payload);
+    const workers = Array.from({ length: Math.min(TOKEN_SCAN_CONCURRENCY, tokens.length) }, () => runNext());
+    await Promise.all(workers);
+
+    return reply.send({
+      ok: true,
+      chainId,
+      owner,
+      spenders,
+      tokens: results,
+    });
   });
 }

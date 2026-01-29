@@ -25,6 +25,16 @@ const waitlistDb = createClient(
   process.env.WAITLIST_SUPABASE_SERVICE_ROLE_KEY || ""
 );
 
+function getEnv(name, aliases = []) {
+  const direct = process.env[name];
+  if (direct != null && direct !== "") return direct;
+  for (const alias of aliases) {
+    const value = process.env[alias];
+    if (value != null && value !== "") return value;
+  }
+  return "";
+}
+
 let waitlistHasWalletColumn = null;
 let waitlistHasReferralColumn = null;
 let waitlistHasReferralAltColumn = null;
@@ -58,12 +68,7 @@ function getSaltOrThrow() {
 }
 
 function getMdndxConfig() {
-  const token = String(
-    process.env.FAUCET_MDNDX_TOKEN ||
-      process.env.MDNDX ||
-      process.env.MDNDX_TOKEN ||
-      ""
-  ).trim();
+  const token = String(getEnv("FAUCET_MDNDX_TOKEN", ["MDNDX", "MDNDX_TOKEN"]) || "").trim();
   const decimalsRaw = String(process.env.FAUCET_MDNDX_DECIMALS || "").trim();
   const decimals = Number(decimalsRaw || "18");
   const dripUnitsRaw = String(process.env.FAUCET_MDNDX_DRIP_UNITS || "").trim();

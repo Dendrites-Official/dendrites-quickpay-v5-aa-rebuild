@@ -4,6 +4,10 @@ import { useAccount } from "wagmi";
 import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
+import { logEvent } from "../lib/analytics";
+import MainnetConfirmModal from "../components/MainnetConfirmModal";
+import { estimateTxCost } from "../lib/txEstimate";
+import { normalizeWalletError } from "../lib/walletErrors";
 
 export default function WalletHealth() {
   const { address, isConnected, chainId } = useAccount();
@@ -23,6 +27,7 @@ export default function WalletHealth() {
   const [allowance, setAllowance] = useState<bigint | null>(null);
   const [allowanceFormatted, setAllowanceFormatted] = useState<string | null>(null);
   const [approvalError, setApprovalError] = useState("");
+  const [approvalErrorDetails, setApprovalErrorDetails] = useState<string | null>(null);
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [tokenDetails, setTokenDetails] = useState<{ symbol: string; decimals: number } | null>(null);
   const [limitInput, setLimitInput] = useState("");
@@ -31,6 +36,24 @@ export default function WalletHealth() {
   const [lastCheckedToken, setLastCheckedToken] = useState("");
   const [lastCheckedSpender, setLastCheckedSpender] = useState("");
   const [lastAllowanceUnlimited, setLastAllowanceUnlimited] = useState(false);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 });
+  const [scanError, setScanError] = useState("");
+  const [scanResults, setScanResults] = useState<
+    Array<{
+      tokenAddress: string;
+      symbol: string | null;
+      decimals: number | null;
+      allowances: Array<{ spender: string; allowance: string; isUnlimited: boolean; error?: string }>;
+      error?: string | null;
+    }>
+  >([]);
+  const [scanLimitInputs, setScanLimitInputs] = useState<Record<string, string>>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmSummary, setConfirmSummary] = useState("");
+  const [confirmGasEstimate, setConfirmGasEstimate] = useState<string | null>(null);
+  const [confirmGasError, setConfirmGasError] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<null | (() => Promise<void>)>(null);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
   const [activityRows, setActivityRows] = useState<
@@ -42,6 +65,7 @@ export default function WalletHealth() {
   const codeCacheRef = useRef<Map<string, boolean>>(new Map());
   const tokenMetaRef = useRef<Record<string, { symbol: string; decimals: number }>>({});
   const tagMapRef = useRef<Record<string, string>>({});
+  const loggedOpenRef = useRef(false);
 
   const providerAvailable = Boolean((window as any)?.ethereum);
   const statusAddress = isConnected && address ? address : "Not connected";
@@ -50,6 +74,20 @@ export default function WalletHealth() {
   const quickpayConfig = getQuickPayChainConfig(chainId ?? undefined);
   const quickpayRouter = quickpayConfig?.router;
   const permit2Address = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+  const quickpayPaymaster = String(
+    (import.meta as any)?.env?.VITE_PAYMASTER_ADDRESS ??
+      (import.meta as any)?.env?.VITE_PAYMASTER ??
+      ""
+  ).trim();
+
+  const knownLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    if (permit2Address) labels[permit2Address.toLowerCase()] = "Permit2";
+    if (quickpayRouter) labels[quickpayRouter.toLowerCase()] = "QuickPay Router";
+    if (quickpayPaymaster) labels[quickpayPaymaster.toLowerCase()] = "QuickPay Paymaster";
+    if (quickpayConfig?.feeVault) labels[quickpayConfig.feeVault.toLowerCase()] = "FeeVault";
+    return labels;
+  }, [permit2Address, quickpayConfig?.feeVault, quickpayPaymaster, quickpayRouter]);
   const approvalSpender = useMemo(() => {
     if (spenderMode === "permit2") return permit2Address;
     if (spenderMode === "router") return quickpayRouter || "";
@@ -79,6 +117,12 @@ export default function WalletHealth() {
       setMdndxDecimals(null);
     }
   }, []);
+
+  useEffect(() => {
+    if (loggedOpenRef.current) return;
+    loggedOpenRef.current = true;
+    void logEvent("wallet_health_open", { tab: "overview" }, address ?? null, chainId ?? null);
+  }, [address, chainId]);
 
   const loadOverview = useCallback(async () => {
     setError("");
@@ -187,6 +231,12 @@ export default function WalletHealth() {
       setExplorerBaseUrl("");
       return;
     }
+    if (chainId !== 8453 && chainId !== 84532) {
+      setActivityRows([]);
+      setExplorerBaseUrl("");
+      setActivityError("Unsupported chain for Activity/TxQueue.");
+      return;
+    }
     const ethereum = (window as any)?.ethereum;
     if (!ethereum) {
       setActivityError("Wallet provider not available.");
@@ -195,7 +245,9 @@ export default function WalletHealth() {
 
     setActivityLoading(true);
     try {
-      const url = qpUrl(`/wallet/activity/txlist?address=${address}&page=1&offset=50&sort=desc`);
+      const url = qpUrl(
+        `/wallet/activity/txlist?address=${address}&chainId=${chainId}&page=1&offset=50&sort=desc`
+      );
       const res = await fetch(url);
       if (res.status === 429) {
         setActivityError("Rate limited, retry in a moment.");
@@ -205,6 +257,10 @@ export default function WalletHealth() {
       if (!res.ok || data?.ok === false) {
         if (data?.error === "ACTIVITY_NOT_CONFIGURED") {
           setActivityError("Activity feed not configured (explorer API).");
+          return;
+        }
+        if (data?.error === "ACTIVITY_UNSUPPORTED_CHAIN") {
+          setActivityError("Unsupported chain for Activity/TxQueue.");
           return;
         }
         if (data?.error === "RATE_LIMIT") {
@@ -281,9 +337,31 @@ export default function WalletHealth() {
   }, [address, chainId, isConnected]);
 
   const unknownContracts = useMemo(
-    () => activityRows.filter((row) => !(tagMap[row.address] ?? "").trim()),
-    [activityRows, tagMap]
+    () =>
+      activityRows.filter((row) => {
+        const userTag = (tagMap[row.address] ?? "").trim();
+        const known = knownLabels[row.address.toLowerCase()];
+        return !userTag && !known;
+      }),
+    [activityRows, knownLabels, tagMap]
   );
+
+  const unlimitedApprovals = useMemo(() => {
+    const rows: Array<{ tokenAddress: string; symbol: string | null; spender: string }> = [];
+    for (const token of scanResults) {
+      if (!token?.allowances || token?.error) continue;
+      for (const allowance of token.allowances) {
+        if (allowance?.isUnlimited) {
+          rows.push({
+            tokenAddress: token.tokenAddress,
+            symbol: token.symbol ?? null,
+            spender: allowance.spender,
+          });
+        }
+      }
+    }
+    return rows;
+  }, [scanResults]);
 
   const fetchTokenDetails = useCallback(
     async (provider: ethers.BrowserProvider, addr: string) => {
@@ -307,6 +385,7 @@ export default function WalletHealth() {
 
   const handleCheckAllowance = useCallback(async () => {
     setApprovalError("");
+    setApprovalErrorDetails(null);
     setTxHash("");
     setTxStatus("");
     setAllowance(null);
@@ -327,6 +406,12 @@ export default function WalletHealth() {
       setApprovalError("Spender address is invalid.");
       return;
     }
+    void logEvent(
+      "approvals_check",
+      { token: tokenAddr, spender: spenderAddr },
+      address ?? null,
+      chainId ?? null
+    );
     const ethereum = (window as any)?.ethereum;
     if (!ethereum) {
       setApprovalError("Wallet provider not available.");
@@ -356,11 +441,34 @@ export default function WalletHealth() {
     } finally {
       setApprovalLoading(false);
     }
-  }, [address, approvalSpender, fetchTokenDetails, isConnected, tokenAddress]);
+  }, [address, approvalSpender, chainId, fetchTokenDetails, isConnected, tokenAddress]);
+
+  const withMainnetConfirm = useCallback(
+    async (summary: string, txRequest: ethers.TransactionRequest, action: () => Promise<void>) => {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const estimate = await estimateTxCost(provider, txRequest);
+      if (chainId === 8453) {
+        setConfirmSummary(summary);
+        setConfirmGasEstimate(estimate.costEth);
+        setConfirmGasError(estimate.error);
+        setConfirmAction(() => action);
+        setConfirmOpen(true);
+        return;
+      }
+      if (estimate.costEth) {
+        setTxStatus(`Estimated gas: ${estimate.costEth}`);
+      } else if (estimate.error) {
+        setTxStatus("Unable to estimate; wallet will show final gas.");
+      }
+      await action();
+    },
+    [chainId]
+  );
 
   const handleApprove = useCallback(
     async (value: bigint) => {
       setApprovalError("");
+      setApprovalErrorDetails(null);
       setTxHash("");
       setTxStatus("");
       if (!address || !isConnected) {
@@ -369,6 +477,75 @@ export default function WalletHealth() {
       }
       const tokenAddr = tokenAddress.trim();
       const spenderAddr = approvalSpender.trim();
+      if (!ethers.isAddress(tokenAddr)) {
+        setApprovalError("Token address is invalid.");
+        return;
+      }
+      if (!ethers.isAddress(spenderAddr)) {
+        setApprovalError("Spender address is invalid.");
+        return;
+      }
+      const eventKind = value === 0n ? "approvals_revoke" : "approvals_set_limit";
+      void logEvent(
+        eventKind,
+        { token: tokenAddr, spender: spenderAddr, value: value.toString() },
+        address ?? null,
+        chainId ?? null
+      );
+      const ethereum = (window as any)?.ethereum;
+      if (!ethereum) {
+        setApprovalError("Wallet provider not available.");
+        return;
+      }
+      setApprovalLoading(true);
+      try {
+        const provider = new ethers.BrowserProvider(ethereum);
+        const signer = await provider.getSigner();
+        const erc20Abi = [
+          "function approve(address spender, uint256 value) returns (bool)",
+        ];
+        const contract = new ethers.Contract(tokenAddr, erc20Abi, signer);
+        const txRequest = await contract.approve.populateTransaction(spenderAddr, value);
+        const requestWithFrom = { ...txRequest, from: address } as ethers.TransactionRequest;
+        const summary = `${value === 0n ? "Revoke" : "Set limit"} ${tokenAddr} → ${spenderAddr}`;
+        await withMainnetConfirm(summary, requestWithFrom, async () => {
+          setTxStatus("Submitting...");
+          try {
+            const tx = await signer.sendTransaction(requestWithFrom);
+            setTxHash(tx?.hash ?? "");
+            setTxStatus("Pending...");
+            await tx.wait();
+            setTxStatus("Confirmed");
+            await handleCheckAllowance();
+          } catch (err: any) {
+            const normalized = normalizeWalletError(err);
+            setTxStatus("");
+            setApprovalError(normalized.message);
+            setApprovalErrorDetails(normalized.details);
+          }
+        });
+      } catch (err: any) {
+        setTxStatus("");
+        const normalized = normalizeWalletError(err);
+        setApprovalError(normalized.message);
+        setApprovalErrorDetails(normalized.details);
+      } finally {
+        setApprovalLoading(false);
+      }
+    },
+    [address, approvalSpender, chainId, handleCheckAllowance, isConnected, tokenAddress, withMainnetConfirm]
+  );
+
+  const handleApproveFor = useCallback(
+    async (tokenAddr: string, spenderAddr: string, value: bigint) => {
+      setApprovalError("");
+      setApprovalErrorDetails(null);
+      setTxHash("");
+      setTxStatus("");
+      if (!address || !isConnected) {
+        setApprovalError("Connect your wallet first.");
+        return;
+      }
       if (!ethers.isAddress(tokenAddr)) {
         setApprovalError("Token address is invalid.");
         return;
@@ -386,26 +563,71 @@ export default function WalletHealth() {
       try {
         const provider = new ethers.BrowserProvider(ethereum);
         const signer = await provider.getSigner();
-        const erc20Abi = [
-          "function approve(address spender, uint256 value) returns (bool)",
-        ];
+        const erc20Abi = ["function approve(address spender, uint256 value) returns (bool)"];
         const contract = new ethers.Contract(tokenAddr, erc20Abi, signer);
-        setTxStatus("Submitting...");
-        const tx = await contract.approve(spenderAddr, value);
-        setTxHash(tx?.hash ?? "");
-        setTxStatus("Pending...");
-        await tx.wait();
-        setTxStatus("Confirmed");
-        await handleCheckAllowance();
+        const txRequest = await contract.approve.populateTransaction(spenderAddr, value);
+        const requestWithFrom = { ...txRequest, from: address } as ethers.TransactionRequest;
+        const summary = `${value === 0n ? "Revoke" : "Set limit"} ${tokenAddr} → ${spenderAddr}`;
+        await withMainnetConfirm(summary, requestWithFrom, async () => {
+          setTxStatus("Submitting...");
+          try {
+            const tx = await signer.sendTransaction(requestWithFrom);
+            setTxHash(tx?.hash ?? "");
+            setTxStatus("Pending...");
+            await tx.wait();
+            setTxStatus("Confirmed");
+          } catch (err: any) {
+            const normalized = normalizeWalletError(err);
+            setTxStatus("");
+            setApprovalError(normalized.message);
+            setApprovalErrorDetails(normalized.details);
+          }
+        });
       } catch (err: any) {
         setTxStatus("");
-        setApprovalError(err?.message || "Approval failed.");
+        const normalized = normalizeWalletError(err);
+        setApprovalError(normalized.message);
+        setApprovalErrorDetails(normalized.details);
       } finally {
         setApprovalLoading(false);
       }
     },
-    [address, approvalSpender, handleCheckAllowance, isConnected, tokenAddress]
+    [address, isConnected, withMainnetConfirm]
   );
+
+  const handleScanApprovals = useCallback(async () => {
+    setScanError("");
+    setScanResults([]);
+    setScanProgress({ done: 0, total: 0 });
+    if (!address || !isConnected) {
+      setScanError("Connect your wallet first.");
+      return;
+    }
+    if (chainId !== 8453 && chainId !== 84532) {
+      setScanError("Unsupported chain for Approvals Scan.");
+      return;
+    }
+    setScanLoading(true);
+    try {
+      const res = await fetch(qpUrl("/wallet/approvals/scan"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chainId, owner: address }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        setScanError(data?.error || "Scan failed.");
+        return;
+      }
+      const tokens = Array.isArray(data?.tokens) ? data.tokens : [];
+      setScanResults(tokens);
+      setScanProgress({ done: tokens.length, total: tokens.length });
+    } catch (err: any) {
+      setScanError(err?.message || "Scan failed.");
+    } finally {
+      setScanLoading(false);
+    }
+  }, [address, chainId, isConnected]);
 
   useEffect(() => {
     if (activeTab !== "overview") return;
@@ -474,6 +696,21 @@ export default function WalletHealth() {
         Quick snapshot of wallet status and basic risk signals.
       </div>
 
+      <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>Investor Snapshot</div>
+        <div><strong>Chain:</strong> {statusChain}</div>
+        <div>
+          <strong>Pending txs:</strong> {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? "Yes" : "No"}
+        </div>
+        <div><strong>Unlimited approvals:</strong> {unlimitedApprovals.length}</div>
+        <div><strong>Unknown contracts interacted:</strong> {unknownContracts.length}</div>
+        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Link to="/tx-queue" style={tabLinkStyle}>View Tx Queue</Link>
+          <button onClick={handleScanApprovals} disabled={scanLoading}>Scan Approvals</button>
+          <button onClick={() => setActiveTab("activity")}>Open Activity</button>
+        </div>
+      </div>
+
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
         <button style={tabButtonStyle(activeTab === "overview")} onClick={() => setActiveTab("overview")}>
           Overview
@@ -487,6 +724,9 @@ export default function WalletHealth() {
         <button style={tabButtonStyle(activeTab === "risk")} onClick={() => setActiveTab("risk")}>
           Risk
         </button>
+        <Link to="/tx-queue" style={tabLinkStyle}>
+          Tx Queue
+        </Link>
         <Link to="/nonce-rescue" style={tabLinkStyle}>
           Nonce Rescue
         </Link>
@@ -529,6 +769,105 @@ export default function WalletHealth() {
       {activeTab === "approvals" ? (
         <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Token Approvals</div>
+          <div style={{ marginTop: 8, marginBottom: 12, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Approvals Scanner (v2)</div>
+            <div style={{ color: "#bdbdbd", marginBottom: 8 }}>
+              Scan tokens the wallet touched and check allowances for default spenders.
+            </div>
+            <button onClick={handleScanApprovals} disabled={scanLoading}>
+              {scanLoading ? "Scanning..." : "Scan approvals"}
+            </button>
+            {scanLoading ? (
+              <div style={{ color: "#bdbdbd", marginTop: 8 }}>
+                Scanning tokens... {scanProgress.done}/{scanProgress.total || "?"}
+              </div>
+            ) : null}
+            {scanError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{scanError}</div> : null}
+            {scanResults.length ? (
+              <div style={{ marginTop: 12, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ textAlign: "left" }}>
+                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Token</th>
+                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Spender</th>
+                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Allowance</th>
+                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Risk</th>
+                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scanResults.map((token) => {
+                      const tokenLabel = token.symbol ? `${token.symbol} (${token.tokenAddress})` : token.tokenAddress;
+                      if (token.error) {
+                        return (
+                          <tr key={token.tokenAddress}>
+                            <td style={{ padding: "6px" }} colSpan={5}>
+                              {tokenLabel}: {token.error}
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return token.allowances.map((allowance, idx) => {
+                        const key = `${token.tokenAddress}:${allowance.spender}:${idx}`;
+                        const inputKey = `${token.tokenAddress}:${allowance.spender}`;
+                        const limitValue = scanLimitInputs[inputKey] ?? "";
+                        return (
+                          <tr key={key}>
+                            <td style={{ padding: "6px" }}>{tokenLabel}</td>
+                            <td style={{ padding: "6px" }}>{allowance.spender}</td>
+                            <td style={{ padding: "6px" }}>{allowance.allowance}</td>
+                            <td style={{ padding: "6px", color: allowance.isUnlimited ? "#ffb74d" : "#bdbdbd" }}>
+                              {allowance.isUnlimited ? "Unlimited" : "OK"}
+                            </td>
+                            <td style={{ padding: "6px" }}>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                <button
+                                  onClick={() => handleApproveFor(token.tokenAddress, allowance.spender, 0n)}
+                                  disabled={approvalLoading}
+                                >
+                                  Revoke
+                                </button>
+                                <input
+                                  style={{ width: 120, padding: 6 }}
+                                  placeholder="Set limit"
+                                  value={limitValue}
+                                  onChange={(e) =>
+                                    setScanLimitInputs((prev) => ({ ...prev, [inputKey]: e.target.value }))
+                                  }
+                                />
+                                <button
+                                  onClick={async () => {
+                                    const raw = (scanLimitInputs[inputKey] ?? "").trim();
+                                    if (!raw) {
+                                      setApprovalError("Enter a limit value.");
+                                      return;
+                                    }
+                                    try {
+                                      const decimals = token.decimals ?? 18;
+                                      const amount = ethers.parseUnits(raw, decimals);
+                                      await handleApproveFor(token.tokenAddress, allowance.spender, amount);
+                                    } catch (err: any) {
+                                      setApprovalError(err?.message || "Invalid limit.");
+                                    }
+                                  }}
+                                  disabled={approvalLoading}
+                                >
+                                  Set limit
+                                </button>
+                              </div>
+                              {allowance.error ? (
+                                <div style={{ color: "#ff7a7a", marginTop: 4 }}>{allowance.error}</div>
+                              ) : null}
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <label>
               <div style={{ marginBottom: 4 }}>Token address</div>
@@ -637,7 +976,17 @@ export default function WalletHealth() {
               {txStatus ? <div><strong>Status:</strong> {txStatus}</div> : null}
             </div>
           ) : null}
-          {approvalError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{approvalError}</div> : null}
+          {approvalError ? (
+            <div style={{ color: "#ff7a7a", marginTop: 8 }}>
+              {approvalError}
+              {approvalErrorDetails ? (
+                <details style={{ marginTop: 6, color: "#bdbdbd" }}>
+                  <summary style={{ cursor: "pointer" }}>Technical details</summary>
+                  <div style={{ marginTop: 4 }}>{approvalErrorDetails}</div>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -661,12 +1010,16 @@ export default function WalletHealth() {
               const lastSeenLabel = row.lastSeen
                 ? new Date(row.lastSeen * 1000).toLocaleString()
                 : "—";
+              const knownLabel = knownLabels[row.address.toLowerCase()];
               const tagKey = `walletHealthTag:${chainId ?? "0"}:${row.address.toLowerCase()}`;
               return (
                 <div key={row.address} style={{ padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                     <div>
-                      <div><strong>Address:</strong> {row.address}</div>
+                      <div>
+                        <strong>Address:</strong> {row.address}
+                        {knownLabel ? <span style={{ marginLeft: 6, color: "#90caf9" }}>({knownLabel})</span> : null}
+                      </div>
                       <div><strong>Type:</strong> {row.isContract === null ? "Unknown" : row.isContract ? "Contract" : "EOA"}</div>
                       <div><strong>Count:</strong> {row.count}</div>
                       <div><strong>Last Seen:</strong> {lastSeenLabel}</div>
@@ -718,14 +1071,50 @@ export default function WalletHealth() {
 
       {activeTab === "risk" ? (
         <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
+          <div style={{ padding: 10, border: "1px solid #2a2a2a", borderRadius: 8, marginBottom: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Summary</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div>
+                <strong>Pending txs:</strong> {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? "Yes" : "No"}
+                {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? (
+                  <span style={{ marginLeft: 8 }}>
+                    <Link to="/tx-queue">Open Tx Queue</Link>
+                  </span>
+                ) : null}
+              </div>
+              <div>
+                <strong>Unlimited approvals found:</strong> {lastAllowanceUnlimited && lastCheckedToken && lastCheckedSpender ? "Yes" : "No"}
+                {lastAllowanceUnlimited && lastCheckedToken && lastCheckedSpender ? (
+                  <button
+                    style={{ marginLeft: 8 }}
+                    onClick={() => setActiveTab("approvals")}
+                  >
+                    Open Approvals
+                  </button>
+                ) : null}
+              </div>
+              <div>
+                <strong>Unknown contracts:</strong> {unknownContracts.length}
+                {unknownContracts.length ? (
+                  <button
+                    style={{ marginLeft: 8 }}
+                    onClick={() => setActiveTab("activity")}
+                  >
+                    Open Activity
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Risk Signals</div>
           <div style={{ color: "#bdbdbd", marginBottom: 10 }}>Signals, not guarantees.</div>
 
           <div style={{ marginTop: 8, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Pending nonce risk</div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Pending/stuck txs</div>
             {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? (
               <div style={{ color: "#ffb74d" }}>
-                Pending nonce is higher than latest. You may have a stuck transaction. <Link to="/nonce-rescue">Open Nonce Rescue</Link>
+                Pending nonce is higher than latest. You may have a stuck transaction. {" "}
+                <Link to="/tx-queue">Open Tx Queue</Link> · <Link to="/nonce-rescue">Nonce Rescue</Link>
               </div>
             ) : (
               <div style={{ color: "#bdbdbd" }}>No pending nonce risk detected.</div>
@@ -733,60 +1122,93 @@ export default function WalletHealth() {
           </div>
 
           <div style={{ marginTop: 12, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>High-risk approvals</div>
-            {lastAllowanceUnlimited && lastCheckedToken && lastCheckedSpender ? (
-              <div>
-                <div style={{ color: "#ffb74d", marginBottom: 6 }}>
-                  Unlimited allowance detected for the last checked token/spender.
-                </div>
-                <button onClick={() => jumpToApprovals(lastCheckedToken, lastCheckedSpender)}>
-                  Review in Approvals
-                </button>
-              </div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Unlimited approvals</div>
+            {scanResults.length === 0 ? (
+              <div style={{ color: "#bdbdbd" }}>Run the Approvals Scanner to evaluate allowances.</div>
+            ) : unlimitedApprovals.length === 0 ? (
+              <div style={{ color: "#bdbdbd" }}>No unlimited approvals detected in scan results.</div>
             ) : (
-              <div style={{ color: "#bdbdbd" }}>No unlimited allowance detected from the last check.</div>
+              <div>
+                <div style={{ color: "#ffb74d", marginBottom: 8 }}>
+                  Unlimited approvals found: {unlimitedApprovals.length}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {unlimitedApprovals.slice(0, 5).map((row) => (
+                    <div key={`${row.tokenAddress}:${row.spender}`} style={{ padding: 8, border: "1px solid #2a2a2a", borderRadius: 8 }}>
+                      <div>
+                        <strong>Token:</strong> {row.symbol ? `${row.symbol} (${row.tokenAddress})` : row.tokenAddress}
+                      </div>
+                      <div><strong>Spender:</strong> {row.spender}</div>
+                      <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button onClick={() => jumpToApprovals(row.tokenAddress, row.spender)}>
+                          Open Approvals
+                        </button>
+                        <button
+                          onClick={() => {
+                            setActiveTab("approvals");
+                            jumpToApprovals(row.tokenAddress, row.spender);
+                          }}
+                        >
+                          Revoke
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
           <div style={{ marginTop: 12, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Unknown contracts interacted</div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Unknown contract activity</div>
             {unknownContracts.length === 0 ? (
               <div style={{ color: "#bdbdbd" }}>No unknown contracts found.</div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {unknownContracts.map((row) => {
-                  const key = `walletHealthTag:${chainId ?? "0"}:${row.address.toLowerCase()}`;
-                  return (
+              <div>
+                <div style={{ color: "#ffb74d", marginBottom: 6 }}>
+                  Unknown contracts: {unknownContracts.length}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {unknownContracts.slice(0, 5).map((row) => (
                     <div key={row.address} style={{ padding: 8, border: "1px solid #2a2a2a", borderRadius: 8 }}>
                       <div><strong>Address:</strong> {row.address}</div>
-                      <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <input
-                          style={{ width: "100%", maxWidth: 260, padding: 6 }}
-                          placeholder="Tag it"
-                          value={tagMap[row.address] ?? ""}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setTagMap((prev) => ({ ...prev, [row.address]: value }));
-                            localStorage.setItem(key, value);
-                          }}
-                        />
-                        <a
-                          href={explorerBaseUrl ? `${explorerBaseUrl}/address/${row.address}` : undefined}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ color: "#90caf9", alignSelf: "center" }}
-                        >
-                          Open in explorer
-                        </a>
+                      <div style={{ marginTop: 6 }}>
+                        <button onClick={() => setActiveTab("activity")}>Open Activity</button>
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
             )}
           </div>
+
         </div>
       ) : null}
+
+      <MainnetConfirmModal
+        open={confirmOpen}
+        summary={confirmSummary}
+        gasEstimate={confirmGasEstimate}
+        gasEstimateError={confirmGasError}
+        onCancel={() => {
+          setConfirmOpen(false);
+          setConfirmAction(null);
+          setConfirmSummary("");
+          setConfirmGasEstimate(null);
+          setConfirmGasError(null);
+        }}
+        onConfirm={async () => {
+          const action = confirmAction;
+          setConfirmOpen(false);
+          setConfirmAction(null);
+          setConfirmSummary("");
+          setConfirmGasEstimate(null);
+          setConfirmGasError(null);
+          if (action) {
+            await action();
+          }
+        }}
+      />
     </div>
   );
 }
