@@ -43,6 +43,12 @@ Internal-only QA checks for Wallet Health, Activity, Approvals, Risk, Tx Queue, 
 3) Run checks on both 84532 and 8453 for a known wallet.
 4) Ensure Blockscout envs are configured for the selected chain.
 
+**Write Test: Cancel/Speed-up (Sepolia only)**
+1) Connect a wallet on Base Sepolia (84532).
+2) Enable **Write tests** and click **Run Cancel/Speed-up Test**.
+3) Confirm the modal (sends 2 transactions with small gas).
+4) Review step log for PASS/WARN/FAIL results.
+
 ### Rotate keys safely
 1) Update Railway env vars (new keys).
 2) Redeploy API.
