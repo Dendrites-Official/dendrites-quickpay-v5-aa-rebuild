@@ -5,7 +5,7 @@ import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { logEvent } from "../lib/analytics";
 import MainnetConfirmModal from "../components/MainnetConfirmModal";
-import { estimateTxCost } from "../lib/txEstimate";
+import { buildEip1559Fees, estimateTxCost } from "../lib/txEstimate";
 import { normalizeWalletError } from "../lib/walletErrors";
 import { switchToBase, switchToBaseSepolia } from "../lib/switchChain";
 
@@ -78,6 +78,39 @@ export default function TxQueue() {
   const onMainnet = chainId === 8453;
   const onSepolia = chainId === 84532;
   const displayChainLabel = chainId === 8453 ? "Base" : chainId === 84532 ? "Base Sepolia" : chainId ? `Chain ${chainId}` : "Not available";
+
+  const formatReplacementError = (err: any) => {
+    const normalized = normalizeWalletError(err);
+    const text = `${normalized.message} ${normalized.details ?? ""}`.toLowerCase();
+    if (text.includes("nonce too low")) {
+      return {
+        message: "Tx already confirmed; cannot replace. Use a pending tx hash.",
+        details: normalized.details,
+      };
+    }
+    if (text.includes("replacement transaction underpriced") || text.includes("fee too low") || text.includes("replacement fee")) {
+      return {
+        message: "Fee bump too small; try x1.5 or x2.",
+        details: normalized.details,
+      };
+    }
+    if (text.includes("insufficient funds")) {
+      const match = text.match(/have\s+(\d+)\s+want\s+(\d+)/i);
+      if (match?.[1] && match?.[2]) {
+        try {
+          const have = ethers.formatEther(BigInt(match[1]));
+          const want = ethers.formatEther(BigInt(match[2]));
+          return {
+            message: `Insufficient funds: have ${have} ETH, need ${want} ETH.`,
+            details: normalized.details,
+          };
+        } catch {
+          return { message: normalized.message, details: normalized.details };
+        }
+      }
+    }
+    return { message: normalized.message, details: normalized.details };
+  };
 
   const loadNonces = useCallback(
     async (target: string) => {
@@ -190,15 +223,6 @@ export default function TxQueue() {
     }
   }, [address, chainId, defaultAddress, inputAddress, loadActivity, loadNonces]);
 
-  const getFeePreset = (multiplier: number, feeData: ethers.FeeData) => {
-    const basePriority = feeData.maxPriorityFeePerGas ?? ethers.parseUnits("2", "gwei");
-    const baseMax = feeData.maxFeePerGas ?? feeData.gasPrice ?? ethers.parseUnits("10", "gwei");
-    return {
-      maxPriorityFeePerGas: basePriority * BigInt(Math.round(multiplier * 10)) / 10n,
-      maxFeePerGas: baseMax * BigInt(Math.round(multiplier * 10)) / 10n,
-    };
-  };
-
   const withMainnetConfirm = async (
     summary: string,
     txRequest: ethers.TransactionRequest,
@@ -240,16 +264,17 @@ export default function TxQueue() {
       return;
     }
     const provider = new ethers.BrowserProvider((window as any).ethereum);
-    const feeData = await provider.getFeeData();
-    const fees = getFeePreset(multiplier, feeData);
+    const fees = await buildEip1559Fees(provider, multiplier);
     const txRequest: ethers.TransactionRequest = {
       to: address,
       from: address,
       value: 0n,
       data: "0x",
       nonce: nonceLatest,
-      maxFeePerGas: fees.maxFeePerGas,
-      maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+      gasLimit: 21000n,
+      ...(fees.mode === "eip1559"
+        ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }
+        : { gasPrice: fees.gasPrice }),
     };
     const summary = `Cancel nonce ${nonceLatest} (x${multiplier.toFixed(1)})`;
     await withMainnetConfirm(summary, txRequest, async () => {
@@ -266,15 +291,16 @@ export default function TxQueue() {
           chainId ?? null
         );
       } catch (err: any) {
-        const normalized = normalizeWalletError(err);
-        setActionError(normalized.message);
-        setActionErrorDetails(normalized.details);
+        const formatted = formatReplacementError(err);
+        setActionError(formatted.message);
+        setActionErrorDetails(formatted.details ?? null);
       }
     });
   };
 
   const fetchSpeedDraft = async () => {
     setActionError("");
+    setActionErrorDetails(null);
     setSpeedDraft(null);
     if (!providerAvailable) {
       setActionError("Wallet provider not available.");
@@ -291,12 +317,31 @@ export default function TxQueue() {
       setActionError("Could not fetch tx. Check the hash or try again.");
       return;
     }
+    const receipt = await provider.getTransactionReceipt(hash);
+    let latestNonce = nonceLatest;
+    if (latestNonce == null && address) {
+      try {
+        latestNonce = Number(await provider.getTransactionCount(address, "latest"));
+      } catch {
+        latestNonce = null;
+      }
+    }
+    let disabledReason = "";
+    if (receipt?.blockNumber) {
+      disabledReason = "Tx already confirmed; cannot replace. Use a pending tx hash.";
+    } else if (latestNonce != null && Number(tx.nonce) < latestNonce) {
+      disabledReason = "Tx already confirmed; cannot replace. Use a pending tx hash.";
+    }
     setSpeedDraft({
       hash,
       nonce: tx.nonce,
       to: tx.to ?? "",
       value: tx.value?.toString?.() ?? "0",
       data: tx.data ?? "0x",
+      maxFeePerGas: tx.maxFeePerGas?.toString?.() ?? null,
+      maxPriorityFeePerGas: tx.maxPriorityFeePerGas?.toString?.() ?? null,
+      gasPrice: tx.gasPrice?.toString?.() ?? null,
+      disabledReason,
     });
   };
 
@@ -317,17 +362,26 @@ export default function TxQueue() {
       setActionError("Wallet provider not available.");
       return;
     }
+    if (speedDraft?.disabledReason) {
+      setActionError(speedDraft.disabledReason);
+      return;
+    }
     const provider = new ethers.BrowserProvider((window as any).ethereum);
-    const feeData = await provider.getFeeData();
-    const fees = getFeePreset(multiplier, feeData);
+    const previousFees = {
+      maxFeePerGas: speedDraft.maxFeePerGas ? BigInt(speedDraft.maxFeePerGas) : null,
+      maxPriorityFeePerGas: speedDraft.maxPriorityFeePerGas ? BigInt(speedDraft.maxPriorityFeePerGas) : null,
+      gasPrice: speedDraft.gasPrice ? BigInt(speedDraft.gasPrice) : null,
+    };
+    const fees = await buildEip1559Fees(provider, multiplier, previousFees);
     const txRequest: ethers.TransactionRequest = {
       to: speedDraft.to,
       from: address,
       value: BigInt(speedDraft.value || "0"),
       data: speedDraft.data || "0x",
       nonce: Number(speedDraft.nonce),
-      maxFeePerGas: fees.maxFeePerGas,
-      maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+      ...(fees.mode === "eip1559"
+        ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }
+        : { gasPrice: fees.gasPrice }),
     };
     const summary = `Speed up nonce ${speedDraft.nonce} (x${multiplier.toFixed(1)})`;
     await withMainnetConfirm(summary, txRequest, async () => {
@@ -344,9 +398,9 @@ export default function TxQueue() {
           chainId ?? null
         );
       } catch (err: any) {
-        const normalized = normalizeWalletError(err);
-        setActionError(normalized.message);
-        setActionErrorDetails(normalized.details);
+        const formatted = formatReplacementError(err);
+        setActionError(formatted.message);
+        setActionErrorDetails(formatted.details ?? null);
       }
     });
   };
@@ -371,8 +425,10 @@ export default function TxQueue() {
     const provider = new ethers.BrowserProvider((window as any).ethereum);
     const signer = await provider.getSigner();
     const nextNonce = await provider.getTransactionCount(address, "pending");
-    const lowPriority = ethers.parseUnits("0.001", "gwei");
-    const lowMax = ethers.parseUnits("0.01", "gwei");
+    const latestBlock = await provider.getBlock("latest");
+    const baseFee = latestBlock?.baseFeePerGas ?? null;
+    const lowPriority = 0n;
+    const lowMax = baseFee ? baseFee / 4n : ethers.parseUnits("0.01", "gwei");
     const txRequest: ethers.TransactionRequest = {
       to: address,
       from: address,
@@ -392,6 +448,11 @@ export default function TxQueue() {
       const tx = await signer.sendTransaction(txRequest);
       setDemoTxHash(tx.hash);
       setDemoStatus("Now refresh queue; it should appear as pending.");
+      try {
+        await Promise.all([loadNonces(address), loadActivity(address)]);
+      } catch {
+        // ignore refresh errors
+      }
     } catch (err: any) {
       const normalized = normalizeWalletError(err);
       setDemoError(normalized.message);
@@ -640,11 +701,15 @@ export default function TxQueue() {
                 ? `${String(speedDraft.data).slice(0, 66)}…`
                 : String(speedDraft.data || "")}
             </div>
+            {speedDraft.disabledReason ? (
+              <div style={{ marginTop: 8, color: "#ffb74d" }}>{speedDraft.disabledReason}</div>
+            ) : null}
             <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
               {[1.2, 1.5, 2.0].map((multiplier) => (
                 <button
                   key={multiplier}
                   onClick={() => sendSpeedReplacement(multiplier)}
+                  disabled={Boolean(speedDraft.disabledReason)}
                 >
                   Speed up (x{multiplier.toFixed(1)})
                 </button>
