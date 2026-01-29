@@ -20,6 +20,13 @@ type ProbeResult = {
   now?: string;
 };
 
+type WriteStepStatus = "PENDING" | "PASS" | "FAIL" | "WARN";
+type WriteStep = {
+  step: string;
+  status: WriteStepStatus;
+  details: string;
+};
+
 const READ_ONLY_RPC: Record<number, string> = {
   8453: "https://mainnet.base.org",
   84532: "https://sepolia.base.org",
@@ -43,6 +50,11 @@ export default function WalletQA() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [envProbe, setEnvProbe] = useState<ProbeResult | null>(null);
+  const [writeEnabled, setWriteEnabled] = useState(false);
+  const [writeRunning, setWriteRunning] = useState(false);
+  const [writeSteps, setWriteSteps] = useState<WriteStep[]>([]);
+  const [writeError, setWriteError] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const lastRunRef = useRef<{ address: string; chainId: number } | null>(null);
 
   const selectedAddress = useMemo(() => {
@@ -62,6 +74,21 @@ export default function WalletQA() {
     }
     return summary;
   }, [results]);
+
+  const updateWriteStep = useCallback((step: string, status: WriteStepStatus, details: string) => {
+    setWriteSteps((prev) => {
+      const next = [...prev];
+      const idx = next.findIndex((row) => row.step === step);
+      if (idx >= 0) {
+        next[idx] = { step, status, details };
+      } else {
+        next.push({ step, status, details });
+      }
+      return next;
+    });
+  }, []);
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const runChecks = useCallback(async () => {
     setError("");
@@ -403,6 +430,142 @@ export default function WalletQA() {
     URL.revokeObjectURL(url);
   }, [envProbe, results, selectedAddress, selectedChainId]);
 
+  const runWriteTest = useCallback(async () => {
+    setWriteError("");
+    setWriteSteps([]);
+
+    if (!writeEnabled) {
+      setWriteError("Enable write tests first.");
+      return;
+    }
+    if (!isConnected || !address) {
+      setWriteError("Connect a wallet to run write tests.");
+      return;
+    }
+    if (selectedChainId !== 84532) {
+      setWriteError("Write tests are only supported on Base Sepolia (84532).");
+      return;
+    }
+
+    const ethereum = (window as any)?.ethereum;
+    if (!ethereum) {
+      setWriteError("Wallet provider not available.");
+      return;
+    }
+
+    setWriteRunning(true);
+    const provider = new ethers.BrowserProvider(ethereum);
+    const signer = await provider.getSigner();
+
+    try {
+      updateWriteStep("Step 1: create pending tx", "PENDING", "Sending low-fee transaction...");
+      const latestBlock = await provider.getBlock("latest");
+      const baseFee = latestBlock?.baseFeePerGas;
+      if (!baseFee) {
+        updateWriteStep("Step 1: create pending tx", "FAIL", "Missing baseFeePerGas on latest block.");
+        setWriteRunning(false);
+        return;
+      }
+      const pendingNonce = await provider.getTransactionCount(address, "pending");
+      const lowMaxFee = baseFee / 4n || 1n;
+      const lowPriority = 0n;
+      const pendingTx = await signer.sendTransaction({
+        to: address,
+        from: address,
+        value: 0n,
+        data: "0x",
+        nonce: Number(pendingNonce),
+        gasLimit: 21000n,
+        maxPriorityFeePerGas: lowPriority,
+        maxFeePerGas: lowMaxFee,
+      });
+      updateWriteStep(
+        "Step 1: create pending tx",
+        "PASS",
+        `Pending tx hash: ${pendingTx.hash}`
+      );
+
+      await sleep(2000);
+      const quickReceipt = await provider.getTransactionReceipt(pendingTx.hash);
+      if (quickReceipt?.blockNumber) {
+        updateWriteStep(
+          "Step 1: create pending tx",
+          "WARN",
+          "Pending tx mined too quickly; rerun test."
+        );
+        setWriteRunning(false);
+        return;
+      }
+
+      updateWriteStep("Step 2: send replacement cancel", "PENDING", "Submitting replacement...");
+      const feeData = await provider.getFeeData();
+      const minPriority = ethers.parseUnits("1.5", "gwei");
+      let priority = feeData.maxPriorityFeePerGas ?? minPriority;
+      if (priority < minPriority) priority = minPriority;
+      let maxFee = baseFee * 2n + priority;
+
+      const bump = (value: bigint) => (value * 1125n) / 1000n;
+      const bumpedPriority = bump(lowPriority);
+      const bumpedMaxFee = bump(lowMaxFee);
+      if (priority < bumpedPriority) priority = bumpedPriority;
+      if (maxFee < bumpedMaxFee) maxFee = bumpedMaxFee;
+
+      if (maxFee < baseFee * 2n + priority) {
+        maxFee = baseFee * 2n + priority;
+      }
+
+      const replacementTx = await signer.sendTransaction({
+        to: address,
+        from: address,
+        value: 0n,
+        data: "0x",
+        nonce: Number(pendingNonce),
+        gasLimit: 21000n,
+        maxPriorityFeePerGas: priority,
+        maxFeePerGas: maxFee,
+      });
+      updateWriteStep(
+        "Step 2: send replacement cancel",
+        "PASS",
+        `Replacement tx hash: ${replacementTx.hash}`
+      );
+
+      updateWriteStep("Step 3: verify replacement mined", "PENDING", "Waiting for receipt (up to 60s)...");
+      const start = Date.now();
+      let receipt = null as any;
+      while (Date.now() - start < 60000) {
+        receipt = await provider.getTransactionReceipt(replacementTx.hash);
+        if (receipt) break;
+        await sleep(3000);
+      }
+      if (!receipt?.blockNumber) {
+        updateWriteStep("Step 3: verify replacement mined", "FAIL", "Timeout waiting for receipt.");
+        setWriteRunning(false);
+        return;
+      }
+      if (receipt.status === 0) {
+        updateWriteStep("Step 3: verify replacement mined", "FAIL", "Replacement tx failed.");
+        setWriteRunning(false);
+        return;
+      }
+      updateWriteStep("Step 3: verify replacement mined", "PASS", "Replacement confirmed." );
+
+      updateWriteStep("Step 4: verify queue cleared", "PENDING", "Checking nonces...");
+      const latestNonce = await provider.getTransactionCount(address, "latest");
+      const pendingNonce2 = await provider.getTransactionCount(address, "pending");
+      if (pendingNonce2 === latestNonce) {
+        updateWriteStep("Step 4: verify queue cleared", "PASS", `pending=${pendingNonce2}, latest=${latestNonce}`);
+      } else {
+        updateWriteStep("Step 4: verify queue cleared", "WARN", `pending=${pendingNonce2}, latest=${latestNonce}`);
+      }
+    } catch (err: any) {
+      updateWriteStep("Step 1: create pending tx", "FAIL", err?.message || "Write test failed.");
+      setWriteError(err?.message || "Write test failed.");
+    } finally {
+      setWriteRunning(false);
+    }
+  }, [address, isConnected, selectedChainId, updateWriteStep, writeEnabled]);
+
   return (
     <div style={{ padding: 16 }}>
       <h2>Wallet QA Harness</h2>
@@ -452,6 +615,46 @@ export default function WalletQA() {
         </div>
       </div>
 
+      <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 820 }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>Write Test: Cancel/Speed-up</div>
+        <div style={{ color: "#bdbdbd", marginBottom: 8 }}>
+          Runs an end-to-end nonce replacement on Base Sepolia. Sends 2 transactions and uses small gas.
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <input
+            type="checkbox"
+            checked={writeEnabled}
+            onChange={(e) => {
+              setWriteEnabled(e.target.checked);
+              setWriteSteps([]);
+              setWriteError("");
+            }}
+          />
+          Enable write tests (Sepolia only)
+        </label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={() => setConfirmOpen(true)}
+            disabled={!writeEnabled || writeRunning || selectedChainId !== 84532}
+          >
+            {writeRunning ? "Running..." : "Run Cancel/Speed-up Test"}
+          </button>
+          {selectedChainId !== 84532 ? (
+            <div style={{ color: "#ffb74d" }}>Switch to Base Sepolia (84532) to run write tests.</div>
+          ) : null}
+        </div>
+        {writeError ? <div style={{ color: "#ff6b6b", marginTop: 8 }}>{writeError}</div> : null}
+        {writeSteps.length ? (
+          <div style={{ marginTop: 10, color: "#d6d6d6" }}>
+            {writeSteps.map((step) => (
+              <div key={step.step} style={{ marginBottom: 6 }}>
+                <strong>{step.step}:</strong> {step.status} — {step.details}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
       <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8 }}>
         <div style={{ fontWeight: 600, marginBottom: 8 }}>Results</div>
         <div style={{ marginBottom: 8, color: "#cfcfcf" }}>
@@ -497,6 +700,38 @@ export default function WalletQA() {
           </div>
         ) : null}
       </div>
+
+      {confirmOpen ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.65)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div style={{ background: "#151515", border: "1px solid #2a2a2a", borderRadius: 10, padding: 16, maxWidth: 420 }}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>Confirm write test</div>
+            <div style={{ color: "#d6d6d6", marginBottom: 12 }}>
+              This will send 2 transactions and spend a small amount of gas on Base Sepolia.
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmOpen(false)}>Cancel</button>
+              <button
+                onClick={async () => {
+                  setConfirmOpen(false);
+                  await runWriteTest();
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
