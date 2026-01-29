@@ -202,11 +202,18 @@ async function handleApprovalsScan(request, reply) {
   }
 
   const spendersInput = Array.isArray(body?.spenders) ? body.spenders : null;
-  const spenders = (spendersInput ?? getEnvList("APPROVAL_SCAN_SPENDERS"))
+  const envSpenders = getEnvList("APPROVAL_SCAN_SPENDERS");
+  const fallbackSpenders = [process.env.PERMIT2, process.env.ROUTER]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const spenders = (spendersInput ?? envSpenders.length ? envSpenders : fallbackSpenders)
     .map((value) => String(value || "").trim())
     .filter(Boolean);
 
-  if (!spenders.length || !spenders.every(isAddress)) {
+  if (!spenders.length) {
+    return reply.send({ ok: true, chainId, owner, spenders: [], tokens: [], warning: "NO_SPENDERS" });
+  }
+  if (!spenders.every(isAddress)) {
     return reply.code(400).send({ ok: false, error: "INVALID_SPENDERS", code: "INVALID_SPENDERS" });
   }
 
