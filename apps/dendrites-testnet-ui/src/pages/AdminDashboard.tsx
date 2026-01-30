@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatUnits } from "ethers";
 import { supabase } from "../lib/supabaseClient";
+import { qpUrl } from "../lib/quickpayApiBase";
 
-const ADMIN_UI_KEY = String(import.meta.env.VITE_ADMIN_UI_KEY ?? "").trim();
 const USDC_ADDRESS = String(import.meta.env.VITE_USDC_ADDRESS ?? "").trim().toLowerCase();
 const MDNDX_ADDRESS = String(import.meta.env.VITE_MDNDX_ADDRESS ?? "").trim().toLowerCase();
 const MAX_SAMPLE = 10000;
@@ -42,12 +42,8 @@ function formatBalance(value: string | null, decimals?: number) {
 }
 
 export default function AdminDashboard() {
-  const [keyInput, setKeyInput] = useState(() => {
-    const urlKey = new URLSearchParams(window.location.search).get("key") ?? "";
-    return urlKey || localStorage.getItem("adminKey") || "";
-  });
-  const [unlocked, setUnlocked] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [error, setError] = useState("");
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -59,18 +55,6 @@ export default function AdminDashboard() {
     if (MDNDX_ADDRESS) map.set(MDNDX_ADDRESS, 18);
     return map;
   }, []);
-
-  useEffect(() => {
-    if (!ADMIN_UI_KEY) {
-      setUnlocked(true);
-      return;
-    }
-    const ok = keyInput.trim() === ADMIN_UI_KEY;
-    setUnlocked(ok);
-    if (ok && keyInput.trim()) {
-      localStorage.setItem("adminKey", keyInput.trim());
-    }
-  }, [keyInput]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -145,37 +129,33 @@ export default function AdminDashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    if (unlocked) {
-      loadData();
+  const runSnapshot = useCallback(async () => {
+    setSnapshotLoading(true);
+    setError("");
+    try {
+      const res = await fetch(qpUrl("/admin/snapshot/run"), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: "{}",
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Snapshot failed");
+      }
+      await res.json().catch(() => ({}));
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || String(err));
+    } finally {
+      setSnapshotLoading(false);
     }
-  }, [unlocked, loadData]);
+  }, [loadData]);
 
-  if (!unlocked) {
-    return (
-      <div style={{ padding: 24, maxWidth: 680, margin: "0 auto" }}>
-        <h2>Admin Dashboard</h2>
-        <p style={{ color: "#aaa" }}>Enter the admin key to unlock.</p>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            value={keyInput}
-            onChange={(event) => setKeyInput(event.target.value)}
-            placeholder="ADMIN_UI_KEY"
-            style={{ flex: 1, padding: 8, borderRadius: 6, border: "1px solid #333", background: "#111" }}
-          />
-          <button
-            onClick={() => setKeyInput((prev) => prev.trim())}
-            style={{ padding: "8px 12px", borderRadius: 6, border: "1px solid #333", background: "#222" }}
-          >
-            Unlock
-          </button>
-        </div>
-        <p style={{ marginTop: 12, color: "#666" }}>
-          Tip: You can also open /admin?key=YOUR_KEY.
-        </p>
-      </div>
-    );
-  }
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   return (
     <div style={{ padding: 24 }}>
@@ -185,6 +165,13 @@ export default function AdminDashboard() {
           Back to QuickPay
         </Link>
         <button
+          onClick={runSnapshot}
+          disabled={snapshotLoading}
+          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #333", background: "#222" }}
+        >
+          {snapshotLoading ? "Fetching..." : "Fetch Snapshot"}
+        </button>
+        <button
           onClick={loadData}
           disabled={loading}
           style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #333", background: "#222" }}
@@ -193,11 +180,6 @@ export default function AdminDashboard() {
         </button>
       </div>
 
-      {!ADMIN_UI_KEY && (
-        <div style={{ marginBottom: 12, color: "#caa" }}>
-          ADMIN_UI_KEY is not set. Set VITE_ADMIN_UI_KEY to enforce gating.
-        </div>
-      )}
       {error && <div style={{ color: "#f88", marginBottom: 12 }}>Error: {error}</div>}
 
       <section style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
