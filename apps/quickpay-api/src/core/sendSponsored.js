@@ -1,12 +1,13 @@
 // IMPORTANT: scripts must run from apps/quickpay-api/scripts/aa to avoid stale Railway builds.
 import { ethers } from "ethers";
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getQuote } from "./quote.js";
 import { normalizeSpeed } from "./normalizeSpeed.js";
 import { resolveRpcUrl } from "./resolveRpcUrl.js";
+import { createTtlCache } from "./cache.js";
+import { getOrchestratorTimeoutMs, getRpcTimeoutMs, spawnWithTimeout, withTimeout } from "./withTimeout.js";
 
 function isAddr(x) {
   return typeof x === "string" && ethers.isAddress(x.trim());
@@ -28,7 +29,7 @@ function resolveScriptPath(scriptName) {
   return null;
 }
 
-function runLaneScript({ scriptName, lane, env }) {
+async function runLaneScript({ scriptName, lane, env }) {
   const scriptPath = resolveScriptPath(scriptName);
   if (!scriptPath) {
     const err = new Error(`Script not found for lane ${lane}: ${scriptName}`);
@@ -53,14 +54,22 @@ function runLaneScript({ scriptName, lane, env }) {
     `quickpay-${lane}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
   );
 
-  const result = spawnSync("node", [scriptPath, "--json-out", tmpFile], {
-    env,
-    encoding: "utf-8",
-  });
+  const result = await spawnWithTimeout(
+    "node",
+    [scriptPath, "--json-out", tmpFile],
+    { env, encoding: "utf-8" },
+    getOrchestratorTimeoutMs(),
+    {
+      code: "ORCHESTRATOR_TIMEOUT",
+      status: 504,
+      where: "runLaneScript",
+      message: "ORCHESTRATOR_TIMEOUT",
+    }
+  );
 
   const stdout = result.stdout || "";
   const stderr = result.stderr || "";
-  const exitCode = typeof result.status === "number" ? result.status : null;
+  const exitCode = typeof result.exitCode === "number" ? result.exitCode : null;
 
   let json = null;
   if (fs.existsSync(tmpFile)) {
@@ -105,6 +114,9 @@ const ERC20_BALANCE_ABI = [
 const APPROVE_GAS_FALLBACK = 65000n;
 const MAX_FEE_FALLBACK = 2_000_000_000n; // 2 gwei
 
+const ALLOWANCE_TTL_MS = 15 * 1000;
+const allowanceCache = createTtlCache({ ttlMs: ALLOWANCE_TTL_MS, maxSize: 10000 });
+
 function parseList(value) {
   return new Set(
     String(value ?? "")
@@ -114,11 +126,36 @@ function parseList(value) {
   );
 }
 
+async function getAllowanceCached({ provider, token, owner, spender }) {
+  const key = `${String(token).toLowerCase()}:${String(owner).toLowerCase()}:${String(spender).toLowerCase()}`;
+  const cached = allowanceCache.get(key);
+  if (cached != null) return cached;
+  const tokenContract = new ethers.Contract(token, ERC20_ALLOWANCE_ABI, provider);
+  const allowance = await withTimeout(tokenContract.allowance(owner, spender), getRpcTimeoutMs(), {
+    code: "RPC_TIMEOUT",
+    status: 504,
+    where: "sendSponsored.allowance",
+    message: "RPC timeout",
+  });
+  allowanceCache.set(key, allowance);
+  return allowance;
+}
+
 async function estimateApproveCost({ provider, owner, token, spender }) {
   try {
     const erc20 = new ethers.Contract(token, ["function approve(address spender,uint256 value)"], provider);
-    const gas = await erc20.approve.estimateGas(spender, ethers.MaxUint256, { from: owner });
-    const feeData = await provider.getFeeData();
+    const gas = await withTimeout(erc20.approve.estimateGas(spender, ethers.MaxUint256, { from: owner }), getRpcTimeoutMs(), {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "sendSponsored.estimateApproveGas",
+      message: "RPC timeout",
+    });
+    const feeData = await withTimeout(provider.getFeeData(), getRpcTimeoutMs(), {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "sendSponsored.getFeeData",
+      message: "RPC timeout",
+    });
     const maxFeePerGas = feeData.maxFeePerGas ?? feeData.gasPrice ?? MAX_FEE_FALLBACK;
     return BigInt(gas) * BigInt(maxFeePerGas);
   } catch {
@@ -134,12 +171,16 @@ async function maybeNeedsApprove({
   amount,
   funderPk,
 }) {
-  const tokenContract = new ethers.Contract(token, ERC20_ALLOWANCE_ABI, provider);
-  const erc20Allowance = await tokenContract.allowance(owner, permit2Addr);
+  const erc20Allowance = await getAllowanceCached({ provider, token, owner, spender: permit2Addr });
   if (BigInt(erc20Allowance ?? 0n) >= BigInt(amount)) return null;
 
   const balContract = new ethers.Contract(token, ERC20_BALANCE_ABI, provider);
-  const ownerBal = await balContract.balanceOf(owner);
+  const ownerBal = await withTimeout(balContract.balanceOf(owner), getRpcTimeoutMs(), {
+    code: "RPC_TIMEOUT",
+    status: 504,
+    where: "sendSponsored.balanceOf",
+    message: "RPC timeout",
+  });
   if (BigInt(ownerBal ?? 0n) < BigInt(amount)) {
     const err = new Error("INSUFFICIENT_TOKEN_BALANCE");
     err.status = 400;
@@ -148,7 +189,12 @@ async function maybeNeedsApprove({
     throw err;
   }
 
-  const ethBal = await provider.getBalance(owner);
+  const ethBal = await withTimeout(provider.getBalance(owner), getRpcTimeoutMs(), {
+    code: "RPC_TIMEOUT",
+    status: 504,
+    where: "sendSponsored.getBalance",
+    message: "RPC timeout",
+  });
   const ethNeeded = await estimateApproveCost({
     provider,
     owner,
@@ -166,8 +212,18 @@ async function maybeNeedsApprove({
 
     const stipendWei = BigInt(process.env.STIPEND_WEI || "120000000000000");
     const funder = new ethers.Wallet(funderPk, provider);
-    const stipendTx = await funder.sendTransaction({ to: owner, value: stipendWei });
-    await stipendTx.wait(1);
+    const stipendTx = await withTimeout(funder.sendTransaction({ to: owner, value: stipendWei }), getRpcTimeoutMs(), {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "sendSponsored.stipendSend",
+      message: "RPC timeout",
+    });
+    await withTimeout(stipendTx.wait(1), getRpcTimeoutMs(), {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "sendSponsored.stipendWait",
+      message: "RPC timeout",
+    });
     stipendTxHash = stipendTx.hash;
   }
 
@@ -212,6 +268,7 @@ export async function sendSponsored({
   userOpSignature,
   userOpDraft,
   smart,
+  logger,
 }) {
   const { canonicalSpeed, canonicalFeeMode } = normalizeSpeed({ feeMode, speed });
   const feeModeNorm = canonicalFeeMode;
@@ -263,9 +320,11 @@ export async function sendSponsored({
   }
 
   if (userOpDraft && userOpSignature) {
-    console.log(
-      `NORMALIZED_SPEED feeMode=${feeMode ?? ""} speedIn=${speed ?? ""} speedOut=${canonicalSpeed}`
-    );
+    logger?.info?.("NORMALIZED_SPEED", {
+      feeMode: feeMode ?? "",
+      speedIn: speed ?? "",
+      speedOut: canonicalSpeed,
+    });
     const draftError = (code, message) => {
       const err = new Error(message);
       err.status = 400;
@@ -397,7 +456,7 @@ export async function sendSponsored({
     };
     if (auth) env.AUTH_JSON = JSON.stringify(auth);
 
-    return runLaneScript({ scriptName, lane: draftLane, env });
+    return await runLaneScript({ scriptName, lane: draftLane, env });
   }
 
   const q = await getQuote({
@@ -418,6 +477,7 @@ export async function sendSponsored({
     eip3009Tokens: process.env.EIP3009_TOKENS,
     eip2612Tokens: process.env.EIP2612_TOKENS,
     mode: "SPONSORED",
+    logger,
   });
 
   if (!q.feeTokenAmount || !/^\d+$/.test(String(q.feeTokenAmount)) || String(q.feeTokenAmount) === "0") {
@@ -462,9 +522,11 @@ export async function sendSponsored({
   else if (q.lane === "EIP2612") scriptName = "send_eip2612_v5.mjs";
   else throw new Error(`Unsupported lane for this send endpoint: ${q.lane}`);
 
-  console.log(
-    `NORMALIZED_SPEED feeMode=${feeMode ?? ""} speedIn=${speed ?? ""} speedOut=${canonicalSpeed}`
-  );
+  logger?.info?.("NORMALIZED_SPEED", {
+    feeMode: feeMode ?? "",
+    speedIn: speed ?? "",
+    speedOut: canonicalSpeed,
+  });
 
   const envMax = BigInt(process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || process.env.MAX_FEE_USDC || "0");
   const floor = 1000000n;
@@ -495,5 +557,5 @@ export async function sendSponsored({
   if (auth) env.AUTH_JSON = JSON.stringify(auth);
   if (userOpSignature) env.USEROP_SIGNATURE = String(userOpSignature).trim();
 
-  return runLaneScript({ scriptName, lane: q.lane, env });
+  return await runLaneScript({ scriptName, lane: q.lane, env });
 }
