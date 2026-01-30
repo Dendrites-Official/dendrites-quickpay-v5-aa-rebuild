@@ -7,6 +7,7 @@ import TxQueue from "./pages/TxQueue";
 import NonceRescue from "./pages/NonceRescue";
 import WalletHealth from "./pages/WalletHealth";
 import WalletQA from "./pages/WalletQA";
+import AdminDashboard from "./pages/AdminDashboard";
 import WalletButton from "./components/WalletButton";
 
 function Nav() {
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/wallet" element={<WalletHealth />} />
         <Route path="/nonce-rescue" element={<NonceRescue />} />
         <Route path="/qa-wallet" element={<WalletQA />} />
+        <Route path="/admin" element={<AdminDashboard />} />
       </Routes>
     </div>
   );

@@ -2,7 +2,7 @@ import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { createClient } from "@supabase/supabase-js";
-import { JsonRpcProvider } from "ethers";
+import { Contract, JsonRpcProvider, isAddress } from "ethers";
 import crypto from "node:crypto";
 import { getQuote } from "./core/quote.js";
 import { resolveSmartAccount } from "./core/smartAccount.js";
@@ -10,6 +10,9 @@ import { sendSponsored } from "./core/sendSponsored.js";
 import { sendSelfPay } from "./core/sendSelfPay.js";
 import { normalizeAddress } from "./core/normalizeAddress.js";
 import { resolveRpcUrl } from "./core/resolveRpcUrl.js";
+import { createLogger } from "./core/logging.js";
+import { createTtlCache } from "./core/cache.js";
+import { getBundlerTimeoutMs, getRpcTimeoutMs, withTimeout } from "./core/withTimeout.js";
 import { registerFaucetRoutes } from "./routes/faucet.js";
 import { registerWalletRoutes } from "./routes/wallet.js";
 
@@ -25,10 +28,138 @@ function getEnv(name, aliases = []) {
   return "";
 }
 
+const RATE_LIMIT_WINDOW_SEC = Number(process.env.RATE_LIMIT_WINDOW_SEC ?? 60);
+const RATE_LIMIT_IP = Number(process.env.RATE_LIMIT_IP ?? 120);
+const RATE_LIMIT_WALLET = Number(process.env.RATE_LIMIT_WALLET ?? 60);
+const rateLimitStore = new Map();
+
+function getRateLimitEntry(key, windowMs) {
+  const now = Date.now();
+  const entry = rateLimitStore.get(key);
+  if (!entry || now > entry.resetAt) {
+    const fresh = { count: 0, resetAt: now + windowMs };
+    rateLimitStore.set(key, fresh);
+    return fresh;
+  }
+  return entry;
+}
+
+function checkRateLimit(key, limit, windowMs) {
+  const entry = getRateLimitEntry(key, windowMs);
+  entry.count += 1;
+  const remaining = limit - entry.count;
+  if (remaining >= 0) return { allowed: true };
+  const retryAfterSec = Math.max(1, Math.ceil((entry.resetAt - Date.now()) / 1000));
+  return { allowed: false, retryAfterSec };
+}
+
+function enforceRateLimit(request, reply, walletAddress) {
+  const windowMs = Math.max(1, RATE_LIMIT_WINDOW_SEC) * 1000;
+  const ip = getClientIp(request) || "unknown";
+  const ipCheck = checkRateLimit(`ip:${ip}`, RATE_LIMIT_IP, windowMs);
+  if (!ipCheck.allowed) {
+    return reply.code(429).send({
+      ok: false,
+      code: "RATE_LIMITED",
+      retryAfterSec: ipCheck.retryAfterSec,
+    });
+  }
+
+  if (walletAddress && isAddress(walletAddress)) {
+    const walletKey = `wallet:${String(walletAddress).toLowerCase()}`;
+    const walletCheck = checkRateLimit(walletKey, RATE_LIMIT_WALLET, windowMs);
+    if (!walletCheck.allowed) {
+      return reply.code(429).send({
+        ok: false,
+        code: "RATE_LIMITED",
+        retryAfterSec: walletCheck.retryAfterSec,
+      });
+    }
+  }
+  return null;
+}
+
+app.addHook("onRequest", async (request, reply) => {
+  const incoming = String(request?.headers?.["x-request-id"] || "").trim();
+  request.reqId = incoming || crypto.randomUUID();
+  request.startTimeMs = Date.now();
+  reply.header("x-request-id", request.reqId);
+});
+
+app.addHook("preHandler", async (request) => {
+  request.telemetryBody = request.body ?? null;
+});
+
+app.addHook("onSend", async (request, _reply, payload) => {
+  request.telemetryPayload = payload;
+  return payload;
+});
+
+app.addHook("onResponse", async (request, reply) => {
+  if (!supabaseUrl || !supabaseServiceRole) return;
+  const route = request?.routerPath || request?.url || "";
+  if (!route || (!route.startsWith("/quote") && !route.startsWith("/send") && !route.startsWith("/receipt"))) {
+    return;
+  }
+  const latencyMs = Math.max(0, Date.now() - (request.startTimeMs || Date.now()));
+  let responseData = null;
+  const payload = request.telemetryPayload;
+  if (typeof payload === "string") {
+    try {
+      responseData = JSON.parse(payload);
+    } catch {
+      responseData = null;
+    }
+  } else if (payload && typeof payload === "object") {
+    responseData = payload;
+  }
+
+  const body = request.telemetryBody && typeof request.telemetryBody === "object" ? request.telemetryBody : {};
+  const wallet = body.ownerEoa || body.owner || body.sender || null;
+  const token = body.token || null;
+  const speed = body.speed || body.feeMode || null;
+  const lane = responseData?.lane ?? null;
+  const errorCode = responseData?.code ?? null;
+  const ip = getClientIp(request);
+  const salt = String(process.env.IP_HASH_SALT || "");
+  const ipHash = salt && ip ? sha256Hex(`${salt}:${ip}`) : null;
+
+  await logRequestTelemetry({
+    req_id: request.reqId,
+    source: "quickpay-api",
+    route,
+    ok: reply.statusCode < 400,
+    status_code: reply.statusCode,
+    latency_ms: latencyMs,
+    error_code: errorCode,
+    ip_hash: ipHash,
+    wallet: wallet ? String(wallet).toLowerCase() : null,
+    token: token ? String(token).toLowerCase() : null,
+    speed: speed ? String(speed).toLowerCase() : null,
+    lane: lane ? String(lane).toLowerCase() : null,
+    meta: {},
+  });
+});
+
 app.setErrorHandler((err, request, reply) => {
   const status = err?.status || 500;
+  const message = redactString(err?.message || "Internal error");
+  const stack = redactString(String(err?.stack || err || ""));
+  const route = request?.routerPath || request?.url || "";
+  if (request?.reqId) {
+    logErrorTelemetry({
+      req_id: request.reqId,
+      source: "quickpay-api",
+      route,
+      error_code: err?.code || "INTERNAL",
+      message_redacted: message,
+      stack_redacted: stack,
+      meta: {},
+    });
+  }
   reply.code(status).send({
     ok: false,
+    reqId: request?.reqId,
     error: err?.message || "Internal error",
     code: err?.code || "INTERNAL",
     where: err?.where,
@@ -60,6 +191,31 @@ const supabaseUrl = process.env.SUPABASE_URL || "";
 const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseServiceRole);
 
+function redactString(value) {
+  if (!value) return value;
+  return String(value)
+    .replace(/0x[a-fA-F0-9]{64,}/g, "[REDACTED]")
+    .replace(/(private|secret|signature|auth)[^\s]*/gi, "[REDACTED]");
+}
+
+async function logRequestTelemetry(payload) {
+  if (!supabaseUrl || !supabaseServiceRole) return;
+  try {
+    await supabase.from("qp_requests").insert(payload);
+  } catch {
+    // ignore telemetry failures
+  }
+}
+
+async function logErrorTelemetry(payload) {
+  if (!supabaseUrl || !supabaseServiceRole) return;
+  try {
+    await supabase.from("qp_errors").insert(payload);
+  } catch {
+    // ignore telemetry failures
+  }
+}
+
 function getClientIp(request) {
   const forwarded = String(request?.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
   if (forwarded) return forwarded;
@@ -73,20 +229,320 @@ function sha256Hex(value) {
 registerFaucetRoutes(app);
 registerWalletRoutes(app);
 
+const codeCache = createTtlCache({ ttlMs: 10 * 60 * 1000, maxSize: 2000 });
+
+async function getCodeExists(provider, address) {
+  const key = String(address || "").toLowerCase();
+  const cached = codeCache.get(key);
+  if (cached != null) return cached;
+  const code = await withTimeout(provider.getCode(address), getRpcTimeoutMs(), {
+    code: "RPC_TIMEOUT",
+    status: 504,
+    where: "doctor.getCode",
+    message: "RPC timeout",
+  });
+  const exists = typeof code === "string" && code !== "0x";
+  codeCache.set(key, exists);
+  return exists;
+}
+
 app.get("/health", async () => ({
   ok: true,
   build: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.BUILD_ID || new Date().toISOString(),
 }));
 
+app.get("/doctor", async (request, reply) => {
+  const reqId = request?.reqId;
+  const logger = createLogger({ reqId });
+  const checks = [];
+  let overall = "ok";
+
+  const setCheck = (name, status, info, ms) => {
+    checks.push({ name, ok: status === "ok", ms, ...(info ? { info } : {}) });
+    if (status === "down") overall = "down";
+    else if (status === "degraded" && overall !== "down") overall = "degraded";
+  };
+
+  const chain = Number(process.env.CHAIN_ID ?? 84532);
+  let provider = null;
+  let resolvedRpcUrl = null;
+
+  const rpcStart = Date.now();
+  try {
+    resolvedRpcUrl = await resolveRpcUrl({
+      rpcUrl: process.env.RPC_URL,
+      bundlerUrl: process.env.BUNDLER_URL,
+      chainId: chain,
+    });
+    provider = new JsonRpcProvider(resolvedRpcUrl);
+    const network = await withTimeout(provider.getNetwork(), getRpcTimeoutMs(), {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "doctor.getNetwork",
+      message: "RPC timeout",
+    });
+    setCheck("rpc", "ok", { chainId: Number(network?.chainId) }, Date.now() - rpcStart);
+  } catch (err) {
+    logger.error("DOCTOR_RPC_FAIL", { error: err?.message || String(err) });
+    setCheck("rpc", "down", { error: err?.message || String(err) }, Date.now() - rpcStart);
+  }
+
+  const bundlerStart = Date.now();
+  const bundlerUrl = String(process.env.BUNDLER_URL || "").trim();
+  const entrypointEnv = String(process.env.ENTRYPOINT || "").trim().toLowerCase();
+  if (!bundlerUrl) {
+    setCheck("bundler", "degraded", { error: "BUNDLER_URL missing" }, Date.now() - bundlerStart);
+  } else {
+    try {
+      const res = await withTimeout(
+        fetch(bundlerUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "eth_supportedEntryPoints", params: [] }),
+        }),
+        getBundlerTimeoutMs(),
+        { code: "BUNDLER_TIMEOUT", status: 504, where: "doctor.bundler", message: "Bundler timeout" }
+      );
+      if (!res.ok) {
+        throw new Error(`BUNDLER_HTTP_${res.status}`);
+      }
+      const data = await res.json().catch(() => ({}));
+      const entries = Array.isArray(data?.result) ? data.result : [];
+      const normalized = entries.map((entry) => String(entry).toLowerCase());
+      const hasEntryPoint = entrypointEnv ? normalized.includes(entrypointEnv) : false;
+      setCheck(
+        "bundler",
+        hasEntryPoint ? "ok" : "degraded",
+        { supportedEntryPoints: entries, entryPoint: entrypointEnv || null },
+        Date.now() - bundlerStart
+      );
+    } catch (err) {
+      setCheck("bundler", "down", { error: err?.message || String(err) }, Date.now() - bundlerStart);
+    }
+  }
+
+  const bytecodeStart = Date.now();
+  if (!provider) {
+    setCheck("bytecode", "down", { error: "RPC unavailable" }, Date.now() - bytecodeStart);
+  } else {
+    const addresses = {
+      router: process.env.ROUTER,
+      paymaster: process.env.PAYMASTER,
+      factory: process.env.FACTORY,
+      feeVault: process.env.FEEVAULT,
+      permit2: process.env.PERMIT2,
+      usdc: process.env.USDC,
+    };
+    const details = {};
+    let status = "ok";
+    for (const [name, value] of Object.entries(addresses)) {
+      const addr = String(value || "").trim();
+      if (!addr || !isAddress(addr)) {
+        details[name] = { ok: false, error: "missing_or_invalid" };
+        status = status === "down" ? status : "degraded";
+        continue;
+      }
+      try {
+        const exists = await getCodeExists(provider, addr);
+        details[name] = { ok: exists };
+        if (!exists) status = status === "down" ? status : "degraded";
+      } catch (err) {
+        details[name] = { ok: false, error: err?.message || String(err) };
+        status = "down";
+      }
+    }
+    setCheck("bytecode", status, details, Date.now() - bytecodeStart);
+  }
+
+  const depositStart = Date.now();
+  if (!provider) {
+    setCheck("paymasterDeposit", "down", { error: "RPC unavailable" }, Date.now() - depositStart);
+  } else {
+    const paymaster = String(process.env.PAYMASTER || "").trim();
+    const entryPoint = String(process.env.ENTRYPOINT || "").trim();
+    if (!paymaster || !entryPoint || !isAddress(paymaster) || !isAddress(entryPoint)) {
+      setCheck("paymasterDeposit", "degraded", { error: "missing_or_invalid" }, Date.now() - depositStart);
+    } else {
+      try {
+        const entryAbi = ["function balanceOf(address) view returns (uint256)"];
+        const contract = new Contract(entryPoint, entryAbi, provider);
+        const deposit = await withTimeout(contract.balanceOf(paymaster), getRpcTimeoutMs(), {
+          code: "RPC_TIMEOUT",
+          status: 504,
+          where: "doctor.paymasterDeposit",
+          message: "RPC timeout",
+        });
+        const minRaw = String(process.env.PAYMASTER_DEPOSIT_WARN_WEI || "").trim();
+        const min = minRaw && /^\d+$/.test(minRaw) ? BigInt(minRaw) : null;
+        const warn = min != null && BigInt(deposit ?? 0n) < min;
+        setCheck(
+          "paymasterDeposit",
+          warn ? "degraded" : "ok",
+          { deposit: String(deposit ?? "0"), warnBelow: min ? String(min) : null },
+          Date.now() - depositStart
+        );
+      } catch (err) {
+        setCheck("paymasterDeposit", "down", { error: err?.message || String(err) }, Date.now() - depositStart);
+      }
+    }
+  }
+
+  return reply.send({ ok: overall === "ok", status: overall, checks, reqId });
+});
+
+app.post("/admin/snapshot", async (request, reply) => {
+  const reqId = request?.reqId;
+  const logger = createLogger({ reqId });
+  const adminKey = String(process.env.ADMIN_KEY || "").trim();
+  const headerKey = String(request?.headers?.["x-admin-key"] || "").trim();
+  const queryKey = String(request?.query?.key || "").trim();
+  const provided = headerKey || queryKey;
+  if (!adminKey || provided !== adminKey) {
+    return reply.code(401).send({ ok: false, reqId, code: "UNAUTHORIZED" });
+  }
+
+  const chainId = Number(process.env.CHAIN_ID ?? 84532);
+  const rpcUrl = String(process.env.RPC_URL || "").trim();
+  const bundlerUrl = String(process.env.BUNDLER_URL || "").trim();
+  const entryPoint = String(process.env.ENTRYPOINT || "").trim();
+  const paymaster = String(process.env.PAYMASTER || "").trim();
+  const feeVault = String(process.env.FEEVAULT || "").trim();
+
+  if (!rpcUrl) {
+    return reply.code(500).send({ ok: false, reqId, code: "RPC_URL_MISSING" });
+  }
+
+  const provider = new JsonRpcProvider(rpcUrl);
+  const ts = new Date().toISOString();
+
+  let rpc_ok = false;
+  let bundler_ok = false;
+  let paymaster_deposit_wei = null;
+  const fee_vault_balances = {};
+
+  try {
+    const network = await withTimeout(provider.getNetwork(), getRpcTimeoutMs(), {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "snapshot.getNetwork",
+      message: "RPC timeout",
+    });
+    rpc_ok = Number(network?.chainId) === chainId;
+  } catch (err) {
+    rpc_ok = false;
+  }
+
+  if (bundlerUrl && entryPoint) {
+    try {
+      const res = await withTimeout(
+        fetch(bundlerUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "eth_supportedEntryPoints", params: [] }),
+        }),
+        getBundlerTimeoutMs(),
+        { code: "BUNDLER_TIMEOUT", status: 504, where: "snapshot.bundler", message: "Bundler timeout" }
+      );
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const entries = Array.isArray(data?.result) ? data.result : [];
+        const normalized = entries.map((entry) => String(entry).toLowerCase());
+        bundler_ok = normalized.includes(String(entryPoint).toLowerCase());
+      }
+    } catch {
+      bundler_ok = false;
+    }
+  }
+
+  if (entryPoint && paymaster && isAddress(entryPoint) && isAddress(paymaster)) {
+    try {
+      const entryAbi = ["function balanceOf(address) view returns (uint256)"];
+      const contract = new Contract(entryPoint, entryAbi, provider);
+      const deposit = await withTimeout(contract.balanceOf(paymaster), getRpcTimeoutMs(), {
+        code: "RPC_TIMEOUT",
+        status: 504,
+        where: "snapshot.paymasterDeposit",
+        message: "RPC timeout",
+      });
+      paymaster_deposit_wei = String(deposit ?? "0");
+    } catch {
+      paymaster_deposit_wei = null;
+    }
+  }
+
+  const alertRaw = String(process.env.ALERT_LOW_DEPOSIT_WEI || "").trim();
+  const alertMin = alertRaw && /^\d+$/.test(alertRaw) ? BigInt(alertRaw) : null;
+  if (alertMin != null && paymaster_deposit_wei != null) {
+    try {
+      const current = BigInt(paymaster_deposit_wei || "0");
+      if (current < alertMin) {
+        logger.warn("ALERT_LOW_DEPOSIT", {
+          paymaster_deposit_wei,
+          alert_below_wei: String(alertMin),
+          chainId,
+        });
+      }
+    } catch {
+      // ignore alert parsing
+    }
+  }
+
+  if (feeVault && isAddress(feeVault)) {
+    const tokens = String(process.env.SNAPSHOT_TOKENS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const erc20Abi = ["function balanceOf(address owner) view returns (uint256)"];
+    for (const token of tokens) {
+      if (!isAddress(token)) continue;
+      try {
+        const contract = new Contract(token, erc20Abi, provider);
+        const bal = await withTimeout(contract.balanceOf(feeVault), getRpcTimeoutMs(), {
+          code: "RPC_TIMEOUT",
+          status: 504,
+          where: "snapshot.feeVaultBalance",
+          message: "RPC timeout",
+        });
+        fee_vault_balances[token.toLowerCase()] = String(bal ?? "0");
+      } catch {
+        fee_vault_balances[token.toLowerCase()] = null;
+      }
+    }
+  }
+
+  if (supabaseUrl && supabaseServiceRole) {
+    await supabase.from("qp_chain_snapshots").insert({
+      chain_id: chainId,
+      rpc_ok,
+      bundler_ok,
+      paymaster_deposit_wei,
+      fee_vault_balances,
+      meta: {},
+    });
+  }
+
+  return reply.send({
+    ok: true,
+    ts,
+    chainId,
+    rpc_ok,
+    bundler_ok,
+    paymaster_deposit_wei,
+    fee_vault_balances,
+    reqId,
+  });
+});
+
 app.post("/events/log", async (request, reply) => {
+  const reqId = request?.reqId;
   const body = request.body ?? {};
   const kind = String(body?.kind || "").trim();
   if (!kind) {
-    return reply.send({ ok: false, error: "missing_kind" });
+    return reply.send({ ok: false, reqId, error: "missing_kind" });
   }
 
   if (!supabaseUrl || !supabaseServiceRole) {
-    return reply.send({ ok: true, skipped: true, reason: "DB_NOT_CONFIGURED" });
+    return reply.send({ ok: true, reqId, skipped: true, reason: "DB_NOT_CONFIGURED" });
   }
 
   const salt = String(process.env.IP_HASH_SALT || "");
@@ -112,52 +568,74 @@ app.post("/events/log", async (request, reply) => {
       });
 
     if (error) {
-      return reply.send({ ok: true, skipped: true, reason: "INSERT_FAILED" });
+      return reply.send({ ok: true, reqId, skipped: true, reason: "INSERT_FAILED" });
     }
-    return reply.send({ ok: true });
+    return reply.send({ ok: true, reqId });
   } catch (err) {
-    return reply.send({ ok: true, skipped: true, reason: "INSERT_FAILED" });
+    return reply.send({ ok: true, reqId, skipped: true, reason: "INSERT_FAILED" });
   }
 });
 
 app.post("/quote", async (request, reply) => {
+  const reqId = request?.reqId;
+  const logger = createLogger({ reqId });
   const body = request.body ?? {};
   const { chainId, ownerEoa, token, to, amount, feeMode, speed, mode, maxFeeUsd6 } = body;
+  const rateLimited = enforceRateLimit(request, reply, ownerEoa);
+  if (rateLimited) return rateLimited;
   if (!ownerEoa || !token || !to || !amount) {
-    return reply.code(400).send({ ok: false, error: "missing_fields" });
+    return reply.code(400).send({ ok: false, reqId, error: "missing_fields" });
   }
   const chain = chainId ?? Number(process.env.CHAIN_ID ?? 84532);
-  const resolvedRpcUrl = await resolveRpcUrl({
-    rpcUrl: process.env.RPC_URL,
-    bundlerUrl: process.env.BUNDLER_URL,
-    chainId: chain,
-  });
-  const result = await getQuote({
-    chainId: chain,
-    rpcUrl: resolvedRpcUrl,
-    bundlerUrl: process.env.BUNDLER_URL,
-    paymaster: getEnv("PAYMASTER", ["PAYMASTER_ADDRESS"]),
-    factoryAddress: process.env.FACTORY,
-    router: process.env.ROUTER,
-    permit2: process.env.PERMIT2,
-    ownerEoa,
-    token,
-    amount,
-    feeMode,
-    speed,
-    mode,
-    maxFeeUsd6,
-    eip3009Tokens: process.env.EIP3009_TOKENS,
-    eip2612Tokens: process.env.EIP2612_TOKENS,
-  });
-  if (result?.ok === false) {
-    return reply.code(result.statusCode ?? 400).send(result);
+  try {
+    const resolvedRpcUrl = await resolveRpcUrl({
+      rpcUrl: process.env.RPC_URL,
+      bundlerUrl: process.env.BUNDLER_URL,
+      chainId: chain,
+    });
+    const result = await withTimeout(getQuote({
+      chainId: chain,
+      rpcUrl: resolvedRpcUrl,
+      bundlerUrl: process.env.BUNDLER_URL,
+      paymaster: getEnv("PAYMASTER", ["PAYMASTER_ADDRESS"]),
+      factoryAddress: process.env.FACTORY,
+      router: process.env.ROUTER,
+      permit2: process.env.PERMIT2,
+      ownerEoa,
+      token,
+      amount,
+      feeMode,
+      speed,
+      mode,
+      maxFeeUsd6,
+      eip3009Tokens: process.env.EIP3009_TOKENS,
+      eip2612Tokens: process.env.EIP2612_TOKENS,
+      logger,
+    }), 8000, {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "quote.total",
+      message: "RPC timeout",
+    });
+    if (result?.ok === false) {
+      return reply.code(result.statusCode ?? 400).send({ reqId, ...result });
+    }
+    return reply.send({ reqId, ...result });
+  } catch (err) {
+    logger.error("QUOTE_ERROR", { error: err?.message || String(err) });
+    return reply.code(err?.status || 500).send({
+      ok: false,
+      reqId,
+      error: err?.message || "QUOTE_FAILED",
+      code: err?.code || "QUOTE_FAILED",
+      where: err?.where,
+    });
   }
-  return reply.send(result);
 });
 
 app.post("/send", async (request, reply) => {
-  const reqId = crypto.randomUUID();
+  const reqId = request?.reqId || crypto.randomUUID();
+  const logger = createLogger({ reqId });
   try {
     const body = request.body ?? {};
     const {
@@ -177,8 +655,11 @@ app.post("/send", async (request, reply) => {
         userOpDraft,
     } = body;
 
+    const rateLimited = enforceRateLimit(request, reply, ownerEoa);
+    if (rateLimited) return rateLimited;
+
     if (!ownerEoa || !token || !to || !amount || !receiptId) {
-      return reply.code(400).send({ ok: false, error: "missing_fields" });
+      return reply.code(400).send({ ok: false, reqId, error: "missing_fields" });
     }
 
     const chain = chainId ?? Number(process.env.CHAIN_ID ?? 84532);
@@ -272,6 +753,7 @@ app.post("/send", async (request, reply) => {
         smart,
         userOpSignature,
         userOpDraft,
+        logger,
       });
     }
 
@@ -305,8 +787,7 @@ app.post("/send", async (request, reply) => {
     });
   } catch (err) {
     const debug = process.env.QUICKPAY_DEBUG === "1";
-    console.error("[SEND_ERROR]", reqId, err?.message);
-    console.error(err?.stack || err);
+    logger.error("SEND_ERROR", { error: err?.message || String(err) });
     const detailPayload = err?.details ?? String(err?.stack || err);
     return reply.code(err?.status || 500).send({
       ok: false,

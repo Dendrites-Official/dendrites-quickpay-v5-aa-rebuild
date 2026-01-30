@@ -1,4 +1,5 @@
 import { JsonRpcProvider } from "ethers";
+import { getRpcTimeoutMs, withTimeout } from "./withTimeout.js";
 
 export async function resolveRpcUrl({ rpcUrl, bundlerUrl, chainId }) {
   const candidates = [rpcUrl, bundlerUrl]
@@ -15,7 +16,12 @@ export async function resolveRpcUrl({ rpcUrl, bundlerUrl, chainId }) {
   for (const candidate of candidates) {
     try {
       const provider = new JsonRpcProvider(candidate);
-      const network = await provider.getNetwork();
+      const network = await withTimeout(provider.getNetwork(), getRpcTimeoutMs(), {
+        code: "RPC_TIMEOUT",
+        status: 504,
+        where: "resolveRpcUrl.getNetwork",
+        message: "RPC timeout",
+      });
       if (Number(network?.chainId) === Number(chainId)) {
         return candidate;
       }

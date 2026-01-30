@@ -7,10 +7,91 @@ const DECIMALS_SIG = "0x313ce567";
 const SYMBOL_SIG = "0x95d89b41";
 const DEFAULT_CHAIN_ID = 84532;
 
-function jsonResponse(origin: string | undefined, status: number, body: unknown) {
+const RATE_LIMIT_WINDOW_SEC = Number(Deno.env.get("RATE_LIMIT_WINDOW_SEC") ?? 60);
+const RATE_LIMIT_IP = Number(Deno.env.get("RATE_LIMIT_IP") ?? 120);
+const RATE_LIMIT_WALLET = Number(Deno.env.get("RATE_LIMIT_WALLET") ?? 60);
+const BURST_WINDOW_SEC = Number(Deno.env.get("RATE_LIMIT_BURST_WINDOW_SEC") ?? 10);
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+
+const REDACT_KEYS = ["auth", "signature", "private", "secret", "key"];
+
+function redact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry) => redact(entry));
+  if (value && typeof value === "object") {
+    const output: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      const lower = key.toLowerCase();
+      output[key] = REDACT_KEYS.some((needle) => lower.includes(needle)) ? "[REDACTED]" : redact(val);
+    }
+    return output;
+  }
+  return value;
+}
+
+function logInfo(reqId: string, message: string, data: Record<string, unknown> = {}) {
+  console.log(JSON.stringify({ level: "info", reqId, message, ...redact(data) }));
+}
+
+function getClientIp(req: Request) {
+  const forwarded = req.headers.get("x-forwarded-for") ?? "";
+  if (forwarded) return forwarded.split(",")[0].trim();
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim();
+  const realIp = req.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+  return "unknown";
+}
+
+function getWalletFromBody(body: Record<string, unknown>) {
+  const candidates = [body.ownerEoa, body.sender, body.address, body.wallet];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim()) return value.trim().toLowerCase();
+  }
+  return null;
+}
+
+function getRateLimitEntry(key: string, windowMs: number) {
+  const now = Date.now();
+  const entry = rateLimitStore.get(key);
+  if (!entry || now > entry.resetAt) {
+    const fresh = { count: 0, resetAt: now + windowMs };
+    rateLimitStore.set(key, fresh);
+    return fresh;
+  }
+  return entry;
+}
+
+function checkRateLimit(key: string, limit: number, windowSec: number) {
+  const windowMs = Math.max(1, windowSec) * 1000;
+  const entry = getRateLimitEntry(key, windowMs);
+  entry.count += 1;
+  if (entry.count <= limit) return { allowed: true };
+  const retryAfterSec = Math.max(1, Math.ceil((entry.resetAt - Date.now()) / 1000));
+  return { allowed: false, retryAfterSec };
+}
+
+function enforceRateLimit(ip: string, wallet: string | null) {
+  const burstIpLimit = Math.max(1, Math.ceil(RATE_LIMIT_IP * (BURST_WINDOW_SEC / RATE_LIMIT_WINDOW_SEC)));
+  const burstWalletLimit = Math.max(1, Math.ceil(RATE_LIMIT_WALLET * (BURST_WINDOW_SEC / RATE_LIMIT_WINDOW_SEC)));
+
+  const ipBurst = checkRateLimit(`ip:burst:${ip}`, burstIpLimit, BURST_WINDOW_SEC);
+  if (!ipBurst.allowed) return { retryAfterSec: ipBurst.retryAfterSec };
+  const ipSustain = checkRateLimit(`ip:sustain:${ip}`, RATE_LIMIT_IP, RATE_LIMIT_WINDOW_SEC);
+  if (!ipSustain.allowed) return { retryAfterSec: ipSustain.retryAfterSec };
+
+  if (wallet) {
+    const walletBurst = checkRateLimit(`wallet:burst:${wallet}`, burstWalletLimit, BURST_WINDOW_SEC);
+    if (!walletBurst.allowed) return { retryAfterSec: walletBurst.retryAfterSec };
+    const walletSustain = checkRateLimit(`wallet:sustain:${wallet}`, RATE_LIMIT_WALLET, RATE_LIMIT_WINDOW_SEC);
+    if (!walletSustain.allowed) return { retryAfterSec: walletSustain.retryAfterSec };
+  }
+  return null;
+}
+
+function jsonResponse(origin: string | undefined, status: number, body: unknown, reqId?: string) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: corsHeaders(origin),
+    headers: { ...corsHeaders(origin), ...(reqId ? { "x-request-id": reqId } : {}) },
   });
 }
 
@@ -144,13 +225,14 @@ async function fetchTokenMeta(token: string, rpcUrl: string) {
 
 Deno.serve(async (req) => {
   const origin = req.headers.get("origin") ?? undefined;
+  const reqId = req.headers.get("x-request-id") ?? crypto.randomUUID();
 
   if (req.method === "OPTIONS") {
     return handleOptions(req);
   }
 
   if (req.method !== "POST") {
-    return jsonResponse(origin, 405, { error: "Method not allowed" });
+    return jsonResponse(origin, 405, { error: "Method not allowed" }, reqId);
   }
 
   let body: {
@@ -163,8 +245,18 @@ Deno.serve(async (req) => {
   try {
     body = (await req.json()) ?? {};
   } catch {
-    return jsonResponse(origin, 400, { error: "Invalid JSON body" });
+    return jsonResponse(origin, 400, { error: "Invalid JSON body" }, reqId);
   }
+
+  const ip = getClientIp(req);
+  const wallet = getWalletFromBody(body as Record<string, unknown>);
+  const limited = enforceRateLimit(ip, wallet);
+  if (limited) {
+    logInfo(reqId, "RATE_LIMITED", { ip, wallet });
+    return jsonResponse(origin, 429, { ok: false, code: "RATE_LIMITED", retryAfterSec: limited.retryAfterSec }, reqId);
+  }
+
+  logInfo(reqId, "RECEIPT_REQUEST", { ip, wallet, body });
 
   const chainId = body.chainId ?? DEFAULT_CHAIN_ID;
   const receiptIdInput = body.receiptId?.trim();
@@ -172,20 +264,20 @@ Deno.serve(async (req) => {
   const txHashInput = body.txHash?.trim();
 
   if (userOpHashInput && !isValidHash(userOpHashInput)) {
-    return jsonResponse(origin, 400, { error: "Invalid userOpHash" });
+    return jsonResponse(origin, 400, { error: "Invalid userOpHash" }, reqId);
   }
 
   if (txHashInput && !isValidHash(txHashInput)) {
-    return jsonResponse(origin, 400, { error: "Invalid txHash" });
+    return jsonResponse(origin, 400, { error: "Invalid txHash" }, reqId);
   }
 
   if (!receiptIdInput && !userOpHashInput && !txHashInput) {
-    return jsonResponse(origin, 400, { error: "Missing receiptId, userOpHash, or txHash" });
+    return jsonResponse(origin, 400, { error: "Missing receiptId, userOpHash, or txHash" }, reqId);
   }
 
   const bundlerUrl = Deno.env.get("BUNDLER_URL");
   if (!bundlerUrl) {
-    return jsonResponse(origin, 500, { error: "Missing BUNDLER_URL" });
+    return jsonResponse(origin, 500, { error: "Missing BUNDLER_URL" }, reqId);
   }
 
   const rpcUrl = Deno.env.get("RPC_URL") ?? "";
@@ -195,7 +287,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   if (!supabaseUrl || !supabaseAnonKey) {
-    return jsonResponse(origin, 500, { error: "Missing Supabase env" });
+    return jsonResponse(origin, 500, { error: "Missing Supabase env" }, reqId);
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -228,7 +320,7 @@ Deno.serve(async (req) => {
   }
 
   if (receiptIdInput && !existing && !userOpHashInput && !txHashInput) {
-    return jsonResponse(origin, 404, { error: "Receipt not found" });
+    return jsonResponse(origin, 404, { error: "Receipt not found" }, reqId);
   }
 
   const userOpHash = userOpHashInput ?? existing?.userop_hash ?? null;
@@ -247,7 +339,7 @@ Deno.serve(async (req) => {
       receiptSource = "tx";
     }
   } catch (err: any) {
-    return jsonResponse(origin, 502, { error: err?.message || "Receipt lookup failed" });
+    return jsonResponse(origin, 502, { error: err?.message || "Receipt lookup failed" }, reqId);
   }
 
   if (!receiptResult) {
@@ -295,7 +387,7 @@ Deno.serve(async (req) => {
       title: pendingPayload.title,
       note: pendingPayload.note,
       referenceId: pendingPayload.reference_id,
-    });
+    }, reqId);
   }
 
   const resolvedTxHash =
@@ -539,7 +631,7 @@ Deno.serve(async (req) => {
     feeMode: rowPayload.fee_mode ?? defaultFeeMode,
     feeTokenMode: rowPayload.fee_token_mode ?? defaultFeeTokenMode,
     raw: receiptResult,
-  });
+  }, reqId);
 });
 
 // curl -X POST http://localhost:54321/functions/v1/quickpay_receipt \

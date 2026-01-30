@@ -1,4 +1,6 @@
 import { ethers } from "ethers";
+import { createTtlCache } from "./cache.js";
+import { getRpcTimeoutMs, withTimeout } from "./withTimeout.js";
 import { normalizeSpeed } from "./normalizeSpeed.js";
 import { resolveRpcUrl } from "./resolveRpcUrl.js";
 
@@ -16,9 +18,44 @@ const ERC20_ABI = [
   "function allowance(address owner, address spender) view returns (uint256)",
 ];
 
-const PERMIT2_ALLOWANCE_ABI = [
-  "function allowance(address owner,address token,address spender) view returns (uint160 amount,uint48 expiration,uint48 nonce)",
-];
+
+const TOKEN_META_TTL_MS = 24 * 60 * 60 * 1000;
+const CODE_TTL_MS = 10 * 60 * 1000;
+const ALLOWANCE_TTL_MS = 15 * 1000;
+
+const tokenMetaCache = createTtlCache({ ttlMs: TOKEN_META_TTL_MS, maxSize: 2000 });
+const codeCache = createTtlCache({ ttlMs: CODE_TTL_MS, maxSize: 5000 });
+const allowanceCache = createTtlCache({ ttlMs: ALLOWANCE_TTL_MS, maxSize: 10000 });
+
+async function getCodeCached(provider, address) {
+  const key = String(address).toLowerCase();
+  const cached = codeCache.get(key);
+  if (cached != null) return cached;
+  const code = await withTimeout(provider.getCode(address), getRpcTimeoutMs(), {
+    code: "RPC_TIMEOUT",
+    status: 504,
+    where: "quote.getCode",
+    message: "RPC timeout",
+  });
+  const exists = typeof code === "string" && code !== "0x";
+  codeCache.set(key, exists);
+  return exists;
+}
+
+async function getAllowanceCached(provider, token, owner, spender) {
+  const key = `${String(token).toLowerCase()}:${String(owner).toLowerCase()}:${String(spender).toLowerCase()}`;
+  const cached = allowanceCache.get(key);
+  if (cached != null) return cached;
+  const tokenContract = new ethers.Contract(token, ERC20_ABI, provider);
+  const allowance = await withTimeout(tokenContract.allowance(owner, spender), getRpcTimeoutMs(), {
+    code: "RPC_TIMEOUT",
+    status: 504,
+    where: "quote.allowance",
+    message: "RPC timeout",
+  });
+  allowanceCache.set(key, allowance);
+  return allowance;
+}
 
 function ceilDiv(a, b) {
   return (a + b - 1n) / b;
@@ -57,6 +94,7 @@ export async function getQuote({
   maxFeeUsd6,
   eip3009Tokens,
   eip2612Tokens,
+  logger,
 }) {
   const modeNorm = String(mode ?? "").toUpperCase();
   const resolvedChainId = chainId ?? 84532;
@@ -104,10 +142,12 @@ export async function getQuote({
       amountNum: Number(amountStr),
     },
   };
-  console.log("QUOTE_DEBUG", JSON.stringify(debug));
-  console.log(
-    `NORMALIZED_SPEED feeMode=${feeMode ?? ""} speedIn=${speed ?? ""} speedOut=${canonicalSpeed}`
-  );
+  logger?.info?.("QUOTE_DEBUG", debug);
+  logger?.info?.("NORMALIZED_SPEED", {
+    feeMode: feeMode ?? "",
+    speedIn: speed ?? "",
+    speedOut: canonicalSpeed,
+  });
 
   if (Object.keys(envErrors).length) {
     return { ok: false, error: "invalid_config", details: envErrors, statusCode: 400 };
@@ -121,17 +161,22 @@ export async function getQuote({
       const factoryAddr = ethers.getAddress(factoryAddress);
       const ownerAddr = ethers.getAddress(ownerEoa);
       const factory = new ethers.Contract(factoryAddr, FACTORY_ABI, provider);
-      smartSender = await factory["getAddress(address,uint256)"](ownerAddr, 0n);
-      const code = await provider.getCode(smartSender);
-      smartDeployed = typeof code === "string" && code !== "0x";
+      smartSender = await withTimeout(factory["getAddress(address,uint256)"](ownerAddr, 0n), getRpcTimeoutMs(), {
+        code: "RPC_TIMEOUT",
+        status: 504,
+        where: "quote.getAddress",
+        message: "RPC timeout",
+      });
+      smartDeployed = await getCodeCached(provider, smartSender);
     }
 
     if (provider && token && ethers.isAddress(token)) {
       const tokenAddr = ethers.getAddress(token);
-      const tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
       if (permit2 && ethers.isAddress(permit2) && ownerEoa && ethers.isAddress(ownerEoa) && router && ethers.isAddress(router)) {
         const amount = BigInt(amountStr);
-        const erc20Allowance = await tokenContract.allowance(
+        const erc20Allowance = await getAllowanceCached(
+          provider,
+          tokenAddr,
           ethers.getAddress(ownerEoa),
           ethers.getAddress(permit2)
         );
@@ -140,7 +185,12 @@ export async function getQuote({
         }
       }
       if (smartDeployed && smartSender && router && ethers.isAddress(router)) {
-        const allowance = await tokenContract.allowance(smartSender, ethers.getAddress(router));
+        const allowance = await getAllowanceCached(
+          provider,
+          tokenAddr,
+          smartSender,
+          ethers.getAddress(router)
+        );
         if (allowance === 0n) setupNeeded.push("aa_allowance_missing");
       }
     }
@@ -169,7 +219,16 @@ export async function getQuote({
   const paymasterContract = new ethers.Contract(ethers.getAddress(paymaster), PAYMASTER_ABI, provider);
   const nowTs = Math.floor(Date.now() / 1000);
   const payerForQuote = smartSender || ownerEoa;
-  const quoteRaw = await paymasterContract.quoteFeeUsd6(payerForQuote, 0, canonicalSpeed, nowTs);
+  const quoteRaw = await withTimeout(
+    paymasterContract.quoteFeeUsd6(payerForQuote, 0, canonicalSpeed, nowTs),
+    getRpcTimeoutMs(),
+    {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "quote.quoteFeeUsd6",
+      message: "RPC timeout",
+    }
+  );
   const baselineUsd6 = BigInt(quoteRaw[0]);
   const firstTxSurchargeUsd6 = BigInt(quoteRaw[1]);
   const finalFeeUsd6 = BigInt(quoteRaw[2]);
@@ -204,11 +263,41 @@ export async function getQuote({
     };
   }
 
-  console.log(
-    `QUOTE_INVARIANTS feeUsd6=${feeUsd6Final} maxFeeUsd6=${maxFeeUsd6Used} finalFeeUsd6=${finalFeeUsd6}`
-  );
-  const decimals = Number(await paymasterContract.feeTokenDecimals(token));
-  const price = BigInt(await paymasterContract.usd6PerWholeToken(token));
+  logger?.info?.("QUOTE_INVARIANTS", {
+    feeUsd6: feeUsd6Final.toString(),
+    maxFeeUsd6: maxFeeUsd6Used.toString(),
+    finalFeeUsd6: finalFeeUsd6.toString(),
+  });
+
+  const metaKey = `${resolvedChainId}:${String(token).toLowerCase()}`;
+  const cachedMeta = tokenMetaCache.get(metaKey);
+  const tokenMeta = cachedMeta
+    ? cachedMeta
+    : {
+        decimals: Number(
+          await withTimeout(paymasterContract.feeTokenDecimals(token), getRpcTimeoutMs(), {
+            code: "RPC_TIMEOUT",
+            status: 504,
+            where: "quote.feeTokenDecimals",
+            message: "RPC timeout",
+          })
+        ),
+        price: BigInt(
+          await withTimeout(paymasterContract.usd6PerWholeToken(token), getRpcTimeoutMs(), {
+            code: "RPC_TIMEOUT",
+            status: 504,
+            where: "quote.usd6PerWholeToken",
+            message: "RPC timeout",
+          })
+        ),
+      };
+
+  if (!cachedMeta) {
+    tokenMetaCache.set(metaKey, tokenMeta);
+  }
+
+  const decimals = tokenMeta.decimals;
+  const price = tokenMeta.price;
   const pow10 = 10n ** BigInt(decimals);
   const feeTokenAmount = ceilDiv(totalUsd6 * pow10, price);
   const netAmount = (BigInt(amount) - feeTokenAmount).toString();
