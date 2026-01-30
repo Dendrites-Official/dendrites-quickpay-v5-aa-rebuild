@@ -12,9 +12,10 @@
 | VITE_WALLETCONNECT_PROJECT_ID | Optional | WalletConnect project id | 0123456789abcdef |
 | VITE_USDC_ADDRESS | Optional | USDC token address | 0x... |
 | VITE_MDNDX_ADDRESS | Optional | mDNDX token address | 0x... |
-| VITE_ADMIN_UI_KEY | Optional | Admin dashboard gate key | <ADMIN_UI_KEY> |
 
 ## API (Railway) — Core QuickPay
+
+Admin routes under /admin are protected by HTTP Basic Auth (ADMIN_USER/ADMIN_PASS). The ADMIN_KEY is server-only for snapshot writes and is never sent by the UI.
 
 | Variable | Required | Purpose | Example |
 | --- | --- | --- | --- |
@@ -36,7 +37,9 @@
 | CORS_ORIGIN | Optional | Allowed origins (CSV) | http://localhost:5173 |
 | QUICKPAY_DEBUG | Optional | Debug logging (1) | 1 |
 | PORT | Optional | API port | 8787 |
-| ADMIN_KEY | Optional | Admin auth key for /admin/snapshot | <ADMIN_KEY> |
+| ADMIN_USER | ✅ | Basic Auth username for /admin | <ADMIN_USER> |
+| ADMIN_PASS | ✅ | Basic Auth password for /admin | <ADMIN_PASS> |
+| ADMIN_KEY | ✅ | Internal key for snapshot writes (server-only) | <ADMIN_KEY> |
 | SNAPSHOT_TOKENS | Optional | CSV tokens for FeeVault balances | 0x...,0x... |
 | ALERT_LOW_DEPOSIT_WEI | Optional | Alert threshold for paymaster deposit | 100000000000000000 |
 

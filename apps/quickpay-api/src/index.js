@@ -86,6 +86,41 @@ app.addHook("onRequest", async (request, reply) => {
   reply.header("x-request-id", request.reqId);
 });
 
+function adminUnauthorized(reply, reqId) {
+  reply.header("WWW-Authenticate", "Basic realm=\"Admin\"");
+  return reply.code(401).send({ ok: false, reqId, code: "UNAUTHORIZED" });
+}
+
+app.addHook("onRequest", async (request, reply) => {
+  const url = String(request?.url || "");
+  if (!url.startsWith("/admin")) return;
+
+  const adminUser = String(process.env.ADMIN_USER || "").trim();
+  const adminPass = String(process.env.ADMIN_PASS || "").trim();
+  if (!adminUser || !adminPass) {
+    return adminUnauthorized(reply, request?.reqId);
+  }
+
+  const authHeader = String(request?.headers?.authorization || "").trim();
+  if (!authHeader.startsWith("Basic ")) {
+    return adminUnauthorized(reply, request?.reqId);
+  }
+
+  let decoded = "";
+  try {
+    decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf8");
+  } catch {
+    return adminUnauthorized(reply, request?.reqId);
+  }
+
+  const separator = decoded.indexOf(":");
+  const providedUser = separator >= 0 ? decoded.slice(0, separator) : "";
+  const providedPass = separator >= 0 ? decoded.slice(separator + 1) : "";
+  if (providedUser !== adminUser || providedPass !== adminPass) {
+    return adminUnauthorized(reply, request?.reqId);
+  }
+});
+
 app.addHook("preHandler", async (request) => {
   request.telemetryBody = request.body ?? null;
 });
@@ -224,6 +259,139 @@ function getClientIp(request) {
 
 function sha256Hex(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+async function runSnapshot({ reqId, logger }) {
+  const chainId = Number(process.env.CHAIN_ID ?? 84532);
+  const rpcUrl = String(process.env.RPC_URL || "").trim();
+  const bundlerUrl = String(process.env.BUNDLER_URL || "").trim();
+  const entryPoint = String(process.env.ENTRYPOINT || "").trim();
+  const paymaster = String(process.env.PAYMASTER || "").trim();
+  const feeVault = String(process.env.FEEVAULT || "").trim();
+
+  if (!rpcUrl) {
+    return { ok: false, reqId, code: "RPC_URL_MISSING", status: 500 };
+  }
+
+  const provider = new JsonRpcProvider(rpcUrl);
+  const ts = new Date().toISOString();
+
+  let rpc_ok = false;
+  let bundler_ok = false;
+  let paymaster_deposit_wei = null;
+  const fee_vault_balances = {};
+
+  try {
+    const network = await withTimeout(provider.getNetwork(), getRpcTimeoutMs(), {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "snapshot.getNetwork",
+      message: "RPC timeout",
+    });
+    rpc_ok = Number(network?.chainId) === chainId;
+  } catch (err) {
+    rpc_ok = false;
+  }
+
+  if (bundlerUrl && entryPoint) {
+    try {
+      const res = await withTimeout(
+        fetch(bundlerUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "eth_supportedEntryPoints", params: [] }),
+        }),
+        getBundlerTimeoutMs(),
+        { code: "BUNDLER_TIMEOUT", status: 504, where: "snapshot.bundler", message: "Bundler timeout" }
+      );
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const entries = Array.isArray(data?.result) ? data.result : [];
+        const normalized = entries.map((entry) => String(entry).toLowerCase());
+        bundler_ok = normalized.includes(String(entryPoint).toLowerCase());
+      }
+    } catch {
+      bundler_ok = false;
+    }
+  }
+
+  if (entryPoint && paymaster && isAddress(entryPoint) && isAddress(paymaster)) {
+    try {
+      const entryAbi = ["function balanceOf(address) view returns (uint256)"];
+      const contract = new Contract(entryPoint, entryAbi, provider);
+      const deposit = await withTimeout(contract.balanceOf(paymaster), getRpcTimeoutMs(), {
+        code: "RPC_TIMEOUT",
+        status: 504,
+        where: "snapshot.paymasterDeposit",
+        message: "RPC timeout",
+      });
+      paymaster_deposit_wei = String(deposit ?? "0");
+    } catch {
+      paymaster_deposit_wei = null;
+    }
+  }
+
+  const alertRaw = String(process.env.ALERT_LOW_DEPOSIT_WEI || "").trim();
+  const alertMin = alertRaw && /^\d+$/.test(alertRaw) ? BigInt(alertRaw) : null;
+  if (alertMin != null && paymaster_deposit_wei != null) {
+    try {
+      const current = BigInt(paymaster_deposit_wei || "0");
+      if (current < alertMin) {
+        logger.warn("ALERT_LOW_DEPOSIT", {
+          paymaster_deposit_wei,
+          alert_below_wei: String(alertMin),
+          chainId,
+        });
+      }
+    } catch {
+      // ignore alert parsing
+    }
+  }
+
+  if (feeVault && isAddress(feeVault)) {
+    const tokens = String(process.env.SNAPSHOT_TOKENS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const erc20Abi = ["function balanceOf(address owner) view returns (uint256)"];
+    for (const token of tokens) {
+      if (!isAddress(token)) continue;
+      try {
+        const contract = new Contract(token, erc20Abi, provider);
+        const bal = await withTimeout(contract.balanceOf(feeVault), getRpcTimeoutMs(), {
+          code: "RPC_TIMEOUT",
+          status: 504,
+          where: "snapshot.feeVaultBalance",
+          message: "RPC timeout",
+        });
+        fee_vault_balances[token.toLowerCase()] = String(bal ?? "0");
+      } catch {
+        fee_vault_balances[token.toLowerCase()] = null;
+      }
+    }
+  }
+
+  if (supabaseUrl && supabaseServiceRole) {
+    await supabase.from("qp_chain_snapshots").insert({
+      chain_id: chainId,
+      rpc_ok,
+      bundler_ok,
+      paymaster_deposit_wei,
+      fee_vault_balances,
+      meta: {},
+    });
+  }
+
+  return {
+    ok: true,
+    ts,
+    chainId,
+    rpc_ok,
+    bundler_ok,
+    paymaster_deposit_wei,
+    fee_vault_balances,
+    reqId,
+  };
 }
 
 registerFaucetRoutes(app);
@@ -394,143 +562,29 @@ app.post("/admin/snapshot", async (request, reply) => {
   const reqId = request?.reqId;
   const logger = createLogger({ reqId });
   const adminKey = String(process.env.ADMIN_KEY || "").trim();
-  const headerKey = String(request?.headers?.["x-admin-key"] || "").trim();
-  const queryKey = String(request?.query?.key || "").trim();
-  const provided = headerKey || queryKey;
-  if (!adminKey || provided !== adminKey) {
-    return reply.code(401).send({ ok: false, reqId, code: "UNAUTHORIZED" });
+  if (!adminKey) {
+    return reply.code(500).send({ ok: false, reqId, code: "ADMIN_KEY_MISSING" });
+  }
+  const snapshot = await runSnapshot({ reqId, logger });
+  if (snapshot?.ok === false) {
+    return reply.code(snapshot.status || 500).send(snapshot);
+  }
+  return reply.send(snapshot);
+});
+
+app.post("/admin/snapshot/run", async (request, reply) => {
+  const reqId = request?.reqId;
+  const logger = createLogger({ reqId });
+  const adminKey = String(process.env.ADMIN_KEY || "").trim();
+  if (!adminKey) {
+    return reply.code(500).send({ ok: false, reqId, code: "ADMIN_KEY_MISSING" });
   }
 
-  const chainId = Number(process.env.CHAIN_ID ?? 84532);
-  const rpcUrl = String(process.env.RPC_URL || "").trim();
-  const bundlerUrl = String(process.env.BUNDLER_URL || "").trim();
-  const entryPoint = String(process.env.ENTRYPOINT || "").trim();
-  const paymaster = String(process.env.PAYMASTER || "").trim();
-  const feeVault = String(process.env.FEEVAULT || "").trim();
-
-  if (!rpcUrl) {
-    return reply.code(500).send({ ok: false, reqId, code: "RPC_URL_MISSING" });
+  const snapshot = await runSnapshot({ reqId, logger });
+  if (snapshot?.ok === false) {
+    return reply.code(snapshot.status || 500).send(snapshot);
   }
-
-  const provider = new JsonRpcProvider(rpcUrl);
-  const ts = new Date().toISOString();
-
-  let rpc_ok = false;
-  let bundler_ok = false;
-  let paymaster_deposit_wei = null;
-  const fee_vault_balances = {};
-
-  try {
-    const network = await withTimeout(provider.getNetwork(), getRpcTimeoutMs(), {
-      code: "RPC_TIMEOUT",
-      status: 504,
-      where: "snapshot.getNetwork",
-      message: "RPC timeout",
-    });
-    rpc_ok = Number(network?.chainId) === chainId;
-  } catch (err) {
-    rpc_ok = false;
-  }
-
-  if (bundlerUrl && entryPoint) {
-    try {
-      const res = await withTimeout(
-        fetch(bundlerUrl, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "eth_supportedEntryPoints", params: [] }),
-        }),
-        getBundlerTimeoutMs(),
-        { code: "BUNDLER_TIMEOUT", status: 504, where: "snapshot.bundler", message: "Bundler timeout" }
-      );
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const entries = Array.isArray(data?.result) ? data.result : [];
-        const normalized = entries.map((entry) => String(entry).toLowerCase());
-        bundler_ok = normalized.includes(String(entryPoint).toLowerCase());
-      }
-    } catch {
-      bundler_ok = false;
-    }
-  }
-
-  if (entryPoint && paymaster && isAddress(entryPoint) && isAddress(paymaster)) {
-    try {
-      const entryAbi = ["function balanceOf(address) view returns (uint256)"];
-      const contract = new Contract(entryPoint, entryAbi, provider);
-      const deposit = await withTimeout(contract.balanceOf(paymaster), getRpcTimeoutMs(), {
-        code: "RPC_TIMEOUT",
-        status: 504,
-        where: "snapshot.paymasterDeposit",
-        message: "RPC timeout",
-      });
-      paymaster_deposit_wei = String(deposit ?? "0");
-    } catch {
-      paymaster_deposit_wei = null;
-    }
-  }
-
-  const alertRaw = String(process.env.ALERT_LOW_DEPOSIT_WEI || "").trim();
-  const alertMin = alertRaw && /^\d+$/.test(alertRaw) ? BigInt(alertRaw) : null;
-  if (alertMin != null && paymaster_deposit_wei != null) {
-    try {
-      const current = BigInt(paymaster_deposit_wei || "0");
-      if (current < alertMin) {
-        logger.warn("ALERT_LOW_DEPOSIT", {
-          paymaster_deposit_wei,
-          alert_below_wei: String(alertMin),
-          chainId,
-        });
-      }
-    } catch {
-      // ignore alert parsing
-    }
-  }
-
-  if (feeVault && isAddress(feeVault)) {
-    const tokens = String(process.env.SNAPSHOT_TOKENS || "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    const erc20Abi = ["function balanceOf(address owner) view returns (uint256)"];
-    for (const token of tokens) {
-      if (!isAddress(token)) continue;
-      try {
-        const contract = new Contract(token, erc20Abi, provider);
-        const bal = await withTimeout(contract.balanceOf(feeVault), getRpcTimeoutMs(), {
-          code: "RPC_TIMEOUT",
-          status: 504,
-          where: "snapshot.feeVaultBalance",
-          message: "RPC timeout",
-        });
-        fee_vault_balances[token.toLowerCase()] = String(bal ?? "0");
-      } catch {
-        fee_vault_balances[token.toLowerCase()] = null;
-      }
-    }
-  }
-
-  if (supabaseUrl && supabaseServiceRole) {
-    await supabase.from("qp_chain_snapshots").insert({
-      chain_id: chainId,
-      rpc_ok,
-      bundler_ok,
-      paymaster_deposit_wei,
-      fee_vault_balances,
-      meta: {},
-    });
-  }
-
-  return reply.send({
-    ok: true,
-    ts,
-    chainId,
-    rpc_ok,
-    bundler_ok,
-    paymaster_deposit_wei,
-    fee_vault_balances,
-    reqId,
-  });
+  return reply.send(snapshot);
 });
 
 app.post("/events/log", async (request, reply) => {
