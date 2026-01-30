@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatUnits } from "ethers";
 import { supabase } from "../lib/supabaseClient";
-import { qpUrl } from "../lib/quickpayApiBase";
 
 const USDC_ADDRESS = String(import.meta.env.VITE_USDC_ADDRESS ?? "").trim().toLowerCase();
 const MDNDX_ADDRESS = String(import.meta.env.VITE_MDNDX_ADDRESS ?? "").trim().toLowerCase();
 const MAX_SAMPLE = 10000;
+const ADMIN_UI_KEY = String(import.meta.env.VITE_ADMIN_UI_KEY ?? "").trim();
 
 type Metrics = {
   total: number;
@@ -133,18 +133,17 @@ export default function AdminDashboard() {
     setSnapshotLoading(true);
     setError("");
     try {
-      const res = await fetch(qpUrl("/admin/snapshot/run"), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: "{}",
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Snapshot failed");
+      if (!ADMIN_UI_KEY) {
+        throw new Error("Missing VITE_ADMIN_UI_KEY");
       }
-      await res.json().catch(() => ({}));
+      const { data, error: fnError } = await supabase.functions.invoke("admin_snapshot_proxy", {
+        body: {},
+        headers: {
+          "x-admin-ui-key": ADMIN_UI_KEY,
+        },
+      });
+      if (fnError) throw new Error(fnError.message || "Snapshot failed");
+      void data;
       await loadData();
     } catch (err: any) {
       setError(err?.message || String(err));

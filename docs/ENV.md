@@ -12,10 +12,11 @@
 | VITE_WALLETCONNECT_PROJECT_ID | Optional | WalletConnect project id | 0123456789abcdef |
 | VITE_USDC_ADDRESS | Optional | USDC token address | 0x... |
 | VITE_MDNDX_ADDRESS | Optional | mDNDX token address | 0x... |
+| VITE_ADMIN_UI_KEY | ✅ | Admin UI key (matches ADMIN_UI_KEY) | <ADMIN_UI_KEY> |
 
 ## API (Railway) — Core QuickPay
 
-Admin routes under /admin are protected by HTTP Basic Auth (ADMIN_USER/ADMIN_PASS). The ADMIN_KEY is server-only for snapshot writes and is never sent by the UI.
+Admin routes under /admin are protected by HTTP Basic Auth (ADMIN_USER/ADMIN_PASS). The ADMIN_KEY is server-only for snapshot writes and is never sent by the UI. The admin dashboard uses a Supabase Edge proxy authenticated by ADMIN_UI_KEY.
 
 | Variable | Required | Purpose | Example |
 | --- | --- | --- | --- |
@@ -39,6 +40,9 @@ Admin routes under /admin are protected by HTTP Basic Auth (ADMIN_USER/ADMIN_PAS
 | PORT | Optional | API port | 8787 |
 | ADMIN_USER | ✅ | Basic Auth username for /admin | <ADMIN_USER> |
 | ADMIN_PASS | ✅ | Basic Auth password for /admin | <ADMIN_PASS> |
+| ADMIN_UI_KEY | ✅ | Shared key for admin UI → Edge proxy | <ADMIN_UI_KEY> |
+| RAILWAY_ADMIN_USER | ✅ | Basic Auth username used by Edge proxy | <RAILWAY_ADMIN_USER> |
+| RAILWAY_ADMIN_PASS | ✅ | Basic Auth password used by Edge proxy | <RAILWAY_ADMIN_PASS> |
 | ADMIN_KEY | ✅ | Internal key for snapshot writes (server-only) | <ADMIN_KEY> |
 | SNAPSHOT_TOKENS | Optional | CSV tokens for FeeVault balances | 0x...,0x... |
 | ALERT_LOW_DEPOSIT_WEI | Optional | Alert threshold for paymaster deposit | 100000000000000000 |
