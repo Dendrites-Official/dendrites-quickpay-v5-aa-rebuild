@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import { getQuote } from "./core/quote.js";
 import { resolveSmartAccount } from "./core/smartAccount.js";
 import { sendSponsored } from "./core/sendSponsored.js";
+import { sendBulkSponsored } from "./core/sendBulkSponsored.js";
 import { sendSelfPay } from "./core/sendSelfPay.js";
 import { normalizeAddress } from "./core/normalizeAddress.js";
 import { resolveRpcUrl } from "./core/resolveRpcUrl.js";
@@ -31,6 +32,8 @@ function getEnv(name, aliases = []) {
 const RATE_LIMIT_WINDOW_SEC = Number(process.env.RATE_LIMIT_WINDOW_SEC ?? 60);
 const RATE_LIMIT_IP = Number(process.env.RATE_LIMIT_IP ?? 120);
 const RATE_LIMIT_WALLET = Number(process.env.RATE_LIMIT_WALLET ?? 60);
+const RATE_LIMIT_BULK_IP = Number(process.env.RATE_LIMIT_BULK_IP ?? 30);
+const RATE_LIMIT_BULK_WALLET = Number(process.env.RATE_LIMIT_BULK_WALLET ?? 10);
 const rateLimitStore = new Map();
 
 function getRateLimitEntry(key, windowMs) {
@@ -68,6 +71,32 @@ function enforceRateLimit(request, reply, walletAddress) {
   if (walletAddress && isAddress(walletAddress)) {
     const walletKey = `wallet:${String(walletAddress).toLowerCase()}`;
     const walletCheck = checkRateLimit(walletKey, RATE_LIMIT_WALLET, windowMs);
+    if (!walletCheck.allowed) {
+      return reply.code(429).send({
+        ok: false,
+        code: "RATE_LIMITED",
+        retryAfterSec: walletCheck.retryAfterSec,
+      });
+    }
+  }
+  return null;
+}
+
+function enforceBulkRateLimit(request, reply, walletAddress) {
+  const windowMs = Math.max(1, RATE_LIMIT_WINDOW_SEC) * 1000;
+  const ip = getClientIp(request) || "unknown";
+  const ipCheck = checkRateLimit(`bulk:ip:${ip}`, RATE_LIMIT_BULK_IP, windowMs);
+  if (!ipCheck.allowed) {
+    return reply.code(429).send({
+      ok: false,
+      code: "RATE_LIMITED",
+      retryAfterSec: ipCheck.retryAfterSec,
+    });
+  }
+
+  if (walletAddress && isAddress(walletAddress)) {
+    const walletKey = `bulk:wallet:${String(walletAddress).toLowerCase()}`;
+    const walletCheck = checkRateLimit(walletKey, RATE_LIMIT_BULK_WALLET, windowMs);
     if (!walletCheck.allowed) {
       return reply.code(429).send({
         ok: false,
@@ -849,6 +878,117 @@ app.post("/send", async (request, reply) => {
       error: String(err?.message || err),
       code: err?.code,
       details: debug ? detailPayload : undefined,
+    });
+  }
+});
+
+app.post("/sendBulk", async (request, reply) => {
+  const reqId = request?.reqId || crypto.randomUUID();
+  const logger = createLogger({ reqId });
+  try {
+    const body = request.body ?? {};
+    const {
+      chainId,
+      ownerEoa,
+      from,
+      token,
+      recipients,
+      amounts,
+      transfers,
+      feeMode,
+      speed,
+      auth,
+      userOpSignature,
+      userOpDraft,
+      referenceId,
+    } = body;
+
+    const rateLimited = enforceBulkRateLimit(request, reply, ownerEoa);
+    if (rateLimited) return rateLimited;
+
+    const routerBulk = String(process.env.ROUTER_BULK || "").trim();
+    const paymasterBulk = String(process.env.PAYMASTER_BULK || "").trim();
+    if (!routerBulk || !paymasterBulk) {
+      return reply.code(503).send({ ok: false, reqId, code: "BULK_NOT_CONFIGURED" });
+    }
+
+    const normalizedFrom = ownerEoa || from;
+    if (!normalizedFrom || !token || (!recipients && !transfers) || (!amounts && !transfers)) {
+      return reply.code(400).send({ ok: false, reqId, error: "missing_fields" });
+    }
+
+    const chain = chainId ?? Number(process.env.CHAIN_ID ?? 84532);
+    const resolvedRpcUrl = await resolveRpcUrl({
+      rpcUrl: process.env.RPC_URL,
+      bundlerUrl: process.env.BUNDLER_URL,
+      chainId: chain,
+    });
+    const provider = new JsonRpcProvider(resolvedRpcUrl);
+
+    let normalizedOwnerEoa;
+    let normalizedToken;
+    const normalizedRecipients = [];
+    const normalizedAmounts = [];
+    try {
+      normalizedOwnerEoa = await normalizeAddress(normalizedFrom, { chainId: chain, provider });
+      normalizedToken = await normalizeAddress(token, { chainId: chain, provider });
+      if (Array.isArray(transfers) && transfers.length) {
+        for (const t of transfers) {
+          const normalized = await normalizeAddress(t?.to, { chainId: chain, provider });
+          normalizedRecipients.push(normalized);
+          normalizedAmounts.push(t?.amount);
+        }
+      } else {
+        if (!Array.isArray(recipients)) {
+          return reply.code(400).send({ ok: false, reqId, error: "invalid_recipients" });
+        }
+        for (const addr of recipients) {
+          const normalized = await normalizeAddress(addr, { chainId: chain, provider });
+          normalizedRecipients.push(normalized);
+        }
+        if (Array.isArray(amounts)) {
+          normalizedAmounts.push(...amounts);
+        }
+      }
+    } catch (err) {
+      return reply.code(err?.status || 500).send({ ok: false, error: err?.message || String(err), code: err?.code });
+    }
+
+    const result = await sendBulkSponsored({
+      chainId: chain,
+      rpcUrl: resolvedRpcUrl,
+      bundlerUrl: process.env.BUNDLER_URL,
+      entryPoint: process.env.ENTRYPOINT,
+      router: routerBulk,
+      paymaster: paymasterBulk,
+      factory: process.env.FACTORY,
+      feeVault: process.env.FEEVAULT,
+      ownerEoa: normalizedOwnerEoa,
+      token: normalizedToken,
+      recipients: normalizedRecipients,
+      amounts: normalizedAmounts.length ? normalizedAmounts : amounts,
+      feeMode,
+      speed,
+      auth,
+      userOpSignature,
+      userOpDraft,
+      referenceId,
+      logger,
+    });
+
+    if (result?.needsUserOpSignature === true) {
+      return reply.send({ reqId, ...result });
+    }
+
+    return reply.send({ ok: true, reqId, ...result });
+  } catch (err) {
+    logger.error("SEND_BULK_ERROR", { error: err?.message || String(err) });
+    return reply.code(err?.status || 500).send({
+      ok: false,
+      reqId,
+      error: String(err?.message || err),
+      code: err?.code,
+      details: process.env.NODE_ENV === "production" ? undefined : String(err?.stack || err),
     });
   }
 });
