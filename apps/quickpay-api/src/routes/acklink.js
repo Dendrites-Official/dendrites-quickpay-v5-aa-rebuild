@@ -2,6 +2,9 @@ import { Contract, JsonRpcProvider, isAddress, ethers } from "ethers";
 import { sendAcklinkSponsored } from "../core/acklinkSponsored.js";
 
 const ACKLINK_NONCE_ABI = ["function nonces(address sender) view returns (uint256)"];
+const PAYMASTER_QUOTE_ABI = [
+  "function quoteFeeUsd6(address payer,uint8 mode,uint8 speed,uint256 nowTs) view returns (uint256,uint256,uint256,uint256,uint256,bool)",
+];
 
 const FEE_USDC6_ECO = 200000n;
 const FEE_USDC6_INSTANT = 300000n;
@@ -37,12 +40,14 @@ function getAckConfig() {
   const feeVault = String(process.env.FEEVAULT || "").trim();
   const acklinkVault = String(process.env.ACKLINK_VAULT || "").trim();
   const factory = String(process.env.FACTORY || "").trim();
+  const paymaster = String(process.env.ACKLINK_PAYMASTER || process.env.PAYMASTER || "").trim();
   const bundlerUrl = String(process.env.BUNDLER_URL || "").trim();
 
   if (!usdc || !isAddress(usdc)) throw new Error("Missing USDC");
   if (!feeVault || !isAddress(feeVault)) throw new Error("Missing FEEVAULT");
   if (!acklinkVault || !isAddress(acklinkVault)) throw new Error("Missing ACKLINK_VAULT");
   if (!factory || !isAddress(factory)) throw new Error("Missing FACTORY");
+  if (!paymaster || !isAddress(paymaster)) throw new Error("Missing PAYMASTER");
   if (!bundlerUrl) throw new Error("Missing BUNDLER_URL");
 
   return {
@@ -50,8 +55,21 @@ function getAckConfig() {
     feeVault,
     acklinkVault,
     factory,
+    paymaster,
     bundlerUrl,
   };
+}
+
+async function quoteAckFee({ provider, paymaster, payer, speed, withTimeout, timeoutMs }) {
+  const nowTs = Math.floor(Date.now() / 1000);
+  const pm = new Contract(paymaster, PAYMASTER_QUOTE_ABI, provider);
+  const [, , finalFeeUsd6] = await withTimeout(pm.quoteFeeUsd6(payer, 0, speed, nowTs), timeoutMs, {
+    code: "RPC_TIMEOUT",
+    status: 504,
+    where: "acklink.quoteFee",
+    message: "RPC timeout",
+  });
+  return BigInt(finalFeeUsd6 ?? 0);
 }
 
 function parseSpeed(value) {
@@ -77,6 +95,70 @@ export function registerAckLinkRoutes(app, {
   enforceAckRateLimit,
   createLogger,
 }) {
+  app.post("/acklink/quote", async (request, reply) => {
+    const reqId = request?.reqId;
+    try {
+      const body = request.body ?? {};
+      const from = String(body?.from || "").trim();
+      const amountRaw = String(body?.amountUsdc6 || "").trim();
+      const speedInput = body?.speed;
+
+      if (!isAddress(from)) {
+        return reply.code(400).send({ ok: false, code: "INVALID_FROM", reqId });
+      }
+
+      if (!/^[0-9]+$/.test(amountRaw)) {
+        return reply.code(400).send({ ok: false, code: "INVALID_AMOUNT", reqId });
+      }
+
+      const amountUsdc6 = BigInt(amountRaw);
+      if (amountUsdc6 <= 0n) {
+        return reply.code(400).send({ ok: false, code: "INVALID_AMOUNT", reqId });
+      }
+
+      const speedResolved = parseSpeed(speedInput);
+      if (!speedResolved) {
+        return reply.code(400).send({ ok: false, code: "INVALID_SPEED", reqId });
+      }
+
+      const { acklinkVault, factory, bundlerUrl, paymaster } = getAckConfig();
+      const chainId = Number(process.env.CHAIN_ID ?? 84532);
+      const resolvedRpcUrl = await resolveRpcUrl({
+        rpcUrl: process.env.RPC_URL,
+        bundlerUrl: process.env.BUNDLER_URL,
+        chainId,
+      });
+
+      const smart = await resolveSmartAccount({
+        rpcUrl: resolvedRpcUrl,
+        factoryAddress: factory,
+        factorySource: "env.FACTORY",
+        ownerEoa: from,
+      });
+
+      const provider = new JsonRpcProvider(resolvedRpcUrl);
+      const feeUsdc6 = await quoteAckFee({
+        provider,
+        paymaster,
+        payer: smart.sender,
+        speed: speedResolved.speed,
+        withTimeout,
+        timeoutMs: getRpcTimeoutMs(),
+      });
+
+      return reply.send({
+        ok: true,
+        feeUsdc6: feeUsdc6.toString(),
+        totalUsdc6: (amountUsdc6 + feeUsdc6).toString(),
+        smartAccount: String(smart.sender),
+        acklinkVault,
+        reqId,
+      });
+    } catch (err) {
+      return reply.code(500).send({ ok: false, error: String(err?.message || err), reqId });
+    }
+  });
+
   app.post("/acklink/create", async (request, reply) => {
     const reqId = request?.reqId;
     const logger = createLogger({ reqId });
@@ -124,7 +206,7 @@ export function registerAckLinkRoutes(app, {
           const expiresSec = Number(process.env.ACKLINK_EXPIRES_SEC ?? 86400);
           const expiresAt = Math.floor(Date.now() / 1000) + (Number.isFinite(expiresSec) ? expiresSec : 86400);
 
-          const { usdc, feeVault, acklinkVault, factory, bundlerUrl } = getAckConfig();
+          const { usdc, feeVault, acklinkVault, factory, bundlerUrl, paymaster } = getAckConfig();
           const chainId = Number(process.env.CHAIN_ID ?? 84532);
 
           const resolvedRpcUrl = await resolveRpcUrl({
@@ -167,7 +249,17 @@ export function registerAckLinkRoutes(app, {
             return reply.code(400).send({ ok: false, code: "INVALID_AUTH", reqId });
           }
 
-          const totalNeeded = amountUsdc6 + feeUsdc6;
+          const provider = new JsonRpcProvider(resolvedRpcUrl);
+          const quotedFeeUsdc6 = await quoteAckFee({
+            provider,
+            paymaster,
+            payer: smart.sender,
+            speed: speedResolved.speed,
+            withTimeout,
+            timeoutMs: getRpcTimeoutMs(),
+          });
+
+          const totalNeeded = amountUsdc6 + quotedFeeUsdc6;
           if (authValue !== totalNeeded) {
             return reply.code(400).send({ ok: false, code: "INVALID_AUTH", reqId });
           }
@@ -175,7 +267,6 @@ export function registerAckLinkRoutes(app, {
             return reply.code(400).send({ ok: false, code: "INVALID_AUTH", reqId });
           }
 
-          const provider = new JsonRpcProvider(resolvedRpcUrl);
           const acklinkContract = new Contract(acklinkVault, ACKLINK_NONCE_ABI, provider);
           const nonce = await withTimeout(acklinkContract.nonces(authFrom), getRpcTimeoutMs(), {
             code: "RPC_TIMEOUT",
@@ -198,7 +289,7 @@ export function registerAckLinkRoutes(app, {
             ownerEoa: from,
             speed: speedResolved.speed,
             amountUsdc6: amountUsdc6.toString(),
-            feeUsdc6: feeUsdc6.toString(),
+            feeUsdc6: quotedFeeUsdc6.toString(),
             expiresAt,
             metaHash,
             auth: {
@@ -227,7 +318,7 @@ export function registerAckLinkRoutes(app, {
             sender: String(authFrom).toLowerCase(),
             token: "USDC",
             amount_usdc6: amountUsdc6.toString(),
-            fee_usdc6: feeUsdc6.toString(),
+            fee_usdc6: quotedFeeUsdc6.toString(),
             speed: speedResolved.label,
             status: "CREATED",
             expires_at: isoFromSeconds(expiresAt),

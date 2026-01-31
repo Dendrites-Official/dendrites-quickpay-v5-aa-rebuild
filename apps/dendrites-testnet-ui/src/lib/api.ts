@@ -118,6 +118,21 @@ export async function acklinkCreate(payload: {
   return data;
 }
 
+export async function acklinkQuote(payload: {
+  from: string;
+  amountUsdc6: string;
+  speed: "eco" | "instant";
+}) {
+  const res = await fetch(qpUrl("/acklink/quote"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || data?.code || "Failed to quote AckLink");
+  return data;
+}
+
 export async function acklinkGet(linkId: string) {
   const res = await fetch(qpUrl(`/acklink/${linkId}`));
   const data = await res.json().catch(() => ({}));

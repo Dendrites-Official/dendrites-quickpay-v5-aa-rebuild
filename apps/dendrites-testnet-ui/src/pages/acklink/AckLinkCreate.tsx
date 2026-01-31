@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
-import { acklinkCreate, quickpayNoteSet } from "../../lib/api";
+import { acklinkCreate, acklinkQuote, quickpayNoteSet } from "../../lib/api";
 
 const CHAIN_ID = 84532;
 const DECIMALS = 6;
@@ -33,6 +33,7 @@ export default function AckLinkCreate() {
   const [error, setError] = useState("");
   const [balanceError, setBalanceError] = useState("");
   const [result, setResult] = useState<CreateResult | null>(null);
+  const [feeQuoteUsdc6, setFeeQuoteUsdc6] = useState<bigint | null>(null);
 
   const feeUsdc6 = speed === "eco" ? 200000n : 300000n;
 
@@ -45,7 +46,33 @@ export default function AckLinkCreate() {
     }
   }, [amount]);
 
-  const totalRaw = amountRaw != null ? amountRaw + feeUsdc6 : null;
+  const totalRaw = amountRaw != null ? amountRaw + (feeQuoteUsdc6 ?? feeUsdc6) : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!address || amountRaw == null || amountRaw <= 0n) {
+        setFeeQuoteUsdc6(null);
+        return;
+      }
+      try {
+        const quote = await acklinkQuote({
+          from: address,
+          amountUsdc6: amountRaw.toString(),
+          speed,
+        });
+        if (cancelled) return;
+        const fee = BigInt(quote?.feeUsdc6 ?? feeUsdc6);
+        setFeeQuoteUsdc6(fee);
+      } catch {
+        if (!cancelled) setFeeQuoteUsdc6(null);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [address, amountRaw, speed, feeUsdc6]);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,7 +166,17 @@ export default function AckLinkCreate() {
 
     try {
       const senderLower = address.toLowerCase();
-      const totalUsdc6 = (amountRaw ?? 0n) + feeUsdc6;
+      let feeToUse = feeQuoteUsdc6;
+      if (feeToUse == null) {
+        const quote = await acklinkQuote({
+          from: address,
+          amountUsdc6: amountRaw.toString(),
+          speed,
+        });
+        feeToUse = BigInt(quote?.feeUsdc6 ?? feeUsdc6);
+        setFeeQuoteUsdc6(feeToUse);
+      }
+      const totalUsdc6 = (amountRaw ?? 0n) + (feeToUse ?? feeUsdc6);
       const eip3009Abi = [
         { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
         { type: "function", name: "version", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
@@ -239,7 +276,6 @@ export default function AckLinkCreate() {
       }
 
       const receiptId = String(data?.receiptId || "");
-      const senderLower = String(address).toLowerCase();
 
       if (note.trim() && receiptId) {
         try {
