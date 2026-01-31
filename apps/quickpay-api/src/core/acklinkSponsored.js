@@ -95,6 +95,8 @@ export async function sendAcklinkSponsored({
   rpcUrl,
   bundlerUrl,
   ownerEoa,
+  smartAccount,
+  smartDeployed,
   speed,
   amountUsdc6,
   feeUsdc6,
@@ -128,6 +130,13 @@ export async function sendAcklinkSponsored({
     ACTION: action,
     SPEED: String(speed ?? 0),
   };
+
+  if (smartAccount) {
+    env.SENDER_OVERRIDE = String(smartAccount);
+  }
+  if (typeof smartDeployed === "boolean") {
+    env.SENDER_DEPLOYED = smartDeployed ? "1" : "0";
+  }
 
   if (action === "CREATE") {
     env.AMOUNT = String(amountUsdc6);

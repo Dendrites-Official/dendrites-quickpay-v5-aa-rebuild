@@ -282,11 +282,19 @@ async function main() {
     "function getAddress(address owner, uint256 salt) view returns (address)",
     "function createAccount(address owner, uint256 salt) returns (address)",
   ];
-  const factory = new ethers.Contract(factoryAddr, factoryAbi, publicRpc);
-  const sender = await factory.getAddress(ownerEoa, 0n);
+  const senderOverride = String(process.env.SENDER_OVERRIDE || "").trim();
+  const deployedOverride = String(process.env.SENDER_DEPLOYED || "").trim();
 
-  const senderCode = await publicRpc.getCode(sender);
-  const senderDeployed = senderCode && senderCode !== "0x";
+  const factory = new ethers.Contract(factoryAddr, factoryAbi, publicRpc);
+  const sender = senderOverride ? senderOverride : await factory.getAddress(ownerEoa, 0n);
+
+  let senderDeployed = false;
+  if (senderOverride && (deployedOverride === "1" || deployedOverride === "0")) {
+    senderDeployed = deployedOverride === "1";
+  } else {
+    const senderCode = await publicRpc.getCode(sender);
+    senderDeployed = senderCode && senderCode !== "0x";
+  }
 
   const factoryData = factory.interface.encodeFunctionData("createAccount", [ownerEoa, 0n]);
 
