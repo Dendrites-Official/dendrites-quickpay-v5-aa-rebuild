@@ -710,6 +710,8 @@ Deno.serve(async (req) => {
     lane: rowPayload.lane,
     feeMode: rowPayload.fee_mode ?? defaultFeeMode,
     feeTokenMode: rowPayload.fee_token_mode ?? defaultFeeTokenMode,
+    meta: rowPayload.meta ?? existing?.meta ?? null,
+    recipientsCount: rowPayload.recipients_count ?? existing?.recipients_count ?? null,
     raw: receiptResult,
   }, reqId);
 });
