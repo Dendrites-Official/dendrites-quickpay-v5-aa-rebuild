@@ -287,6 +287,8 @@ export function registerAckLinkRoutes(app, {
             rpcUrl: resolvedRpcUrl,
             bundlerUrl,
             ownerEoa: from,
+            smartAccount: smart.sender,
+            smartDeployed: Boolean(smart.deployed),
             speed: speedResolved.speed,
             amountUsdc6: amountUsdc6.toString(),
             feeUsdc6: quotedFeeUsdc6.toString(),
