@@ -89,6 +89,7 @@ export async function acklinkCreate(payload: {
   from: string;
   amountUsdc6: string;
   speed: "eco" | "instant";
+  code: string;
   auth?: {
     from: string;
     value: string;
@@ -143,6 +144,7 @@ export async function acklinkGet(linkId: string) {
 export async function acklinkClaim(payload: {
   linkId: string;
   claimer: string;
+  code: string;
   note?: string | null;
   noteSignature?: string | null;
   noteSender?: string | null;

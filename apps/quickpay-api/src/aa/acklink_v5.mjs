@@ -8,8 +8,8 @@ const ACCOUNT_ABI = [
 ];
 
 const ACKLINK_ABI = [
-  "function createLinkWithAuthorization(address from,uint256 totalUsdc6,uint256 feeUsdc6,uint64 expiresAt,bytes32 metaHash,bytes32 nonce,uint64 validAfter,uint64 validBefore,uint8 v,bytes32 r,bytes32 s) returns (bytes32)",
-  "function claim(bytes32 linkId,address to)",
+  "function createLinkWithAuthorization(address from,uint256 totalUsdc6,uint256 feeUsdc6,uint64 expiresAt,bytes32 metaHash,bytes32 codeHash,bytes32 nonce,uint64 validAfter,uint64 validBefore,uint8 v,bytes32 r,bytes32 s) returns (bytes32)",
+  "function claim(bytes32 linkId,address to,bytes code)",
   "function refund(bytes32 linkId)",
 ];
 
@@ -31,6 +31,11 @@ function requireEnv(name) {
     throw new Error(`Missing required env var: ${name}`);
   }
   return String(value).trim();
+}
+
+function toBytesArg(value) {
+  if (isHexString(value)) return value;
+  return ethers.hexlify(ethers.toUtf8Bytes(String(value)));
 }
 
 function requireChainId() {
@@ -185,6 +190,7 @@ async function main() {
     const feeUsdc6 = BigInt(requireEnv("FEE_USDC6"));
     const expiresAt = BigInt(requireEnv("EXPIRES_AT"));
     const metaHash = requireEnv("META_HASH");
+    const codeHash = requireEnv("CODE_HASH");
 
     const authFrom = requireEnv("AUTH_FROM");
     const authValue = BigInt(requireEnv("AUTH_VALUE"));
@@ -201,6 +207,7 @@ async function main() {
       feeUsdc6,
       expiresAt,
       metaHash,
+      codeHash,
       authNonce,
       authValidAfter,
       authValidBefore,
@@ -216,7 +223,8 @@ async function main() {
   } else if (action === "CLAIM") {
     const linkId = requireEnv("LINK_ID");
     const claimTo = requireEnv("CLAIM_TO");
-    const claimCallData = ackIface.encodeFunctionData("claim", [linkId, claimTo]);
+    const claimCode = requireEnv("CLAIM_CODE");
+    const claimCallData = ackIface.encodeFunctionData("claim", [linkId, claimTo, toBytesArg(claimCode)]);
     callData = accountIface.encodeFunctionData("execute", [acklinkVault, 0n, claimCallData]);
   } else if (action === "REFUND") {
     const linkId = requireEnv("LINK_ID");

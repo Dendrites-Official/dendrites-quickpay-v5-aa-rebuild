@@ -533,7 +533,7 @@ contract QuickPayV5Paymaster is BasePaymaster {
             require(sel == 0xb61d27f6, "QuickPayV5Paymaster: not execute()");
             require(value == 0, "QuickPayV5Paymaster: nonzero value");
             require(dest == acklinkVault, "QuickPayV5Paymaster: wrong dest");
-            require(func.length >= 4 + 32 * 11, "QuickPayV5Paymaster: bad inner call");
+            require(func.length >= 4, "QuickPayV5Paymaster: bad inner call");
 
             bytes4 innerSelector;
             assembly {
@@ -542,10 +542,10 @@ contract QuickPayV5Paymaster is BasePaymaster {
 
             bytes4 SEL_ACKLINK_CREATE = bytes4(
                 keccak256(
-                    "createLinkWithAuthorization(address,uint256,uint256,uint64,bytes32,bytes32,uint64,uint64,uint8,bytes32,bytes32)"
+                    "createLinkWithAuthorization(address,uint256,uint256,uint64,bytes32,bytes32,bytes32,uint64,uint64,uint8,bytes32,bytes32)"
                 )
             );
-            bytes4 SEL_ACKLINK_CLAIM = bytes4(keccak256("claim(bytes32,address)"));
+            bytes4 SEL_ACKLINK_CLAIM = bytes4(keccak256("claim(bytes32,address,bytes)"));
             bytes4 SEL_ACKLINK_REFUND = bytes4(keccak256("refund(bytes32)"));
             require(
                 innerSelector == SEL_ACKLINK_CREATE || innerSelector == SEL_ACKLINK_CLAIM
@@ -554,11 +554,13 @@ contract QuickPayV5Paymaster is BasePaymaster {
             );
 
             if (innerSelector == SEL_ACKLINK_CREATE) {
+                require(func.length >= 4 + 32 * 12, "QuickPayV5Paymaster: bad inner call");
                 address from;
                 uint256 totalUsdc6;
                 uint256 feeUsdc6;
                 uint64 expiresAt;
                 bytes32 metaHash;
+                bytes32 codeHash;
                 bytes32 authNonce;
                 uint64 validAfterAuth;
                 uint64 validBeforeAuth;
@@ -572,13 +574,26 @@ contract QuickPayV5Paymaster is BasePaymaster {
                     let dst := add(funcParams, 0x20)
                     for { let i := 0 } lt(i, len) { i := add(i, 0x20) } { mstore(add(dst, i), mload(add(src, i))) }
                 }
-                (from, totalUsdc6, feeUsdc6, expiresAt, metaHash, authNonce, validAfterAuth, validBeforeAuth, v, r, s) =
-                    abi.decode(
+                (
+                    from,
+                    totalUsdc6,
+                    feeUsdc6,
+                    expiresAt,
+                    metaHash,
+                    codeHash,
+                    authNonce,
+                    validAfterAuth,
+                    validBeforeAuth,
+                    v,
+                    r,
+                    s
+                ) = abi.decode(
                     funcParams,
-                    (address, uint256, uint256, uint64, bytes32, bytes32, uint64, uint64, uint8, bytes32, bytes32)
+                    (address, uint256, uint256, uint64, bytes32, bytes32, bytes32, uint64, uint64, uint8, bytes32, bytes32)
                 );
                 expiresAt;
                 metaHash;
+                codeHash;
                 authNonce;
                 validAfterAuth;
                 validBeforeAuth;
@@ -590,7 +605,11 @@ contract QuickPayV5Paymaster is BasePaymaster {
                 require(totalUsdc6 > feeUsdc6, "QuickPayV5Paymaster: fee>=total");
 
                 _computeAndValidateFee(userOp.sender, mode, speed, feeToken, maxFeeUsd6, feeToken, totalUsdc6, feeUsdc6);
+            } else if (innerSelector == SEL_ACKLINK_CLAIM) {
+                require(func.length >= 4 + 32 * 3, "QuickPayV5Paymaster: bad inner call");
+                require(maxFeeUsd6 == 0, "QuickPayV5Paymaster: fee must be zero");
             } else {
+                require(func.length >= 4 + 32 * 1, "QuickPayV5Paymaster: bad inner call");
                 require(maxFeeUsd6 == 0, "QuickPayV5Paymaster: fee must be zero");
             }
 

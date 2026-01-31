@@ -180,6 +180,7 @@ export function registerAckLinkRoutes(app, {
           const noteSender = body?.noteSender ?? null;
           const userOpSignature = body?.userOpSignature ?? null;
           const userOpDraft = body?.userOpDraft ?? null;
+          const codeRaw = String(body?.code ?? "").trim();
 
           if (!from || !isAddress(from)) {
             return reply.code(400).send({ ok: false, code: "INVALID_SENDER", reqId });
@@ -190,6 +191,10 @@ export function registerAckLinkRoutes(app, {
 
           if (!amountRaw || !/^\d+$/.test(amountRaw)) {
             return reply.code(400).send({ ok: false, code: "INVALID_AMOUNT", reqId });
+          }
+
+          if (!codeRaw || codeRaw.length < 4 || codeRaw.length > 64) {
+            return reply.code(400).send({ ok: false, code: "INVALID_CODE", reqId });
           }
 
           const amountUsdc6 = BigInt(amountRaw);
@@ -276,9 +281,19 @@ export function registerAckLinkRoutes(app, {
           });
 
           const metaHash = buildMetaHash({ name, message, reason });
+          const codeHash = ethers.keccak256(ethers.toUtf8Bytes(codeRaw));
           const linkId = ethers.solidityPackedKeccak256(
-            ["address", "uint256", "uint64", "bytes32", "uint256", "uint256", "address"],
-            [authFrom, amountUsdc6, BigInt(expiresAt), metaHash, BigInt(nonce ?? 0), BigInt(chainId), acklinkVault]
+            ["address", "uint256", "uint64", "bytes32", "bytes32", "uint256", "uint256", "address"],
+            [
+              authFrom,
+              amountUsdc6,
+              BigInt(expiresAt),
+              metaHash,
+              codeHash,
+              BigInt(nonce ?? 0),
+              BigInt(chainId),
+              acklinkVault,
+            ]
           );
 
           const laneResult = await sendAcklinkSponsored({
@@ -294,6 +309,7 @@ export function registerAckLinkRoutes(app, {
             feeUsdc6: quotedFeeUsdc6.toString(),
             expiresAt,
             metaHash,
+            codeHash,
             auth: {
               from: authFrom,
               value: authValue.toString(),
@@ -325,6 +341,7 @@ export function registerAckLinkRoutes(app, {
             status: "CREATED",
             expires_at: isoFromSeconds(expiresAt),
             meta: { name, message, reason },
+            code_hash: codeHash,
             tx_hash_create: txHash,
             user_op_hash_create: userOpHash,
             updated_at: new Date().toISOString(),
@@ -487,6 +504,7 @@ export function registerAckLinkRoutes(app, {
           const body = request.body ?? {};
           const linkId = String(body?.linkId || "").trim();
           const claimer = String(body?.claimer || "").trim();
+          const codeRaw = String(body?.code ?? "").trim();
           const note = body?.note ?? null;
           const noteSignature = body?.noteSignature ?? null;
           const noteSender = body?.noteSender ?? null;
@@ -498,6 +516,9 @@ export function registerAckLinkRoutes(app, {
           }
           if (!claimer || !isAddress(claimer)) {
             return reply.code(400).send({ ok: false, code: "INVALID_CLAIMER", reqId });
+          }
+          if (!codeRaw || codeRaw.length < 4 || codeRaw.length > 64) {
+            return reply.code(400).send({ ok: false, code: "INVALID_CODE", reqId });
           }
 
           const limited = enforceAckRateLimit(request, reply, claimer);
@@ -513,6 +534,11 @@ export function registerAckLinkRoutes(app, {
 
           if (String(data.status) !== "CREATED") {
             return reply.code(400).send({ ok: false, code: "INVALID_STATUS", reqId });
+          }
+
+          const codeHash = ethers.keccak256(ethers.toUtf8Bytes(codeRaw));
+          if (data.code_hash && String(data.code_hash).toLowerCase() !== codeHash.toLowerCase()) {
+            return reply.code(400).send({ ok: false, code: "INVALID_CODE", reqId });
           }
 
           const expiresAtMs = data.expires_at ? new Date(data.expires_at).getTime() : 0;
@@ -547,6 +573,7 @@ export function registerAckLinkRoutes(app, {
             speed: 0,
             linkId,
             claimTo: claimer,
+            claimCode: ethers.hexlify(ethers.toUtf8Bytes(codeRaw)),
             userOpSignature,
             userOpDraft,
           });

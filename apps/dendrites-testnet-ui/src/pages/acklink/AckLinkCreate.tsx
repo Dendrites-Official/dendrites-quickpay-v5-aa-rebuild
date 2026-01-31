@@ -28,6 +28,7 @@ export default function AckLinkCreate() {
   const [message, setMessage] = useState("");
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
+  const [code, setCode] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -134,6 +135,20 @@ export default function AckLinkCreate() {
     }
   };
 
+  const generateCode = () => {
+    try {
+      const bytes = new Uint8Array(4);
+      window.crypto?.getRandomValues(bytes);
+      const num =
+        ((bytes[0] << 24) >>> 0) + ((bytes[1] << 16) >>> 0) + ((bytes[2] << 8) >>> 0) + (bytes[3] >>> 0);
+      const codeValue = String(num % 1000000).padStart(6, "0");
+      setCode(codeValue);
+    } catch {
+      const codeValue = String(Math.floor(Math.random() * 1000000)).padStart(6, "0");
+      setCode(codeValue);
+    }
+  };
+
   const handleCreate = async () => {
     if (!isConnected || !address) {
       setError("Connect wallet first.");
@@ -153,6 +168,10 @@ export default function AckLinkCreate() {
     }
     if (!ACKLINK_VAULT_ADDRESS || !ethers.isAddress(ACKLINK_VAULT_ADDRESS)) {
       setError("Missing AckLink vault address.");
+      return;
+    }
+    if (!code.trim() || code.trim().length < 4 || code.trim().length > 64) {
+      setError("Enter a 4-64 character security code.");
       return;
     }
     if (!signTypedDataAsync) {
@@ -239,6 +258,7 @@ export default function AckLinkCreate() {
         from: address,
         amountUsdc6: amountRaw.toString(),
         speed,
+        code: code.trim(),
         auth: {
           from: senderLower,
           value: totalUsdc6.toString(),
@@ -345,6 +365,24 @@ export default function AckLinkCreate() {
         </div>
 
         <label>
+          Security code (required)
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <input
+              style={{ flex: 1, padding: 8 }}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Enter or generate a code"
+            />
+            <button type="button" onClick={generateCode} style={{ padding: "8px 10px" }}>
+              Generate
+            </button>
+          </div>
+          <div style={{ color: "#bbb", fontSize: 12, marginTop: 6 }}>
+            Share this code separately. The recipient must enter it to claim.
+          </div>
+        </label>
+
+        <label>
           Name (optional)
           <input
             style={{ width: "100%", padding: 8, marginTop: 4 }}
@@ -399,9 +437,13 @@ export default function AckLinkCreate() {
       {result?.linkId ? (
         <div style={{ marginTop: 24, padding: 16, border: "1px solid #333", borderRadius: 8 }}>
           <div style={{ marginBottom: 8 }}>
+            <strong>Security code:</strong> {code}
+          </div>
+          <div style={{ marginBottom: 8 }}>
             <strong>Share URL:</strong> {shareUrl}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={() => copy(code)}>Copy code</button>
             <button onClick={() => copy(shareUrl)}>Copy link</button>
             {result?.receiptId ? (
               <a href={`/receipts/${result.receiptId}`} target="_blank" rel="noreferrer">

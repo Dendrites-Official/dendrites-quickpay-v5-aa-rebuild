@@ -30,6 +30,7 @@ contract AckLinkVault is ReentrancyGuard {
         bool claimed;
         bool refunded;
         bytes32 metaHash;
+        bytes32 codeHash;
     }
 
     IERC20 public immutable usdc;
@@ -65,13 +66,18 @@ contract AckLinkVault is ReentrancyGuard {
         feeVault = _feeVault;
     }
 
-    function createLink(uint256 amount, uint64 expiresAt, bytes32 metaHash) external nonReentrant returns (bytes32 linkId) {
+    function createLink(uint256 amount, uint64 expiresAt, bytes32 metaHash, bytes32 codeHash)
+        external
+        nonReentrant
+        returns (bytes32 linkId)
+    {
         require(amount > 0, "AckLinkVault: amount=0");
         require(expiresAt > block.timestamp, "AckLinkVault: expired");
+        require(codeHash != bytes32(0), "AckLinkVault: code=0");
 
         uint256 nonce = nonces[msg.sender]++;
         linkId = keccak256(
-            abi.encodePacked(msg.sender, amount, expiresAt, metaHash, nonce, block.chainid, address(this))
+            abi.encodePacked(msg.sender, amount, expiresAt, metaHash, codeHash, nonce, block.chainid, address(this))
         );
 
         links[linkId] = Link({
@@ -81,7 +87,8 @@ contract AckLinkVault is ReentrancyGuard {
             expiresAt: expiresAt,
             claimed: false,
             refunded: false,
-            metaHash: metaHash
+            metaHash: metaHash,
+            codeHash: codeHash
         });
 
         usdc.safeTransferFrom(msg.sender, address(this), amount);
@@ -95,6 +102,7 @@ contract AckLinkVault is ReentrancyGuard {
         uint256 feeUsdc6,
         uint64 expiresAt,
         bytes32 metaHash,
+        bytes32 codeHash,
         bytes32 nonce,
         uint64 validAfter,
         uint64 validBefore,
@@ -105,6 +113,7 @@ contract AckLinkVault is ReentrancyGuard {
         require(from != address(0), "AckLinkVault: from=0");
         require(totalUsdc6 > feeUsdc6, "AckLinkVault: total<=fee");
         require(expiresAt > block.timestamp, "AckLinkVault: expired");
+        require(codeHash != bytes32(0), "AckLinkVault: code=0");
 
         IERC3009(address(usdc)).transferWithAuthorization(
             from,
@@ -123,7 +132,7 @@ contract AckLinkVault is ReentrancyGuard {
         uint256 principal = totalUsdc6 - feeUsdc6;
         uint256 nonceCounter = nonces[from]++;
         linkId = keccak256(
-            abi.encodePacked(from, principal, expiresAt, metaHash, nonceCounter, block.chainid, address(this))
+            abi.encodePacked(from, principal, expiresAt, metaHash, codeHash, nonceCounter, block.chainid, address(this))
         );
 
         links[linkId] = Link({
@@ -133,19 +142,22 @@ contract AckLinkVault is ReentrancyGuard {
             expiresAt: expiresAt,
             claimed: false,
             refunded: false,
-            metaHash: metaHash
+            metaHash: metaHash,
+            codeHash: codeHash
         });
 
         emit LinkCreated(linkId, from, principal, expiresAt, metaHash);
     }
 
-    function claim(bytes32 linkId, address to) external nonReentrant {
+    function claim(bytes32 linkId, address to, bytes calldata code) external nonReentrant {
         Link storage link = links[linkId];
         require(link.sender != address(0), "AckLinkVault: link=0");
         require(!link.claimed, "AckLinkVault: claimed");
         require(!link.refunded, "AckLinkVault: refunded");
         require(block.timestamp < link.expiresAt, "AckLinkVault: expired");
         require(to != address(0), "AckLinkVault: to=0");
+        require(code.length > 0, "AckLinkVault: code=0");
+        require(keccak256(code) == link.codeHash, "AckLinkVault: bad code");
 
         link.claimed = true;
 
