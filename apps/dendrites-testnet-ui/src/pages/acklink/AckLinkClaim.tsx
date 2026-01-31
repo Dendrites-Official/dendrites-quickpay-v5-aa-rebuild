@@ -31,6 +31,7 @@ export default function AckLinkClaim() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  const [code, setCode] = useState("");
   const [actionResult, setActionResult] = useState<{ txHash?: string; receiptId?: string } | null>(null);
 
   const load = async () => {
@@ -90,12 +91,16 @@ export default function AckLinkClaim() {
       return;
     }
     if (!data?.linkId) return;
+    if (!code.trim() || code.trim().length < 4 || code.trim().length > 64) {
+      setError("Enter the security code (4-64 characters).");
+      return;
+    }
     setActionLoading(true);
     setError("");
     setActionResult(null);
 
     try {
-      let result = await acklinkClaim({ linkId: data.linkId, claimer: address });
+      let result = await acklinkClaim({ linkId: data.linkId, claimer: address, code: code.trim() });
       const needsUserOpSig =
         result?.needsUserOpSignature === true && /^0x[0-9a-fA-F]{64}$/.test(String(result?.userOpHash || ""));
       if (needsUserOpSig) {
@@ -105,6 +110,7 @@ export default function AckLinkClaim() {
         result = await acklinkClaim({
           linkId: data.linkId,
           claimer: address,
+          code: code.trim(),
           userOpSignature: sig,
           userOpDraft: result.userOpDraft,
         });
@@ -201,6 +207,15 @@ export default function AckLinkClaim() {
 
       {data && data.status === "CREATED" && !isExpired ? (
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
+          <label>
+            Security code
+            <input
+              style={{ width: "100%", padding: 8, marginTop: 4 }}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Enter the code from the sender"
+            />
+          </label>
           <label>
             Private note (optional)
             <textarea

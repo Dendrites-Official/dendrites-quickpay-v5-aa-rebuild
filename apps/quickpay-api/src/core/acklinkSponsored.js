@@ -102,9 +102,11 @@ export async function sendAcklinkSponsored({
   feeUsdc6,
   expiresAt,
   metaHash,
+  codeHash,
   auth,
   linkId,
   claimTo,
+  claimCode,
   userOpSignature,
   userOpDraft,
 }) {
@@ -143,6 +145,7 @@ export async function sendAcklinkSponsored({
     env.FEE_USDC6 = String(feeUsdc6);
     env.EXPIRES_AT = String(expiresAt);
     env.META_HASH = String(metaHash);
+    env.CODE_HASH = String(codeHash);
     if (auth) {
       env.AUTH_FROM = String(auth.from);
       env.AUTH_VALUE = String(auth.value);
@@ -156,6 +159,7 @@ export async function sendAcklinkSponsored({
   } else if (action === "CLAIM") {
     env.LINK_ID = String(linkId);
     env.CLAIM_TO = String(claimTo);
+    env.CLAIM_CODE = String(claimCode);
   } else if (action === "REFUND") {
     env.LINK_ID = String(linkId);
   }
