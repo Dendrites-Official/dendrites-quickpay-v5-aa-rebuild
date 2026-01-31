@@ -1,7 +1,6 @@
 import { Contract, JsonRpcProvider, isAddress, ethers } from "ethers";
 import { sendAcklinkSponsored } from "../core/acklinkSponsored.js";
 
-const ERC20_BALANCE_ABI = ["function balanceOf(address owner) view returns (uint256)"];
 const ACKLINK_NONCE_ABI = ["function nonces(address sender) view returns (uint256)"];
 
 const FEE_USDC6_ECO = 200000n;
@@ -137,47 +136,45 @@ export function registerAckLinkRoutes(app, {
             factorySource: "env.FACTORY",
             ownerEoa: from,
           });
+          const auth = body?.auth ?? null;
+          const authFrom = String(auth?.from ?? "").trim();
+          const authValueRaw = String(auth?.value ?? "").trim();
+          const authValidAfterRaw = String(auth?.validAfter ?? "").trim();
+          const authValidBeforeRaw = String(auth?.validBefore ?? "").trim();
+          const authNonce = parseHexBytes32(auth?.nonce ?? "");
+          const authR = parseHexBytes32(auth?.r ?? "");
+          const authS = parseHexBytes32(auth?.s ?? "");
+          const authV = Number(auth?.v ?? NaN);
 
-          const provider = new JsonRpcProvider(resolvedRpcUrl);
-          const erc20 = new Contract(usdc, ERC20_BALANCE_ABI, provider);
-          const eoaBalance = await withTimeout(erc20.balanceOf(from), getRpcTimeoutMs(), {
-            code: "RPC_TIMEOUT",
-            status: 504,
-            where: "acklink.balance",
-            message: "RPC timeout",
-          });
+          if (!isAddress(authFrom)) {
+            return reply.code(400).send({ ok: false, code: "INVALID_AUTH", reqId });
+          }
+          if (authFrom.toLowerCase() !== String(from).toLowerCase()) {
+            return reply.code(400).send({ ok: false, code: "INVALID_AUTH", reqId });
+          }
 
-          const smartBalance = await withTimeout(erc20.balanceOf(smart.sender), getRpcTimeoutMs(), {
-            code: "RPC_TIMEOUT",
-            status: 504,
-            where: "acklink.balance",
-            message: "RPC timeout",
-          });
+          let authValue = 0n;
+          let authValidAfter = 0n;
+          let authValidBefore = 0n;
+          try {
+            authValue = BigInt(authValueRaw);
+            authValidAfter = BigInt(authValidAfterRaw);
+            authValidBefore = BigInt(authValidBeforeRaw);
+          } catch {
+            return reply.code(400).send({ ok: false, code: "INVALID_AUTH", reqId });
+          }
 
           const totalNeeded = amountUsdc6 + feeUsdc6;
-          if (BigInt(eoaBalance ?? 0n) < totalNeeded) {
-            return reply.code(400).send({
-              ok: false,
-              code: "INSUFFICIENT_BALANCE_EOA",
-              needUsdc6: totalNeeded.toString(),
-              haveUsdc6: String(eoaBalance ?? 0),
-              reqId,
-            });
+          if (authValue !== totalNeeded) {
+            return reply.code(400).send({ ok: false, code: "INVALID_AUTH", reqId });
+          }
+          if (!authNonce || !authR || !authS || !Number.isFinite(authV)) {
+            return reply.code(400).send({ ok: false, code: "INVALID_AUTH", reqId });
           }
 
-          if (BigInt(smartBalance ?? 0n) < totalNeeded) {
-            return reply.code(400).send({
-              ok: false,
-              code: "INSUFFICIENT_BALANCE_SMART",
-              needUsdc6: totalNeeded.toString(),
-              haveUsdc6: String(smartBalance ?? 0),
-              smartAccount: String(smart.sender),
-              reqId,
-            });
-          }
-
+          const provider = new JsonRpcProvider(resolvedRpcUrl);
           const acklinkContract = new Contract(acklinkVault, ACKLINK_NONCE_ABI, provider);
-          const nonce = await withTimeout(acklinkContract.nonces(smart.sender), getRpcTimeoutMs(), {
+          const nonce = await withTimeout(acklinkContract.nonces(authFrom), getRpcTimeoutMs(), {
             code: "RPC_TIMEOUT",
             status: 504,
             where: "acklink.nonce",
@@ -187,7 +184,7 @@ export function registerAckLinkRoutes(app, {
           const metaHash = buildMetaHash({ name, message, reason });
           const linkId = ethers.solidityPackedKeccak256(
             ["address", "uint256", "uint64", "bytes32", "uint256", "uint256", "address"],
-            [smart.sender, amountUsdc6, BigInt(expiresAt), metaHash, BigInt(nonce ?? 0), BigInt(chainId), acklinkVault]
+            [authFrom, amountUsdc6, BigInt(expiresAt), metaHash, BigInt(nonce ?? 0), BigInt(chainId), acklinkVault]
           );
 
           const laneResult = await sendAcklinkSponsored({
@@ -201,6 +198,16 @@ export function registerAckLinkRoutes(app, {
             feeUsdc6: feeUsdc6.toString(),
             expiresAt,
             metaHash,
+            auth: {
+              from: authFrom,
+              value: authValue.toString(),
+              validAfter: authValidAfter.toString(),
+              validBefore: authValidBefore.toString(),
+              nonce: authNonce,
+              v: authV,
+              r: authR,
+              s: authS,
+            },
             userOpSignature,
             userOpDraft,
           });
@@ -214,7 +221,7 @@ export function registerAckLinkRoutes(app, {
 
           await supabase.from("ack_links").insert({
             link_id: linkId,
-            sender: String(smart.sender).toLowerCase(),
+            sender: String(authFrom).toLowerCase(),
             token: "USDC",
             amount_usdc6: amountUsdc6.toString(),
             fee_usdc6: feeUsdc6.toString(),

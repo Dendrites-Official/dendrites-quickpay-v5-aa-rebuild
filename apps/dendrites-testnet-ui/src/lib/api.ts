@@ -89,6 +89,16 @@ export async function acklinkCreate(payload: {
   from: string;
   amountUsdc6: string;
   speed: "eco" | "instant";
+  auth?: {
+    from: string;
+    value: string;
+    validAfter: string;
+    validBefore: string;
+    nonce: string;
+    v: number;
+    r: string;
+    s: string;
+  } | null;
   name?: string | null;
   message?: string | null;
   reason?: string | null;
