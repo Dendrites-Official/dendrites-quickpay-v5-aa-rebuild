@@ -403,24 +403,19 @@ export function registerAckLinkRoutes(app, {
 
           const receiptId = receiptResponse?.receiptId ?? receiptResponse?.receipt_id ?? null;
 
-          if (note && noteSignature && noteSender && receiptId) {
-            await withTimeout(
-              callQuickpayNote({
-                receiptId,
-                sender: noteSender,
-                note,
-                signature: noteSignature,
-                chainId,
-                reqId,
-              }),
-              ackEdgeTimeoutMs,
-              {
-                code: "EDGE_TIMEOUT",
-                status: 504,
-                where: "acklink.note",
-                message: "Note timeout",
-              }
-            );
+          if (note && receiptId) {
+            const trimmedNote = String(note).trim();
+            if (trimmedNote && trimmedNote.length <= 5000) {
+              await supabase
+                .from("quickpay_receipt_notes")
+                .upsert({
+                  chain_id: chainId,
+                  receipt_id: receiptId,
+                  sender_address: String(authFrom).toLowerCase(),
+                  note: trimmedNote,
+                  updated_at: new Date().toISOString(),
+                });
+            }
           }
 
           const ethSponsoredWei = txHash

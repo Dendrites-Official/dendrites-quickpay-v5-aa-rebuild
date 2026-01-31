@@ -21,6 +21,8 @@ const ROUTER_ADDRESS = String(import.meta.env.VITE_ROUTER ?? "").trim();
 const ROUTER_BULK_ADDRESS = String(
   import.meta.env.VITE_ROUTER_BULK ?? import.meta.env.VITE_ROUTER_BULK_ADDRESS ?? ""
 ).trim();
+const ACKLINK_VAULT_ADDRESS = String(import.meta.env.VITE_ACKLINK_VAULT ?? "").trim();
+const ACKLINK_PAYMASTER_ADDRESS = String(import.meta.env.VITE_ACKLINK_PAYMASTER ?? "").trim();
 const FACTORY_ADDRESS = String(import.meta.env.VITE_FACTORY ?? "").trim();
 const FEEVAULT_ADDRESS = String(import.meta.env.VITE_FEEVAULT ?? "").trim();
 const PERMIT2_ADDRESS = String(import.meta.env.VITE_PERMIT2 ?? "").trim();
@@ -51,6 +53,29 @@ type Snapshot = {
   paymaster_deposit_wei: string | null;
   fee_vault_balances: Record<string, string | null>;
   meta?: Record<string, any> | null;
+};
+
+type AcklinkMetrics = {
+  total: number;
+  created: number;
+  claimed: number;
+  refunded: number;
+  expired: number;
+};
+
+type BulkMetrics = {
+  total: number;
+  confirmed: number;
+  pending: number;
+  failed: number;
+};
+
+type ErrorRow = {
+  ts: string;
+  route: string;
+  error_code: string;
+  message_redacted: string | null;
+  req_id: string;
 };
 
 function percentile(values: number[], p: number) {
@@ -98,6 +123,9 @@ export default function AdminDashboard() {
   const [error, setError] = useState("");
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [acklinkMetrics, setAcklinkMetrics] = useState<AcklinkMetrics | null>(null);
+  const [bulkMetrics, setBulkMetrics] = useState<BulkMetrics | null>(null);
+  const [recentErrors, setRecentErrors] = useState<ErrorRow[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   const resolvedPaymasterBulk = useMemo(
@@ -223,6 +251,74 @@ export default function AdminDashboard() {
         .in("status", ["FAILED", "failed"]);
       if (txFailedAllRes.error) throw txFailedAllRes.error;
 
+      const ackTotalRes = await supabase
+        .from("ack_links")
+        .select("id", { count: "exact", head: true });
+      if (ackTotalRes.error) throw ackTotalRes.error;
+
+      const ackCreatedRes = await supabase
+        .from("ack_links")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "CREATED");
+      if (ackCreatedRes.error) throw ackCreatedRes.error;
+
+      const ackClaimedRes = await supabase
+        .from("ack_links")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "CLAIMED");
+      if (ackClaimedRes.error) throw ackClaimedRes.error;
+
+      const ackRefundedRes = await supabase
+        .from("ack_links")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "REFUNDED");
+      if (ackRefundedRes.error) throw ackRefundedRes.error;
+
+      const ackExpiredRes = await supabase
+        .from("ack_links")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "CREATED")
+        .lt("expires_at", new Date().toISOString());
+      if (ackExpiredRes.error) throw ackExpiredRes.error;
+
+      const bulkTotalRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", since)
+        .eq("meta->>route", "sendBulk");
+      if (bulkTotalRes.error) throw bulkTotalRes.error;
+
+      const bulkConfirmedRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", since)
+        .eq("meta->>route", "sendBulk")
+        .in("status", ["CONFIRMED", "confirmed"]);
+      if (bulkConfirmedRes.error) throw bulkConfirmedRes.error;
+
+      const bulkPendingRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", since)
+        .eq("meta->>route", "sendBulk")
+        .in("status", ["created", "sending", "pending", "PENDING"]);
+      if (bulkPendingRes.error) throw bulkPendingRes.error;
+
+      const bulkFailedRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", since)
+        .eq("meta->>route", "sendBulk")
+        .in("status", ["FAILED", "failed"]);
+      if (bulkFailedRes.error) throw bulkFailedRes.error;
+
+      const { data: errorRows, error: errorsError } = await supabase
+        .from("qp_errors")
+        .select("ts,route,error_code,message_redacted,req_id")
+        .order("ts", { ascending: false })
+        .limit(20);
+      if (errorsError) throw errorsError;
+
       setMetrics({
         total,
         successRate: total ? success / total : 0,
@@ -239,6 +335,20 @@ export default function AdminDashboard() {
         txPendingAll: txPendingAllRes.count ?? 0,
         txFailedAll: txFailedAllRes.count ?? 0,
       });
+      setAcklinkMetrics({
+        total: ackTotalRes.count ?? 0,
+        created: ackCreatedRes.count ?? 0,
+        claimed: ackClaimedRes.count ?? 0,
+        refunded: ackRefundedRes.count ?? 0,
+        expired: ackExpiredRes.count ?? 0,
+      });
+      setBulkMetrics({
+        total: bulkTotalRes.count ?? 0,
+        confirmed: bulkConfirmedRes.count ?? 0,
+        pending: bulkPendingRes.count ?? 0,
+        failed: bulkFailedRes.count ?? 0,
+      });
+      setRecentErrors((errorRows as ErrorRow[]) ?? []);
       setSnapshot((snap as Snapshot) ?? null);
       setLastUpdated(new Date().toISOString());
     } catch (err: any) {
@@ -427,6 +537,74 @@ export default function AdminDashboard() {
         </div>
       </section>
 
+      <section style={{ marginTop: 24, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>AckLink Total</div>
+          <div style={{ fontSize: 22 }}>{acklinkMetrics?.total ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>AckLink Created</div>
+          <div style={{ fontSize: 22 }}>{acklinkMetrics?.created ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>AckLink Claimed</div>
+          <div style={{ fontSize: 22 }}>{acklinkMetrics?.claimed ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>AckLink Refunded</div>
+          <div style={{ fontSize: 22 }}>{acklinkMetrics?.refunded ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>AckLink Expired</div>
+          <div style={{ fontSize: 22 }}>{acklinkMetrics?.expired ?? "-"}</div>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 24, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Bulk Total (24h)</div>
+          <div style={{ fontSize: 22 }}>{bulkMetrics?.total ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Bulk Confirmed (24h)</div>
+          <div style={{ fontSize: 22 }}>{bulkMetrics?.confirmed ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Bulk Pending (24h)</div>
+          <div style={{ fontSize: 22 }}>{bulkMetrics?.pending ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Bulk Failed (24h)</div>
+          <div style={{ fontSize: 22 }}>{bulkMetrics?.failed ?? "-"}</div>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ marginBottom: 8, color: "#888" }}>Recent Errors</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: "#666" }}>
+                <th style={{ paddingBottom: 6 }}>Time</th>
+                <th style={{ paddingBottom: 6 }}>Route</th>
+                <th style={{ paddingBottom: 6 }}>Code</th>
+                <th style={{ paddingBottom: 6 }}>Message</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(recentErrors?.length ? recentErrors : [{ ts: "-", route: "-", error_code: "-", message_redacted: null, req_id: "-" }]).map((row, idx) => (
+                <tr key={`${row.req_id}-${idx}`}>
+                  <td style={{ padding: "6px 6px 6px 0" }}>{row.ts ? new Date(row.ts).toLocaleString() : "-"}</td>
+                  <td style={{ padding: "6px 6px" }}>{row.route || "-"}</td>
+                  <td style={{ padding: "6px 6px" }}>{row.error_code || "-"}</td>
+                  <td style={{ padding: "6px 6px", color: "#bbb" }}>{row.message_redacted || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section style={{ marginTop: 24 }}>
         <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
           <div style={{ marginBottom: 8, color: "#888" }}>Contract Addresses</div>
@@ -436,6 +614,8 @@ export default function AdminDashboard() {
                 ["EntryPoint", ENTRYPOINT_ADDRESS],
                 ["Paymaster", PAYMASTER_ADDRESS],
                 ["Paymaster (Bulk)", resolvedPaymasterBulk],
+                ["AckLink Vault", ACKLINK_VAULT_ADDRESS],
+                ["AckLink Paymaster", ACKLINK_PAYMASTER_ADDRESS],
                 ["Router", ROUTER_ADDRESS],
                 ["Router (Bulk)", resolvedRouterBulk],
                 ["Factory", FACTORY_ADDRESS],
