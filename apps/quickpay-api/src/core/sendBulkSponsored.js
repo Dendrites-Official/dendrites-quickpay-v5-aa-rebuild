@@ -233,7 +233,7 @@ export async function sendBulkSponsored({
     maxFeeUsd6 = String(q.maxFeeUsd6 ?? "");
   }
 
-  const modeRaw = String(amountMode || "net").trim().toLowerCase();
+  const modeRaw = String(amountMode || "plusFee").trim().toLowerCase();
   const modeUsed = modeRaw === "plusfee" || modeRaw === "plus_fee" || modeRaw === "plus" ? "plusFee" : "net";
 
   let adjustedAmounts = normalizedAmounts;

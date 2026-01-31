@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
-import { quickpayNoteSet } from "../lib/api";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
 
 const USDC_DEFAULT = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
@@ -21,8 +21,9 @@ export default function BulkPay() {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: 84532 });
   const { signTypedDataAsync } = useSignTypedData();
+  const navigate = useNavigate();
   const [speed, setSpeed] = useState<0 | 1>(1);
-  const [amountMode, setAmountMode] = useState<"net" | "plusFee">("net");
+  const [amountMode, setAmountMode] = useState<"net" | "plusFee">("plusFee");
   const [recipientsInput, setRecipientsInput] = useState("");
   const [referenceId, setReferenceId] = useState("");
   const [name, setName] = useState("");
@@ -92,9 +93,8 @@ export default function BulkPay() {
     }
   }, [quote]);
 
-  const { adjustedEntries, totalGrossRaw, totalNetRaw, totalWithFeeRaw, amountModeError } = useMemo(() => {
+  const { totalGrossRaw, totalNetRaw, totalWithFeeRaw, amountModeError } = useMemo(() => {
     const totalGross = parsed.totalNet;
-    let adjusted = parsed.entries;
     let totalNet = totalGross;
     let totalWithFee = totalGross + feeAmountRaw;
     let modeError = "";
@@ -110,11 +110,6 @@ export default function BulkPay() {
           if (lastRaw <= feeAmountRaw) {
             modeError = "Last recipient amount must exceed fee for net mode.";
           } else {
-            adjusted = parsed.entries.map((entry, idx) =>
-              idx === lastIdx
-                ? { ...entry, amountRaw: (BigInt(entry.amountRaw) - feeAmountRaw).toString() }
-                : entry
-            );
             totalNet = totalGross - feeAmountRaw;
           }
         }
@@ -125,7 +120,6 @@ export default function BulkPay() {
     }
 
     return {
-      adjustedEntries: adjusted,
       totalGrossRaw: totalGross,
       totalNetRaw: totalNet,
       totalWithFeeRaw: totalWithFee,
@@ -347,7 +341,7 @@ export default function BulkPay() {
         chainId,
         from: address,
         token: usdcAddress,
-        transfers: adjustedEntries.map((entry) => ({ to: entry.address, amount: entry.amountRaw })),
+        transfers: parsed.entries.map((entry) => ({ to: entry.address, amount: entry.amountRaw })),
         speed,
         amountMode,
         auth,
@@ -394,17 +388,8 @@ export default function BulkPay() {
       setStatus("Done");
 
       const receiptId = data?.receiptId || data?.receipt_id || "";
-      if (receiptId && note.trim()) {
-        try {
-          const provider = new ethers.BrowserProvider((window as any).ethereum);
-          const signer = await provider.getSigner();
-          const sender = String(address).toLowerCase();
-          const messageToSign = `Dendrites QuickPay Note v1\nAction: SET\nReceipt: ${receiptId}\nSender: ${sender}\nChainId: ${chainId}`;
-          const signature = await signer.signMessage(messageToSign);
-          await quickpayNoteSet({ receiptId, sender, note: note.trim(), signature, chainId });
-        } catch {
-          // note failures should not block send success
-        }
+      if (receiptId) {
+        navigate(`/r/${receiptId}`);
       }
     } catch (err: any) {
       setError(err?.message || "Bulk send failed");
