@@ -84,3 +84,68 @@ export async function quickpayNoteGet(params: {
   if (!res.ok) throw new Error(data?.error ?? "Failed to load note");
   return data;
 }
+
+export async function acklinkCreate(payload: {
+  from: string;
+  amountUsdc6: string;
+  speed: "eco" | "instant";
+  name?: string | null;
+  message?: string | null;
+  reason?: string | null;
+  note?: string | null;
+  noteSignature?: string | null;
+  noteSender?: string | null;
+  userOpSignature?: string | null;
+  userOpDraft?: any;
+}) {
+  const res = await fetch(qpUrl("/acklink/create"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || data?.code || "Failed to create AckLink");
+  return data;
+}
+
+export async function acklinkGet(linkId: string) {
+  const res = await fetch(qpUrl(`/acklink/${linkId}`));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || data?.code || "Failed to load AckLink");
+  return data;
+}
+
+export async function acklinkClaim(payload: {
+  linkId: string;
+  claimer: string;
+  note?: string | null;
+  noteSignature?: string | null;
+  noteSender?: string | null;
+  userOpSignature?: string | null;
+  userOpDraft?: any;
+}) {
+  const res = await fetch(qpUrl("/acklink/claim"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || data?.code || "Failed to claim AckLink");
+  return data;
+}
+
+export async function acklinkRefund(payload: {
+  linkId: string;
+  requester: string;
+  userOpSignature?: string | null;
+  userOpDraft?: any;
+}) {
+  const res = await fetch(qpUrl("/acklink/refund"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || data?.code || "Failed to refund AckLink");
+  return data;
+}

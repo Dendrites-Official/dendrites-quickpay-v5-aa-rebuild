@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { formatEther, formatUnits } from "viem";
 import { quickpayNoteGet, quickpayNoteSet } from "../lib/api";
@@ -36,6 +36,17 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   const lane = String(safe.lane ?? "").toUpperCase();
   const recipients = Array.isArray(safe.meta?.recipients) ? safe.meta.recipients : null;
   const recipientsCount = safe.recipientsCount ?? safe.recipients_count ?? (recipients ? recipients.length : null);
+  const metaRoute = String(safe.meta?.route ?? "").toLowerCase();
+  const isAckLink = metaRoute.startsWith("acklink_");
+  const ackLinkId = safe.meta?.linkId ?? safe.meta?.link_id ?? "";
+  const ackKind = safe.meta?.kind ?? "";
+  const ackExpiresAt = safe.meta?.expiresAt ?? null;
+
+  useEffect(() => {
+    if (!showRecipients && recipients && recipients.length > 1) {
+      setShowRecipients(true);
+    }
+  }, [recipients, showRecipients]);
 
   const senderForNote = useMemo(() => (address ? String(address).toLowerCase() : ""), [address]);
   const receiptIdValue = String(receiptId || "");
@@ -155,6 +166,25 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
           <button onClick={() => copy(receiptId)}>Copy</button>
         </div>
       ) : null}
+      {isAckLink ? (
+        <div style={{ marginTop: 8, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>AckLink</div>
+          <div><strong>Action:</strong> {String(ackKind || metaRoute || "AckLink")}</div>
+          {ackLinkId ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <strong>Link ID:</strong>
+              <span>{ackLinkId}</span>
+              <button onClick={() => copy(String(ackLinkId))}>Copy</button>
+              <a href={`/ack/${ackLinkId}`} target="_blank" rel="noreferrer">
+                Open AckLink
+              </a>
+            </div>
+          ) : null}
+          {ackExpiresAt ? (
+            <div><strong>Expires:</strong> {String(ackExpiresAt)}</div>
+          ) : null}
+        </div>
+      ) : null}
       <div><strong>Lane:</strong> {String(safe.lane ?? "")}</div>
       <div><strong>Fee Mode:</strong> {feeMode ?? "—"}</div>
       <div><strong>Fee Token Mode:</strong> {feeTokenModeLabel}</div>
@@ -268,6 +298,10 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
                   </span>
                 </div>
               ))}
+            </div>
+          ) : recipientsCount ? (
+            <div style={{ marginTop: 8, color: "#bdbdbd" }}>
+              Recipient details not available yet.
             </div>
           ) : null}
         </div>
