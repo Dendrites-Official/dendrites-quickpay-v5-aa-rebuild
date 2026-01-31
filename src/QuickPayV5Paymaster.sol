@@ -20,6 +20,7 @@ contract QuickPayV5Paymaster is BasePaymaster {
     address public router;
     address public feeVault;
     address public feeCollector;
+    address public acklinkVault;
     uint32 public capBps;
     uint256 public stipendMaxWei;
     uint256 public ecoBaselineUsd6;
@@ -48,17 +49,25 @@ contract QuickPayV5Paymaster is BasePaymaster {
         uint256 finalFeeTokenAmount
     );
 
-    constructor(IEntryPoint _entryPoint, address _router, address _feeVault, address _feeCollector)
+    constructor(
+        IEntryPoint _entryPoint,
+        address _router,
+        address _feeVault,
+        address _feeCollector,
+        address _acklinkVault
+    )
         BasePaymaster(_entryPoint)
     {
         require(address(_entryPoint) != address(0), "QuickPayV5Paymaster: entryPoint=0");
         require(_router != address(0), "QuickPayV5Paymaster: router=0");
         require(_feeVault != address(0), "QuickPayV5Paymaster: feeVault=0");
         require(_feeCollector != address(0), "QuickPayV5Paymaster: feeCollector=0");
+        require(_acklinkVault != address(0), "QuickPayV5Paymaster: acklinkVault=0");
 
         router = _router;
         feeVault = _feeVault;
         feeCollector = _feeCollector;
+        acklinkVault = _acklinkVault;
 
         capBps = 14500;
         ecoBaselineUsd6 = 200000;
@@ -435,7 +444,7 @@ contract QuickPayV5Paymaster is BasePaymaster {
             }
         }
 
-        require(mode == 0 || mode == 1 || mode == 2, "QuickPayV5Paymaster: bad mode");
+        require(mode == 0 || mode == 1 || mode == 2 || mode == 3, "QuickPayV5Paymaster: bad mode");
         require(speed == 0 || speed == 1, "QuickPayV5Paymaster: bad speed");
         if (mode != 2) {
             require(feeTokenAllowed[feeToken] == true, "QuickPayV5Paymaster: feeToken not allowed");
@@ -519,6 +528,67 @@ contract QuickPayV5Paymaster is BasePaymaster {
             return (context, validationData);
         }
 
+        if (mode == 3) {
+            // ACKLINK: execute(acklinkVault, 0, createLinkWithAuthorization(...))
+            require(sel == 0xb61d27f6, "QuickPayV5Paymaster: not execute()");
+            require(value == 0, "QuickPayV5Paymaster: nonzero value");
+            require(dest == acklinkVault, "QuickPayV5Paymaster: wrong dest");
+            require(func.length >= 4 + 32 * 11, "QuickPayV5Paymaster: bad inner call");
+
+            bytes4 innerSelector;
+            assembly {
+                innerSelector := mload(add(func, 0x20))
+            }
+
+            bytes4 SEL_ACKLINK = bytes4(
+                keccak256(
+                    "createLinkWithAuthorization(address,uint256,uint256,uint64,bytes32,bytes32,uint64,uint64,uint8,bytes32,bytes32)"
+                )
+            );
+            require(innerSelector == SEL_ACKLINK, "QuickPayV5Paymaster: wrong method");
+
+            address from;
+            uint256 totalUsdc6;
+            uint256 feeUsdc6;
+            uint64 expiresAt;
+            bytes32 metaHash;
+            bytes32 authNonce;
+            uint64 validAfterAuth;
+            uint64 validBeforeAuth;
+            uint8 v;
+            bytes32 r;
+            bytes32 s;
+            bytes memory funcParams = new bytes(func.length - 4);
+            assembly {
+                let len := sub(mload(func), 4)
+                let src := add(func, 0x24)
+                let dst := add(funcParams, 0x20)
+                for { let i := 0 } lt(i, len) { i := add(i, 0x20) } { mstore(add(dst, i), mload(add(src, i))) }
+            }
+            (from, totalUsdc6, feeUsdc6, expiresAt, metaHash, authNonce, validAfterAuth, validBeforeAuth, v, r, s) =
+                abi.decode(
+                funcParams,
+                (address, uint256, uint256, uint64, bytes32, bytes32, uint64, uint64, uint8, bytes32, bytes32)
+            );
+            expiresAt;
+            metaHash;
+            authNonce;
+            validAfterAuth;
+            validBeforeAuth;
+            v;
+            r;
+            s;
+
+            require(from != address(0), "QuickPayV5Paymaster: from=0");
+            require(totalUsdc6 > feeUsdc6, "QuickPayV5Paymaster: fee>=total");
+
+            _computeAndValidateFee(userOp.sender, mode, speed, feeToken, maxFeeUsd6, feeToken, totalUsdc6, feeUsdc6);
+
+            context = abi.encode(userOp.sender, mode);
+            validationData = _packValidationData(false, validUntil, validAfter);
+            return (context, validationData);
+        }
+
         // mode == 0: SEND (allow execute or executeBatch)
         (address token, uint256 amount, uint256 finalFee) = _parseAndValidateRouterCall(userOp, feeToken);
         _computeAndValidateFee(userOp.sender, mode, speed, feeToken, maxFeeUsd6, token, amount, finalFee);
@@ -529,7 +599,7 @@ contract QuickPayV5Paymaster is BasePaymaster {
 
     function _postOp(PostOpMode, bytes calldata context, uint256, uint256) internal override {
         (address payer, uint8 mode) = abi.decode(context, (address, uint8));
-        if (mode == 0 && !firstTxSurchargePaid[payer]) {
+        if ((mode == 0 || mode == 3) && !firstTxSurchargePaid[payer]) {
             firstTxSurchargePaid[payer] = true;
         }
     }
