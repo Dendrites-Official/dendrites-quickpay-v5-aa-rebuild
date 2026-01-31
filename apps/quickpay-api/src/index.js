@@ -716,6 +716,71 @@ app.post("/quote", async (request, reply) => {
   }
 });
 
+app.post("/quoteBulk", async (request, reply) => {
+  const reqId = request?.reqId;
+  const logger = createLogger({ reqId });
+  const body = request.body ?? {};
+  const { chainId, ownerEoa, from, token, to, amount, feeMode, speed, maxFeeUsd6 } = body;
+  const wallet = ownerEoa || from;
+  const rateLimited = enforceBulkRateLimit(request, reply, wallet);
+  if (rateLimited) return rateLimited;
+
+  const routerBulk = String(process.env.ROUTER_BULK || "").trim();
+  const paymasterBulk = String(process.env.PAYMASTER_BULK || "").trim();
+  if (!routerBulk || !paymasterBulk) {
+    return reply.code(503).send({ ok: false, reqId, code: "BULK_NOT_CONFIGURED" });
+  }
+
+  if (!wallet || !token || !to || !amount) {
+    return reply.code(400).send({ ok: false, reqId, error: "missing_fields" });
+  }
+  const chain = chainId ?? Number(process.env.CHAIN_ID ?? 84532);
+  try {
+    const resolvedRpcUrl = await resolveRpcUrl({
+      rpcUrl: process.env.RPC_URL,
+      bundlerUrl: process.env.BUNDLER_URL,
+      chainId: chain,
+    });
+    const result = await withTimeout(getQuote({
+      chainId: chain,
+      rpcUrl: resolvedRpcUrl,
+      bundlerUrl: process.env.BUNDLER_URL,
+      paymaster: paymasterBulk,
+      factoryAddress: process.env.FACTORY,
+      router: routerBulk,
+      permit2: process.env.PERMIT2,
+      ownerEoa: wallet,
+      token,
+      amount,
+      feeMode,
+      speed,
+      mode: "SPONSORED",
+      maxFeeUsd6,
+      eip3009Tokens: process.env.EIP3009_TOKENS,
+      eip2612Tokens: process.env.EIP2612_TOKENS,
+      logger,
+    }), 8000, {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "quoteBulk.total",
+      message: "RPC timeout",
+    });
+    if (result?.ok === false) {
+      return reply.code(result.statusCode ?? 400).send({ reqId, ...result });
+    }
+    return reply.send({ reqId, ...result });
+  } catch (err) {
+    logger.error("QUOTE_BULK_ERROR", { error: err?.message || String(err) });
+    return reply.code(err?.status || 500).send({
+      ok: false,
+      reqId,
+      error: err?.message || "QUOTE_FAILED",
+      code: err?.code || "QUOTE_FAILED",
+      where: err?.where,
+    });
+  }
+});
+
 app.post("/send", async (request, reply) => {
   const reqId = request?.reqId || crypto.randomUUID();
   const logger = createLogger({ reqId });

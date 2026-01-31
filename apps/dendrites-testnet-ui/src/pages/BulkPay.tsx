@@ -91,21 +91,24 @@ export default function BulkPay() {
     setQuoteError("");
     setQuote(null);
     try {
-      const res = await fetch(qpUrl("/quote"), {
+      const res = await fetch(qpUrl("/quoteBulk"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chainId: 84532,
-          ownerEoa: address,
+          from: address,
           token: usdcAddress,
           to,
           amount: amountRaw,
           feeMode: speedLabel,
           speed,
-          mode: "SPONSORED",
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 503 && data?.code === "BULK_NOT_CONFIGURED") {
+        setBulkNotConfigured(true);
+        throw new Error("Bulk is not enabled on the API yet. Set ROUTER_BULK/PAYMASTER_BULK in Railway.");
+      }
       if (res.status === 400 || data?.ok === false) {
         const details = data?.details ? ` ${JSON.stringify(data.details)}` : "";
         throw new Error(`${data?.error || "Bad request"}${details}`.trim());
@@ -141,7 +144,9 @@ export default function BulkPay() {
 
     try {
       const chainId = 84532;
-      const routerAddr = String(quote?.router ?? getQuickPayChainConfig(chainId)?.router ?? "");
+      const routerAddr = String(
+        import.meta.env.VITE_ROUTER_BULK ?? quote?.router ?? getQuickPayChainConfig(chainId)?.router ?? ""
+      ).trim();
       if (!ethers.isAddress(routerAddr)) {
         throw new Error("Missing router address for EIP3009");
       }
@@ -211,7 +216,16 @@ export default function BulkPay() {
 
       setStatus("Waiting for EIP-3009 signature…");
       const signature = await signTypedDataAsync(typedData);
-      const auth = { type: "EIP3009", ...typedData.message, signature };
+      const auth = {
+        type: "EIP3009",
+        from: typedData.message.from,
+        to: typedData.message.to,
+        value: typedData.message.value.toString(),
+        validAfter: typedData.message.validAfter.toString(),
+        validBefore: typedData.message.validBefore.toString(),
+        nonce: typedData.message.nonce,
+        signature,
+      };
 
       const sendPayload: any = {
         chainId,
@@ -370,7 +384,12 @@ export default function BulkPay() {
               Fee: {result.feeAmountRaw ? ethers.formatUnits(BigInt(String(result.feeAmountRaw)), DECIMALS) : "-"} USDC
             </div>
             <div>
-              Total: {result.netAmountRaw ? ethers.formatUnits(BigInt(String(result.netAmountRaw)), DECIMALS) : "-"} USDC
+              Total: {result.netAmountRaw
+                ? ethers.formatUnits(
+                    BigInt(String(result.netAmountRaw)) + BigInt(String(result.feeAmountRaw || 0)),
+                    DECIMALS
+                  )
+                : "-"} USDC
             </div>
             <div>Reference ID: {result.referenceId || referenceId || "-"}</div>
           </div>
