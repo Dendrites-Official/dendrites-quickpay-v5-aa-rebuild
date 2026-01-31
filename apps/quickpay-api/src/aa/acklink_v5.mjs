@@ -226,7 +226,13 @@ async function main() {
     throw new Error(`Unknown ACTION=${action}`);
   }
 
-  const maxFeeUsd6 = BigInt(process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || feeUsd6.toString());
+  const envMaxFee = String(process.env.MAX_FEE_USDC6 || process.env.MAX_FEE_USD6 || "").trim();
+  let maxFeeUsd6 = feeUsd6;
+  if (action === "CREATE") {
+    maxFeeUsd6 = envMaxFee ? BigInt(envMaxFee) : feeUsd6;
+  } else {
+    maxFeeUsd6 = 0n;
+  }
 
   if (userOpDraft) {
     if (!userOpSignature) {

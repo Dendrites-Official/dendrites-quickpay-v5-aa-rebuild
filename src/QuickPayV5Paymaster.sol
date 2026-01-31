@@ -540,49 +540,59 @@ contract QuickPayV5Paymaster is BasePaymaster {
                 innerSelector := mload(add(func, 0x20))
             }
 
-            bytes4 SEL_ACKLINK = bytes4(
+            bytes4 SEL_ACKLINK_CREATE = bytes4(
                 keccak256(
                     "createLinkWithAuthorization(address,uint256,uint256,uint64,bytes32,bytes32,uint64,uint64,uint8,bytes32,bytes32)"
                 )
             );
-            require(innerSelector == SEL_ACKLINK, "QuickPayV5Paymaster: wrong method");
-
-            address from;
-            uint256 totalUsdc6;
-            uint256 feeUsdc6;
-            uint64 expiresAt;
-            bytes32 metaHash;
-            bytes32 authNonce;
-            uint64 validAfterAuth;
-            uint64 validBeforeAuth;
-            uint8 v;
-            bytes32 r;
-            bytes32 s;
-            bytes memory funcParams = new bytes(func.length - 4);
-            assembly {
-                let len := sub(mload(func), 4)
-                let src := add(func, 0x24)
-                let dst := add(funcParams, 0x20)
-                for { let i := 0 } lt(i, len) { i := add(i, 0x20) } { mstore(add(dst, i), mload(add(src, i))) }
-            }
-            (from, totalUsdc6, feeUsdc6, expiresAt, metaHash, authNonce, validAfterAuth, validBeforeAuth, v, r, s) =
-                abi.decode(
-                funcParams,
-                (address, uint256, uint256, uint64, bytes32, bytes32, uint64, uint64, uint8, bytes32, bytes32)
+            bytes4 SEL_ACKLINK_CLAIM = bytes4(keccak256("claim(bytes32,address)"));
+            bytes4 SEL_ACKLINK_REFUND = bytes4(keccak256("refund(bytes32)"));
+            require(
+                innerSelector == SEL_ACKLINK_CREATE || innerSelector == SEL_ACKLINK_CLAIM
+                    || innerSelector == SEL_ACKLINK_REFUND,
+                "QuickPayV5Paymaster: wrong method"
             );
-            expiresAt;
-            metaHash;
-            authNonce;
-            validAfterAuth;
-            validBeforeAuth;
-            v;
-            r;
-            s;
 
-            require(from != address(0), "QuickPayV5Paymaster: from=0");
-            require(totalUsdc6 > feeUsdc6, "QuickPayV5Paymaster: fee>=total");
+            if (innerSelector == SEL_ACKLINK_CREATE) {
+                address from;
+                uint256 totalUsdc6;
+                uint256 feeUsdc6;
+                uint64 expiresAt;
+                bytes32 metaHash;
+                bytes32 authNonce;
+                uint64 validAfterAuth;
+                uint64 validBeforeAuth;
+                uint8 v;
+                bytes32 r;
+                bytes32 s;
+                bytes memory funcParams = new bytes(func.length - 4);
+                assembly {
+                    let len := sub(mload(func), 4)
+                    let src := add(func, 0x24)
+                    let dst := add(funcParams, 0x20)
+                    for { let i := 0 } lt(i, len) { i := add(i, 0x20) } { mstore(add(dst, i), mload(add(src, i))) }
+                }
+                (from, totalUsdc6, feeUsdc6, expiresAt, metaHash, authNonce, validAfterAuth, validBeforeAuth, v, r, s) =
+                    abi.decode(
+                    funcParams,
+                    (address, uint256, uint256, uint64, bytes32, bytes32, uint64, uint64, uint8, bytes32, bytes32)
+                );
+                expiresAt;
+                metaHash;
+                authNonce;
+                validAfterAuth;
+                validBeforeAuth;
+                v;
+                r;
+                s;
 
-            _computeAndValidateFee(userOp.sender, mode, speed, feeToken, maxFeeUsd6, feeToken, totalUsdc6, feeUsdc6);
+                require(from != address(0), "QuickPayV5Paymaster: from=0");
+                require(totalUsdc6 > feeUsdc6, "QuickPayV5Paymaster: fee>=total");
+
+                _computeAndValidateFee(userOp.sender, mode, speed, feeToken, maxFeeUsd6, feeToken, totalUsdc6, feeUsdc6);
+            } else {
+                require(maxFeeUsd6 == 0, "QuickPayV5Paymaster: fee must be zero");
+            }
 
             context = abi.encode(userOp.sender, mode);
             validationData = _packValidationData(false, validUntil, validAfter);
