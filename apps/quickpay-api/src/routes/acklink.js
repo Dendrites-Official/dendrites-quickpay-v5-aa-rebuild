@@ -5,11 +5,12 @@ const ACKLINK_NONCE_ABI = ["function nonces(address sender) view returns (uint25
 
 const FEE_USDC6_ECO = 200000n;
 const FEE_USDC6_INSTANT = 300000n;
+const BYTES32_HEX_RE = /^0x[0-9a-fA-F]{64}$/;
 
 function parseHexBytes32(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  return /^0x[0-9a-fA-F]{64}$/.test(trimmed) ? trimmed : null;
+  return BYTES32_HEX_RE.test(trimmed) ? trimmed : null;
 }
 
 function buildMetaHash(meta) {
