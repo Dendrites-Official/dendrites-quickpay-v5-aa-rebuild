@@ -1,0 +1,1 @@
+-- SUPERSEDED: Use 20260130194500_qp_sponsorship_costs.sql

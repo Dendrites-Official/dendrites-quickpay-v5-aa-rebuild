@@ -286,11 +286,13 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  if (!supabaseUrl || !supabaseAnonKey) {
+  const supabaseServiceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const supabaseKey = supabaseServiceRole || supabaseAnonKey;
+  if (!supabaseUrl || !supabaseKey) {
     return jsonResponse(origin, 500, { error: "Missing Supabase env" }, reqId);
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createClient(supabaseUrl, supabaseKey);
 
   let existing: any = null;
   if (receiptIdInput) {
@@ -521,17 +523,28 @@ Deno.serve(async (req) => {
   let chosenToAmount = 0n;
   let chosenScore = 0n;
 
-  for (const [token, entry] of groups.entries()) {
-    const score = feeVault ? entry.feeAmount + entry.toAmount : entry.toAmount;
-    const hasToAmount = entry.toAmount > 0n;
-    if (!hasToAmount) continue;
-    if (score <= 0n) continue;
-    if (chosenToken === null || score > chosenScore) {
-      chosenToken = token;
-      chosenRecipient = entry.recipient;
-      chosenFeeAmount = entry.feeAmount;
-      chosenToAmount = entry.toAmount;
-      chosenScore = score;
+  const bulkRecipients = Array.isArray(existing?.meta?.recipients) ? existing?.meta?.recipients : null;
+  const existingNet = existing?.net_amount_raw != null ? BigInt(existing.net_amount_raw) : null;
+  const existingFee = existing?.fee_amount_raw != null ? BigInt(existing.fee_amount_raw) : null;
+  if (existing?.token && existingNet != null && existingFee != null && bulkRecipients) {
+    chosenToken = existing.token;
+    chosenRecipient = existing?.to ?? bulkRecipients?.[0]?.to ?? null;
+    chosenToAmount = existingNet;
+    chosenFeeAmount = existingFee;
+    chosenScore = chosenToAmount + chosenFeeAmount;
+  } else {
+    for (const [token, entry] of groups.entries()) {
+      const score = feeVault ? entry.feeAmount + entry.toAmount : entry.toAmount;
+      const hasToAmount = entry.toAmount > 0n;
+      if (!hasToAmount) continue;
+      if (score <= 0n) continue;
+      if (chosenToken === null || score > chosenScore) {
+        chosenToken = token;
+        chosenRecipient = entry.recipient;
+        chosenFeeAmount = entry.feeAmount;
+        chosenToAmount = entry.toAmount;
+        chosenScore = score;
+      }
     }
   }
 

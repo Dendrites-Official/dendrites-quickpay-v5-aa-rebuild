@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
+import { quickpayNoteSet } from "../lib/api";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
 
 const USDC_DEFAULT = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
@@ -21,8 +22,13 @@ export default function BulkPay() {
   const publicClient = usePublicClient({ chainId: 84532 });
   const { signTypedDataAsync } = useSignTypedData();
   const [speed, setSpeed] = useState<0 | 1>(1);
+  const [amountMode, setAmountMode] = useState<"net" | "plusFee">("net");
   const [recipientsInput, setRecipientsInput] = useState("");
   const [referenceId, setReferenceId] = useState("");
+  const [name, setName] = useState("");
+  const [message, setMessage] = useState("");
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
   const [quote, setQuote] = useState<any>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState("");
@@ -31,6 +37,7 @@ export default function BulkPay() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<any>(null);
   const [bulkNotConfigured, setBulkNotConfigured] = useState(false);
+  const [balanceError, setBalanceError] = useState("");
 
   const usdcAddress = String(import.meta.env.VITE_USDC_ADDRESS || USDC_DEFAULT).trim();
   const speedLabel = speed === 0 ? "eco" : "instant";
@@ -75,6 +82,107 @@ export default function BulkPay() {
     if (parsed.totalNet <= 0n) return "0";
     return ethers.formatUnits(parsed.totalNet, DECIMALS);
   }, [parsed.totalNet]);
+
+  const feeAmountRaw = useMemo(() => {
+    const raw = quote?.feeTokenAmount ?? quote?.feeAmountRaw ?? "0";
+    try {
+      return BigInt(String(raw));
+    } catch {
+      return 0n;
+    }
+  }, [quote]);
+
+  const { adjustedEntries, totalGrossRaw, totalNetRaw, totalWithFeeRaw, amountModeError } = useMemo(() => {
+    const totalGross = parsed.totalNet;
+    let adjusted = parsed.entries;
+    let totalNet = totalGross;
+    let totalWithFee = totalGross + feeAmountRaw;
+    let modeError = "";
+
+    if (amountMode === "net") {
+      totalWithFee = totalGross;
+      if (feeAmountRaw > 0n) {
+        if (totalGross <= feeAmountRaw) {
+          modeError = "Total amount must be greater than fee for net mode.";
+        } else if (parsed.entries.length) {
+          const lastIdx = parsed.entries.length - 1;
+          const lastRaw = BigInt(parsed.entries[lastIdx].amountRaw);
+          if (lastRaw <= feeAmountRaw) {
+            modeError = "Last recipient amount must exceed fee for net mode.";
+          } else {
+            adjusted = parsed.entries.map((entry, idx) =>
+              idx === lastIdx
+                ? { ...entry, amountRaw: (BigInt(entry.amountRaw) - feeAmountRaw).toString() }
+                : entry
+            );
+            totalNet = totalGross - feeAmountRaw;
+          }
+        }
+      }
+    } else {
+      totalNet = totalGross;
+      totalWithFee = totalGross + feeAmountRaw;
+    }
+
+    return {
+      adjustedEntries: adjusted,
+      totalGrossRaw: totalGross,
+      totalNetRaw: totalNet,
+      totalWithFeeRaw: totalWithFee,
+      amountModeError: modeError,
+    };
+  }, [amountMode, feeAmountRaw, parsed.entries, parsed.totalNet]);
+
+  const totalNetDisplayAdjusted = useMemo(() => {
+    if (totalNetRaw <= 0n) return "0";
+    return ethers.formatUnits(totalNetRaw, DECIMALS);
+  }, [totalNetRaw]);
+
+  const totalWithFeeDisplay = useMemo(() => {
+    if (totalWithFeeRaw <= 0n) return "0";
+    return ethers.formatUnits(totalWithFeeRaw, DECIMALS);
+  }, [totalWithFeeRaw]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!address || !publicClient || !usdcAddress || !quote) {
+        setBalanceError("");
+        return;
+      }
+      if (!parsed.entries.length || parsed.errors.length) {
+        setBalanceError("");
+        return;
+      }
+      if (amountModeError) {
+        setBalanceError(amountModeError);
+        return;
+      }
+      try {
+        const balance = await publicClient.readContract({
+          address: usdcAddress as `0x${string}`,
+          abi: [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "uint256" }] }],
+          functionName: "balanceOf",
+          args: [address as `0x${string}`],
+        });
+        if (cancelled) return;
+        const required = amountMode === "net" ? totalGrossRaw : totalWithFeeRaw;
+        if (balance < required) {
+          const need = ethers.formatUnits(required, DECIMALS);
+          const have = ethers.formatUnits(balance, DECIMALS);
+          setBalanceError(`Insufficient balance. Need ${need} USDC, have ${have} USDC.`);
+        } else {
+          setBalanceError("");
+        }
+      } catch {
+        if (!cancelled) setBalanceError("Failed to check balance.");
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [address, amountMode, amountModeError, parsed.entries.length, parsed.errors.length, publicClient, quote, totalGrossRaw, totalWithFeeRaw, usdcAddress]);
 
   const fetchQuote = async () => {
     if (!address) {
@@ -131,6 +239,14 @@ export default function BulkPay() {
       setError("Fix recipient list errors first.");
       return;
     }
+    if (amountModeError) {
+      setError(amountModeError);
+      return;
+    }
+    if (balanceError) {
+      setError(balanceError);
+      return;
+    }
     if (!quote) {
       setError("Get a quote first.");
       return;
@@ -179,7 +295,7 @@ export default function BulkPay() {
       if (feeAmountRaw <= 0n) {
         throw new Error("Invalid fee from quote");
       }
-      const totalWithFee = parsed.totalNet + feeAmountRaw;
+      const totalWithFee = totalWithFeeRaw;
 
       const now = Math.floor(Date.now() / 1000);
       const validAfter = now - 10;
@@ -231,11 +347,16 @@ export default function BulkPay() {
         chainId,
         from: address,
         token: usdcAddress,
-        transfers: parsed.entries.map((entry) => ({ to: entry.address, amount: entry.amountRaw })),
+        transfers: adjustedEntries.map((entry) => ({ to: entry.address, amount: entry.amountRaw })),
         speed,
+        amountMode,
         auth,
       };
       if (referenceId.trim()) sendPayload.referenceId = referenceId.trim();
+      if (name.trim()) sendPayload.name = name.trim();
+      if (message.trim()) sendPayload.message = message.trim();
+      if (reason.trim()) sendPayload.reason = reason.trim();
+      if (note.trim()) sendPayload.note = note.trim();
 
       const postSend = async (payload: any) => {
         const res = await fetch(qpUrl("/sendBulk"), {
@@ -271,6 +392,20 @@ export default function BulkPay() {
 
       setResult(data);
       setStatus("Done");
+
+      const receiptId = data?.receiptId || data?.receipt_id || "";
+      if (receiptId && note.trim()) {
+        try {
+          const provider = new ethers.BrowserProvider((window as any).ethereum);
+          const signer = await provider.getSigner();
+          const sender = String(address).toLowerCase();
+          const messageToSign = `Dendrites QuickPay Note v1\nAction: SET\nReceipt: ${receiptId}\nSender: ${sender}\nChainId: ${chainId}`;
+          const signature = await signer.signMessage(messageToSign);
+          await quickpayNoteSet({ receiptId, sender, note: note.trim(), signature, chainId });
+        } catch {
+          // note failures should not block send success
+        }
+      }
     } catch (err: any) {
       setError(err?.message || "Bulk send failed");
     } finally {
@@ -321,14 +456,44 @@ export default function BulkPay() {
           </select>
         </label>
 
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Fee handling</span>
+          <select value={amountMode} onChange={(e) => setAmountMode(e.target.value as "net" | "plusFee")}>
+            <option value="net">Deduct fee from total (net)</option>
+            <option value="plusFee">Add fee on top (plus fee)</option>
+          </select>
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Name (optional)</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Paying out" />
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Message (optional)</span>
+          <textarea rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Thanks for your help…" />
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Reason (optional)</span>
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Invoice #123" />
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <span>Private note (optional)</span>
+          <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Visible only to you" />
+        </label>
+
         <div style={{ display: "grid", gap: 4 }}>
           <div>Total recipients: {parsed.entries.length}</div>
-          <div>Total amount: {totalNetDisplay} USDC</div>
+          <div>Total input: {totalNetDisplay} USDC</div>
           {quote?.feeTokenAmount ? (
             <div>
               Fee: {ethers.formatUnits(BigInt(String(quote.feeTokenAmount)), DECIMALS)} USDC
             </div>
           ) : null}
+          <div>Recipients total: {totalNetDisplayAdjusted} USDC</div>
+          <div>Total charged: {totalWithFeeDisplay} USDC</div>
         </div>
 
         {parsed.errors.length ? (
@@ -338,6 +503,9 @@ export default function BulkPay() {
             ))}
           </div>
         ) : null}
+
+        {amountModeError ? <div style={{ color: "tomato" }}>{amountModeError}</div> : null}
+        {balanceError ? <div style={{ color: "tomato" }}>{balanceError}</div> : null}
 
         {quoteError ? <div style={{ color: "tomato" }}>{quoteError}</div> : null}
         {error ? <div style={{ color: "tomato" }}>{error}</div> : null}
@@ -355,6 +523,14 @@ export default function BulkPay() {
         {result ? (
           <div style={{ background: "#111", padding: 12, borderRadius: 6 }}>
             <div>Request ID: {result.reqId || "-"}</div>
+            {result.receiptId ? (
+              <div>
+                Receipt: {" "}
+                <a href={`/receipts/${result.receiptId}`} target="_blank" rel="noreferrer">
+                  {result.receiptId}
+                </a>
+              </div>
+            ) : null}
             {result.userOpHash ? (
               <div>
                 UserOp Hash: {" "}
@@ -380,15 +556,18 @@ export default function BulkPay() {
               <div>Tx Hash: -</div>
             )}
             <div>Recipients: {parsed.entries.length}</div>
+            <div>Mode: {result.modeUsed || amountMode}</div>
             <div>
               Fee: {result.feeAmountRaw ? ethers.formatUnits(BigInt(String(result.feeAmountRaw)), DECIMALS) : "-"} USDC
             </div>
             <div>
-              Total: {result.netAmountRaw
-                ? ethers.formatUnits(
-                    BigInt(String(result.netAmountRaw)) + BigInt(String(result.feeAmountRaw || 0)),
-                    DECIMALS
-                  )
+              Recipients total: {result.netAmountRaw
+                ? ethers.formatUnits(BigInt(String(result.netAmountRaw)), DECIMALS)
+                : "-"} USDC
+            </div>
+            <div>
+              Total charged: {result.totalAmountRaw
+                ? ethers.formatUnits(BigInt(String(result.totalAmountRaw)), DECIMALS)
                 : "-"} USDC
             </div>
             <div>Reference ID: {result.referenceId || referenceId || "-"}</div>

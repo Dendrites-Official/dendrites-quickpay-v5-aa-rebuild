@@ -280,6 +280,143 @@ async function logErrorTelemetry(payload) {
   }
 }
 
+function generateReceiptId() {
+  const suffix = crypto.randomBytes(6).toString("hex");
+  return `r_${suffix}`;
+}
+
+async function createBulkReceiptRecord({
+  chainId,
+  receiptId,
+  ownerEoa,
+  sender,
+  token,
+  amountRaw,
+  netAmountRaw,
+  feeAmountRaw,
+  feeMode,
+  referenceId,
+  name,
+  message,
+  reason,
+  recipients,
+  modeUsed,
+  speed,
+  totalEntered,
+  totalDebited,
+}) {
+  if (!supabaseUrl || !supabaseServiceRole) return null;
+  const payload = {
+    chain_id: chainId,
+    receipt_id: receiptId,
+    status: "created",
+    sender: sender ? String(sender).toLowerCase() : null,
+    owner_eoa: ownerEoa ? String(ownerEoa).toLowerCase() : null,
+    token,
+    amount_raw: amountRaw,
+    net_amount_raw: netAmountRaw,
+    fee_amount_raw: feeAmountRaw,
+    fee_mode: feeMode,
+    fee_token_mode: "same",
+    title: message || null,
+    display_name: name || null,
+    reason: reason || null,
+    reference_id: referenceId || null,
+    recipients_count: Array.isArray(recipients) ? recipients.length : null,
+    meta: {
+      route: "sendBulk",
+      speed: speed ?? null,
+      modeUsed,
+      totalEntered: totalEntered ?? null,
+      totalDebited: totalDebited ?? null,
+      feeAmount: feeAmountRaw ?? null,
+      recipients: Array.isArray(recipients) ? recipients : [],
+    },
+  };
+
+  const { error } = await supabase.from("quickpay_receipts").insert(payload);
+  if (error) throw error;
+  return receiptId;
+}
+
+async function callQuickpayReceipt(payload, { reqId } = {}) {
+  const baseUrl = String(supabaseUrl || "").trim();
+  if (!baseUrl || !supabaseServiceRole) return null;
+  const url = `${baseUrl.replace(/\/+$/, "")}/functions/v1/quickpay_receipt`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": reqId || crypto.randomUUID(),
+        apikey: supabaseServiceRole,
+        Authorization: `Bearer ${supabaseServiceRole}`,
+      },
+      body: JSON.stringify(payload ?? {}),
+    });
+    const data = await res.json().catch(() => null);
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function callQuickpayNote({ receiptId, sender, note, signature, chainId, reqId }) {
+  const baseUrl = String(supabaseUrl || "").trim();
+  if (!baseUrl || !supabaseServiceRole) return null;
+  if (!receiptId || !sender || !note || !signature) return null;
+  const url = `${baseUrl.replace(/\/+$/, "")}/functions/v1/quickpay_note`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": reqId || crypto.randomUUID(),
+        apikey: supabaseServiceRole,
+        Authorization: `Bearer ${supabaseServiceRole}`,
+      },
+      body: JSON.stringify({ receiptId, sender, note, signature, chainId }),
+    });
+    const data = await res.json().catch(() => null);
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function recordSponsorshipCost({ reqId, route, txHash, userOpHash, chainId, meta }) {
+  if (!supabaseUrl || !supabaseServiceRole || !txHash) return null;
+  const rpcUrl = String(process.env.RPC_URL || "").trim();
+  if (!rpcUrl) return null;
+  try {
+    const provider = new JsonRpcProvider(rpcUrl);
+    const receipt = await withTimeout(provider.getTransactionReceipt(txHash), getRpcTimeoutMs(), {
+      code: "RPC_TIMEOUT",
+      status: 504,
+      where: "sponsorshipCost.receipt",
+      message: "RPC timeout",
+    });
+    if (!receipt) return;
+    const gasUsed = receipt.gasUsed != null ? BigInt(receipt.gasUsed) : null;
+    const gasPrice = receipt.effectiveGasPrice != null ? BigInt(receipt.effectiveGasPrice) : null;
+    const ethCostWei = gasUsed != null && gasPrice != null ? gasUsed * gasPrice : null;
+    await supabase.from("qp_sponsorship_costs").insert({
+      chain_id: chainId ?? Number(process.env.CHAIN_ID ?? 84532),
+      req_id: reqId ?? null,
+      route,
+      tx_hash: txHash ?? null,
+      user_op_hash: userOpHash ?? null,
+      gas_used: gasUsed != null ? gasUsed.toString() : null,
+      effective_gas_price_wei: gasPrice != null ? gasPrice.toString() : null,
+      eth_cost_wei: ethCostWei != null ? ethCostWei.toString() : null,
+      meta: meta ?? null,
+    });
+    return ethCostWei != null ? ethCostWei.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function getClientIp(request) {
   const forwarded = String(request?.headers?.["x-forwarded-for"] || "").split(",")[0].trim();
   if (forwarded) return forwarded;
@@ -309,6 +446,7 @@ async function runSnapshot({ reqId, logger }) {
   let bundler_ok = false;
   let paymaster_deposit_wei = null;
   const fee_vault_balances = {};
+  let sponsorship_24h = null;
 
   try {
     const network = await withTimeout(provider.getNetwork(), getRpcTimeoutMs(), {
@@ -401,13 +539,42 @@ async function runSnapshot({ reqId, logger }) {
   }
 
   if (supabaseUrl && supabaseServiceRole) {
+    try {
+      const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data, count, error } = await supabase
+        .from("qp_sponsorship_costs")
+        .select("eth_cost_wei", { count: "exact" })
+        .gte("created_at", sinceIso);
+      if (!error && Array.isArray(data)) {
+        let sum = 0n;
+        for (const row of data) {
+          const raw = row?.eth_cost_wei;
+          if (raw != null) {
+            try {
+              sum += BigInt(raw);
+            } catch {
+              // ignore parse errors
+            }
+          }
+        }
+        sponsorship_24h = {
+          count: typeof count === "number" ? count : data.length,
+          eth_cost_wei: sum.toString(),
+        };
+      }
+    } catch {
+      sponsorship_24h = null;
+    }
+
     await supabase.from("qp_chain_snapshots").insert({
       chain_id: chainId,
       rpc_ok,
       bundler_ok,
       paymaster_deposit_wei,
       fee_vault_balances,
-      meta: {},
+      meta: {
+        sponsorship_24h: sponsorship_24h ?? null,
+      },
     });
   }
 
@@ -419,6 +586,7 @@ async function runSnapshot({ reqId, logger }) {
     bundler_ok,
     paymaster_deposit_wei,
     fee_vault_balances,
+    sponsorship_24h,
     reqId,
   };
 }
@@ -926,12 +1094,25 @@ app.post("/send", async (request, reply) => {
       })
       .eq("id", receipt.id);
 
+    let ethSponsoredWei = null;
+    if (mode !== "SELF_PAY" && result?.txHash) {
+      ethSponsoredWei = await recordSponsorshipCost({
+        reqId,
+        route: "send",
+        txHash: result?.txHash ?? null,
+        userOpHash: result?.userOpHash ?? null,
+        chainId: chain,
+        meta: { lane: result?.lane ?? null },
+      });
+    }
+
     return reply.send({
       ok: true,
       reqId,
       lane: result?.lane ?? null,
       userOpHash: result?.userOpHash ?? null,
       txHash: result?.txHash ?? null,
+      ...(ethSponsoredWei ? { ethSponsoredWei } : {}),
     });
   } catch (err) {
     const debug = process.env.QUICKPAY_DEBUG === "1";
@@ -962,6 +1143,13 @@ app.post("/sendBulk", async (request, reply) => {
       transfers,
       feeMode,
       speed,
+      amountMode,
+      name,
+      message,
+      reason,
+      note,
+      noteSender,
+      noteSignature,
       auth,
       userOpSignature,
       userOpDraft,
@@ -1034,6 +1222,7 @@ app.post("/sendBulk", async (request, reply) => {
       amounts: normalizedAmounts.length ? normalizedAmounts : amounts,
       feeMode,
       speed,
+      amountMode,
       auth,
       userOpSignature,
       userOpDraft,
@@ -1045,7 +1234,105 @@ app.post("/sendBulk", async (request, reply) => {
       return reply.send({ reqId, ...result });
     }
 
-    return reply.send({ ok: true, reqId, ...result });
+    const feeModeLabel = result?.modeUsed ?? amountMode ?? "net";
+    const receiptId = generateReceiptId();
+
+    const recipientAmounts = Array.isArray(result?.recipientAmounts) ? result.recipientAmounts : null;
+    const recipientsMeta = Array.isArray(normalizedRecipients)
+      ? normalizedRecipients.map((to, idx) => ({
+          to,
+          amount: recipientAmounts?.[idx] ?? null,
+        }))
+      : [];
+
+    const totalDebited = result?.totalAmountRaw ?? null;
+    const totalEntered = result?.modeUsed === "plusFee" ? result?.netAmountRaw ?? null : totalDebited;
+
+    if (supabaseUrl && supabaseServiceRole) {
+      try {
+        await createBulkReceiptRecord({
+          chainId: chain,
+          receiptId,
+          ownerEoa: normalizedOwnerEoa,
+          sender: null,
+          token: normalizedToken,
+          amountRaw: result?.totalAmountRaw ?? null,
+          netAmountRaw: result?.netAmountRaw ?? null,
+          feeAmountRaw: result?.feeAmountRaw ?? null,
+          feeMode: feeModeLabel,
+          referenceId: result?.referenceId ?? referenceId ?? null,
+          name,
+          message,
+          reason,
+          recipients: recipientsMeta,
+          modeUsed: result?.modeUsed ?? null,
+          speed,
+          totalEntered,
+          totalDebited,
+        });
+      } catch (err) {
+        logger.warn("BULK_RECEIPT_CREATE_FAILED", { error: err?.message || String(err) });
+      }
+    }
+
+    let receiptResponse = null;
+    if (result?.txHash || result?.userOpHash) {
+      receiptResponse = await callQuickpayReceipt({
+        receiptId,
+        chainId: chain,
+        txHash: result?.txHash ?? null,
+        userOpHash: result?.userOpHash ?? null,
+        from: normalizedOwnerEoa,
+        token: normalizedToken,
+        speed,
+        mode: "SPONSORED",
+        feeMode: feeModeLabel,
+        recipients: recipientsMeta,
+        totalEntered,
+        feeAmount: result?.feeAmountRaw ?? null,
+        totalDebited,
+        name: name ?? null,
+        message: message ?? null,
+        reason: reason ?? null,
+        referenceId: result?.referenceId ?? referenceId ?? null,
+        route: "sendBulk",
+      }, { reqId });
+    }
+
+    const resolvedReceiptId = receiptResponse?.receiptId ?? receiptId;
+    if (note && noteSignature) {
+      await callQuickpayNote({
+        receiptId: resolvedReceiptId,
+        sender: String(noteSender || normalizedOwnerEoa || "").toLowerCase(),
+        note,
+        signature: noteSignature,
+        chainId: chain,
+        reqId,
+      });
+    }
+
+    let ethSponsoredWei = null;
+    if (result?.txHash) {
+      ethSponsoredWei = await recordSponsorshipCost({
+        reqId,
+        route: "sendBulk",
+        txHash: result?.txHash ?? null,
+        userOpHash: result?.userOpHash ?? null,
+        chainId: chain,
+        meta: { recipientCount: recipientsMeta.length, modeUsed: result?.modeUsed ?? null },
+      });
+    }
+
+    return reply.send({
+      ok: true,
+      reqId,
+      receiptId: resolvedReceiptId,
+      fee: result?.feeAmountRaw ?? null,
+      total: result?.totalAmountRaw ?? null,
+      modeUsed: result?.modeUsed ?? null,
+      ...(ethSponsoredWei ? { ethSponsoredWei } : {}),
+      ...result,
+    });
   } catch (err) {
     logger.error("SEND_BULK_ERROR", { error: err?.message || String(err) });
     return reply.code(err?.status || 500).send({
