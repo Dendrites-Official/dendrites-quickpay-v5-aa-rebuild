@@ -100,7 +100,7 @@ export async function listReceipts({ limit = 50, wallet }: ListReceiptsParams) {
   let query = supabase
     .from("quickpay_receipts")
     .select(
-      "id, receipt_id, status, token, token_symbol, token_decimals, amount_raw, net_amount_raw, fee_amount_raw, to, sender, owner_eoa, created_at, tx_hash, userop_hash, fee_mode, fee_token_mode"
+      "id, receipt_id, status, token, token_symbol, token_decimals, amount_raw, net_amount_raw, fee_amount_raw, to, sender, owner_eoa, created_at, tx_hash, userop_hash, fee_mode, fee_token_mode, recipients_count, meta"
     )
     .order("created_at", { ascending: false })
     .limit(limit);

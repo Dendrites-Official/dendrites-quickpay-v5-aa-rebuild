@@ -240,6 +240,20 @@ Deno.serve(async (req) => {
     receiptId?: string;
     userOpHash?: string;
     txHash?: string;
+    from?: string;
+    token?: string;
+    speed?: number | string;
+    mode?: string;
+    feeMode?: string;
+    recipients?: Array<{ to?: string; amount?: string }>;
+    totalEntered?: string;
+    feeAmount?: string;
+    totalDebited?: string;
+    name?: string;
+    message?: string;
+    reason?: string;
+    referenceId?: string;
+    route?: string;
   } = {};
 
   try {
@@ -329,6 +343,55 @@ Deno.serve(async (req) => {
   const txHash = txHashInput ?? existing?.tx_hash ?? null;
   const receiptId = receiptIdInput ?? existing?.receipt_id ?? randomReceiptId();
 
+  const bodyToken = body.token ? String(body.token).toLowerCase() : null;
+  const bodyFrom = body.from ? String(body.from).toLowerCase() : null;
+  const bodyFeeMode = body.feeMode ? String(body.feeMode) : null;
+  const bodyMode = body.mode ? String(body.mode) : null;
+  const bodyRoute = body.route ? String(body.route) : null;
+  const recipientsInput = Array.isArray(body.recipients)
+    ? body.recipients.map((entry) => ({
+        to: entry?.to ? String(entry.to).toLowerCase() : null,
+        amount: entry?.amount ? String(entry.amount) : null,
+      }))
+    : null;
+
+  const totalEnteredRaw = body.totalEntered ? String(body.totalEntered) : null;
+  const feeAmountRaw = body.feeAmount ? String(body.feeAmount) : null;
+  const totalDebitedRaw = body.totalDebited ? String(body.totalDebited) : null;
+
+  let derivedNetRaw: string | null = null;
+  let derivedAmountRaw: string | null = null;
+  if (totalEnteredRaw && feeAmountRaw) {
+    try {
+      const totalEntered = BigInt(totalEnteredRaw);
+      const feeAmount = BigInt(feeAmountRaw);
+      if (String(bodyFeeMode || "").toLowerCase() === "plusfee") {
+        derivedNetRaw = totalEntered.toString();
+        derivedAmountRaw = totalDebitedRaw ? String(totalDebitedRaw) : (totalEntered + feeAmount).toString();
+      } else {
+        derivedNetRaw = (totalEntered - feeAmount).toString();
+        derivedAmountRaw = totalEntered.toString();
+      }
+    } catch {
+      derivedNetRaw = null;
+      derivedAmountRaw = null;
+    }
+  }
+
+  const incomingMeta: Record<string, unknown> = {
+    ...(bodyRoute ? { route: bodyRoute } : {}),
+    ...(bodyMode ? { mode: bodyMode } : {}),
+    ...(bodyFeeMode ? { modeUsed: bodyFeeMode } : {}),
+    ...(totalEnteredRaw ? { totalEntered: totalEnteredRaw } : {}),
+    ...(totalDebitedRaw ? { totalDebited: totalDebitedRaw } : {}),
+    ...(feeAmountRaw ? { feeAmount: feeAmountRaw } : {}),
+  };
+  const mergedMeta = {
+    ...(existing?.meta && typeof existing.meta === "object" ? existing.meta : {}),
+    ...incomingMeta,
+    ...(recipientsInput ? { recipients: recipientsInput } : {}),
+  };
+
   let receiptResult: any = null;
   let receiptSource: "userOp" | "tx" | null = null;
 
@@ -353,25 +416,27 @@ Deno.serve(async (req) => {
       status: "PENDING",
       success: null,
       lane: existing?.lane ?? null,
-      fee_mode: existing?.fee_mode ?? null,
-      fee_token_mode: existing?.fee_token_mode ?? null,
-      token: existing?.token ?? null,
+      fee_mode: existing?.fee_mode ?? bodyFeeMode ?? null,
+      fee_token_mode: existing?.fee_token_mode ?? (feeAmountRaw ? "same" : null),
+      token: existing?.token ?? bodyToken ?? null,
       to: existing?.to ?? null,
       sender: existing?.sender ?? null,
-      owner_eoa: existing?.owner_eoa ?? null,
-      net_amount_raw: existing?.net_amount_raw ?? null,
-      fee_amount_raw: existing?.fee_amount_raw ?? null,
-      amount_raw: existing?.amount_raw ?? null,
+      owner_eoa: existing?.owner_eoa ?? bodyFrom ?? null,
+      net_amount_raw: existing?.net_amount_raw ?? derivedNetRaw ?? null,
+      fee_amount_raw: existing?.fee_amount_raw ?? feeAmountRaw ?? null,
+      amount_raw: existing?.amount_raw ?? derivedAmountRaw ?? totalDebitedRaw ?? null,
       fee_vault: feeVault || (existing?.fee_vault ?? null),
-      title: existing?.title ?? null,
+      title: existing?.title ?? (body.message ? String(body.message) : null),
       note: existing?.note ?? null,
-      reference_id: existing?.reference_id ?? null,
-      display_name: existing?.display_name ?? null,
-      reason: existing?.reason ?? null,
+      reference_id: existing?.reference_id ?? (body.referenceId ? String(body.referenceId) : null),
+      display_name: existing?.display_name ?? (body.name ? String(body.name) : null),
+      reason: existing?.reason ?? (body.reason ? String(body.reason) : null),
       created_by: existing?.created_by ?? null,
       token_symbol: existing?.token_symbol ?? null,
       token_decimals: existing?.token_decimals ?? null,
       raw: existing?.raw ?? null,
+      recipients_count: existing?.recipients_count ?? (recipientsInput ? recipientsInput.length : null),
+      meta: Object.keys(mergedMeta).length ? mergedMeta : existing?.meta ?? null,
     };
 
     if (existing?.id) {
@@ -584,25 +649,27 @@ Deno.serve(async (req) => {
     status,
     success,
     lane: existing?.lane ?? "RECEIPT_ONLY",
-    fee_mode: existing?.fee_mode ?? defaultFeeMode,
+    fee_mode: existing?.fee_mode ?? bodyFeeMode ?? defaultFeeMode,
     fee_token_mode: existing?.fee_token_mode ?? defaultFeeTokenMode,
     token: chosenToken,
     to: chosenRecipient,
     sender,
-    owner_eoa: existing?.owner_eoa ?? null,
+    owner_eoa: existing?.owner_eoa ?? bodyFrom ?? null,
     net_amount_raw: chosenToAmount.toString(),
-    fee_amount_raw: chosenFeeAmount.toString(),
+    fee_amount_raw: feeAmountRaw ?? chosenFeeAmount.toString(),
     amount_raw: amountRaw.toString(),
     fee_vault: feeVault || (existing?.fee_vault ?? null),
-    title: existing?.title ?? null,
+    title: existing?.title ?? (body.message ? String(body.message) : null),
     note: existing?.note ?? null,
-    reference_id: existing?.reference_id ?? null,
-    display_name: existing?.display_name ?? null,
-    reason: existing?.reason ?? null,
+    reference_id: existing?.reference_id ?? (body.referenceId ? String(body.referenceId) : null),
+    display_name: existing?.display_name ?? (body.name ? String(body.name) : null),
+    reason: existing?.reason ?? (body.reason ? String(body.reason) : null),
     created_by: existing?.created_by ?? null,
     token_symbol: tokenSymbol,
     token_decimals: tokenDecimals,
     raw: receiptResult,
+    recipients_count: existing?.recipients_count ?? (recipientsInput ? recipientsInput.length : null),
+    meta: Object.keys(mergedMeta).length ? mergedMeta : existing?.meta ?? null,
   };
 
   if (existing?.id) {

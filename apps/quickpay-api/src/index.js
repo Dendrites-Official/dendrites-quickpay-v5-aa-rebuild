@@ -1234,7 +1234,7 @@ app.post("/sendBulk", async (request, reply) => {
       return reply.send({ reqId, ...result });
     }
 
-    const feeModeLabel = result?.modeUsed ?? amountMode ?? "net";
+    const feeModeLabel = result?.modeUsed ?? amountMode ?? "plusFee";
     const receiptId = generateReceiptId();
 
     const recipientAmounts = Array.isArray(result?.recipientAmounts) ? result.recipientAmounts : null;

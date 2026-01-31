@@ -159,6 +159,8 @@ export default function ReceiptsList() {
               const to = item.to ?? "";
               const sender = item.sender ?? "";
               const receiptId = item.receipt_id ?? "";
+              const recipientsCount = item.recipients_count ?? (Array.isArray(item.meta?.recipients) ? item.meta.recipients.length : null);
+              const isBulk = Number(recipientsCount ?? 0) > 1;
               return (
                 <tr
                   key={item.id ?? receiptId}
@@ -176,27 +178,33 @@ export default function ReceiptsList() {
                   <td style={{ padding: 8 }}>{formatAmount(item.net_amount_raw, decimals, symbol)}</td>
                   <td style={{ padding: 8 }}>{formatAmount(item.fee_amount_raw, decimals, symbol)}</td>
                   <td style={{ padding: 8 }}>
-                    {shorten(to)}
-                    {to ? (
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            copy(to);
-                          }}
-                        >
-                          Copy
-                        </button>
-                        <a
-                          href={`https://sepolia.basescan.org/address/${to}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          BaseScan
-                        </a>
-                      </div>
-                    ) : null}
+                    {isBulk ? (
+                      <span>Bulk ({recipientsCount})</span>
+                    ) : (
+                      <>
+                        {shorten(to)}
+                        {to ? (
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                copy(to);
+                              }}
+                            >
+                              Copy
+                            </button>
+                            <a
+                              href={`https://sepolia.basescan.org/address/${to}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              BaseScan
+                            </a>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </td>
                   <td style={{ padding: 8 }}>
                     {shorten(sender)}
