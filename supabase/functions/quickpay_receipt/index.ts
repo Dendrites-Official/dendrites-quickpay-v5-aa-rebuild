@@ -348,6 +348,7 @@ Deno.serve(async (req) => {
   const bodyFeeMode = body.feeMode ? String(body.feeMode) : null;
   const bodyMode = body.mode ? String(body.mode) : null;
   const bodyRoute = body.route ? String(body.route) : null;
+  const bodyTo = body.to ? String(body.to).toLowerCase() : null;
   const recipientsInput = Array.isArray(body.recipients)
     ? body.recipients.map((entry) => ({
         to: entry?.to ? String(entry.to).toLowerCase() : null,
@@ -421,7 +422,7 @@ Deno.serve(async (req) => {
       fee_mode: existing?.fee_mode ?? bodyFeeMode ?? null,
       fee_token_mode: existing?.fee_token_mode ?? (isSponsoredZeroFee ? "sponsored" : (feeAmountRaw ? "same" : null)),
       token: existing?.token ?? bodyToken ?? null,
-      to: existing?.to ?? null,
+      to: existing?.to ?? bodyTo ?? recipientsInput?.[0]?.to ?? null,
       sender: existing?.sender ?? null,
       owner_eoa: existing?.owner_eoa ?? bodyFrom ?? null,
       net_amount_raw: existing?.net_amount_raw ?? derivedNetRaw ?? null,
@@ -511,7 +512,7 @@ Deno.serve(async (req) => {
   }
 
   const preferredToken = existing?.token ? String(existing.token).toLowerCase() : null;
-  const preferredRecipient = existing?.to ? String(existing.to).toLowerCase() : null;
+  const preferredRecipient = existing?.to ? String(existing.to).toLowerCase() : (bodyTo ?? recipientsInput?.[0]?.to ?? null);
   const preferredOwner = existing?.owner_eoa ? String(existing.owner_eoa).toLowerCase() : null;
 
   const detectPullHub = (source: Transfer[]) => {
@@ -654,7 +655,7 @@ Deno.serve(async (req) => {
     fee_mode: existing?.fee_mode ?? bodyFeeMode ?? defaultFeeMode,
     fee_token_mode: existing?.fee_token_mode ?? defaultFeeTokenMode,
     token: chosenToken,
-    to: chosenRecipient,
+    to: chosenRecipient ?? existing?.to ?? bodyTo ?? recipientsInput?.[0]?.to ?? null,
     sender,
     owner_eoa: existing?.owner_eoa ?? bodyFrom ?? null,
     net_amount_raw: chosenToAmount.toString(),
