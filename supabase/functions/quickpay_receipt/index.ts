@@ -640,7 +640,8 @@ Deno.serve(async (req) => {
       ? receiptResult?.sender ?? receiptResult?.receipt?.sender ?? receiptResult?.receipt?.from ?? null
       : receiptResult?.from ?? null;
 
-  const status = success === false ? "FAILED" : "CONFIRMED";
+  const isAcklinkCreate = String(bodyRoute || existing?.meta?.route || "").toLowerCase() === "acklink_create";
+  const status = success === false ? "FAILED" : (isAcklinkCreate ? "PENDING" : "CONFIRMED");
   const defaultFeeMode = chosenFeeAmount > 0n ? "eco" : "unknown";
   const defaultFeeTokenMode = chosenFeeAmount > 0n ? "same" : (isSponsoredZeroFee ? "sponsored" : null);
 
@@ -650,7 +651,7 @@ Deno.serve(async (req) => {
     userop_hash: userOpHash ?? null,
     tx_hash: resolvedTxHash ?? null,
     status,
-    success,
+    success: isAcklinkCreate ? null : success,
     lane: existing?.lane ?? "RECEIPT_ONLY",
     fee_mode: existing?.fee_mode ?? bodyFeeMode ?? defaultFeeMode,
     fee_token_mode: existing?.fee_token_mode ?? defaultFeeTokenMode,

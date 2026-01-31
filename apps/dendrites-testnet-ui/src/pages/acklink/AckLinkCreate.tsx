@@ -35,6 +35,7 @@ export default function AckLinkCreate() {
   const [balanceError, setBalanceError] = useState("");
   const [result, setResult] = useState<CreateResult | null>(null);
   const [feeQuoteUsdc6, setFeeQuoteUsdc6] = useState<bigint | null>(null);
+  const [quoteVault, setQuoteVault] = useState<string | null>(null);
 
   const feeUsdc6 = speed === "eco" ? 200000n : 300000n;
 
@@ -65,6 +66,8 @@ export default function AckLinkCreate() {
         if (cancelled) return;
         const fee = BigInt(quote?.feeUsdc6 ?? feeUsdc6);
         setFeeQuoteUsdc6(fee);
+        const vaultFromQuote = String(quote?.acklinkVault ?? "").trim();
+        setQuoteVault(vaultFromQuote && ethers.isAddress(vaultFromQuote) ? vaultFromQuote : null);
       } catch {
         if (!cancelled) setFeeQuoteUsdc6(null);
       }
@@ -163,7 +166,8 @@ export default function AckLinkCreate() {
       setError("Missing USDC address.");
       return;
     }
-    if (!ACKLINK_VAULT_ADDRESS || !ethers.isAddress(ACKLINK_VAULT_ADDRESS)) {
+    const resolvedVault = quoteVault && ethers.isAddress(quoteVault) ? quoteVault : ACKLINK_VAULT_ADDRESS;
+    if (!resolvedVault || !ethers.isAddress(resolvedVault)) {
       setError("Missing AckLink vault address.");
       return;
     }
@@ -240,7 +244,7 @@ export default function AckLinkCreate() {
         primaryType: "TransferWithAuthorization",
         message: {
           from: senderLower,
-          to: ACKLINK_VAULT_ADDRESS,
+          to: resolvedVault,
           value: totalUsdc6,
           validAfter: BigInt(validAfter),
           validBefore: BigInt(validBefore),
