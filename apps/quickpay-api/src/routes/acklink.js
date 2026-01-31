@@ -2,6 +2,9 @@ import { Contract, JsonRpcProvider, isAddress, ethers } from "ethers";
 import { sendAcklinkSponsored } from "../core/acklinkSponsored.js";
 
 const ACKLINK_NONCE_ABI = ["function nonces(address sender) view returns (uint256)"];
+const ACKLINK_LINK_ABI = [
+  "function links(bytes32 linkId) view returns (address sender,uint256 amount,uint64 createdAt,uint64 expiresAt,bool claimed,bool refunded,bytes32 metaHash,bytes32 codeHash)",
+];
 const USDC_BALANCE_ABI = ["function balanceOf(address owner) view returns (uint256)"];
 const PAYMASTER_QUOTE_ABI = [
   "function quoteFeeUsd6(address payer,uint8 mode,uint8 speed,uint256 nowTs) view returns (uint256,uint256,uint256,uint256,uint256,bool)",
@@ -594,6 +597,27 @@ export function registerAckLinkRoutes(app, {
             ownerEoa: claimer,
           });
 
+          const provider = new JsonRpcProvider(resolvedRpcUrl);
+          const acklinkContract = new Contract(acklinkVault, ACKLINK_LINK_ABI, provider);
+          const onchainLink = await withTimeout(acklinkContract.links(linkId), getRpcTimeoutMs(), {
+            code: "RPC_TIMEOUT",
+            status: 504,
+            where: "acklink.link",
+            message: "RPC timeout",
+          });
+          if (!onchainLink || !onchainLink.sender || String(onchainLink.sender).toLowerCase() === "0x0000000000000000000000000000000000000000") {
+            return reply.code(400).send({ ok: false, code: "LINK_NOT_ONCHAIN", reqId });
+          }
+          if (onchainLink.claimed) {
+            return reply.code(400).send({ ok: false, code: "ALREADY_CLAIMED", reqId });
+          }
+          if (onchainLink.refunded) {
+            return reply.code(400).send({ ok: false, code: "ALREADY_REFUNDED", reqId });
+          }
+          if (onchainLink.expiresAt && Number(onchainLink.expiresAt) * 1000 <= Date.now()) {
+            return reply.code(400).send({ ok: false, code: "EXPIRED", reqId });
+          }
+
           const laneResult = await sendAcklinkSponsored({
             action: "CLAIM",
             chainId,
@@ -621,7 +645,6 @@ export function registerAckLinkRoutes(app, {
             return reply.code(202).send({ ok: false, code: "PENDING", reqId, userOpHash });
           }
 
-          const provider = new JsonRpcProvider(resolvedRpcUrl);
           const txReceipt = await withTimeout(provider.waitForTransaction(txHash, 1, getRpcTimeoutMs()), getRpcTimeoutMs(), {
             code: "RPC_TIMEOUT",
             status: 504,
@@ -802,6 +825,27 @@ export function registerAckLinkRoutes(app, {
             factorySource: "env.FACTORY",
             ownerEoa: requester,
           });
+
+          const provider = new JsonRpcProvider(resolvedRpcUrl);
+          const acklinkContract = new Contract(acklinkVault, ACKLINK_LINK_ABI, provider);
+          const onchainLink = await withTimeout(acklinkContract.links(linkId), getRpcTimeoutMs(), {
+            code: "RPC_TIMEOUT",
+            status: 504,
+            where: "acklink.link",
+            message: "RPC timeout",
+          });
+          if (!onchainLink || !onchainLink.sender || String(onchainLink.sender).toLowerCase() === "0x0000000000000000000000000000000000000000") {
+            return reply.code(400).send({ ok: false, code: "LINK_NOT_ONCHAIN", reqId });
+          }
+          if (onchainLink.claimed) {
+            return reply.code(400).send({ ok: false, code: "ALREADY_CLAIMED", reqId });
+          }
+          if (onchainLink.refunded) {
+            return reply.code(400).send({ ok: false, code: "ALREADY_REFUNDED", reqId });
+          }
+          if (!onchainLink.expiresAt || Number(onchainLink.expiresAt) * 1000 > Date.now()) {
+            return reply.code(400).send({ ok: false, code: "NOT_EXPIRED", reqId });
+          }
 
           const laneResult = await sendAcklinkSponsored({
             action: "REFUND",
