@@ -189,13 +189,14 @@ async function main() {
     const expiresAt = BigInt(requireEnv("EXPIRES_AT"));
     const metaHash = requireEnv("META_HASH");
 
+    const approveCallData = tokenIface.encodeFunctionData("approve", [acklinkVault, amount]);
     const feeCallData = tokenIface.encodeFunctionData("transfer", [feeVault, feeUsdc6]);
     const createCallData = ackIface.encodeFunctionData("createLink", [amount, expiresAt, metaHash]);
 
     callData = accountIface.encodeFunctionData("executeBatch", [
-      [usdc, acklinkVault],
-      [0n, 0n],
-      [feeCallData, createCallData],
+      [usdc, usdc, acklinkVault],
+      [0n, 0n, 0n],
+      [approveCallData, feeCallData, createCallData],
     ]);
 
     feeUsd6 = feeUsdc6;

@@ -140,7 +140,14 @@ export function registerAckLinkRoutes(app, {
 
           const provider = new JsonRpcProvider(resolvedRpcUrl);
           const erc20 = new Contract(usdc, ERC20_BALANCE_ABI, provider);
-          const balance = await withTimeout(erc20.balanceOf(from), getRpcTimeoutMs(), {
+          const eoaBalance = await withTimeout(erc20.balanceOf(from), getRpcTimeoutMs(), {
+            code: "RPC_TIMEOUT",
+            status: 504,
+            where: "acklink.balance",
+            message: "RPC timeout",
+          });
+
+          const smartBalance = await withTimeout(erc20.balanceOf(smart.sender), getRpcTimeoutMs(), {
             code: "RPC_TIMEOUT",
             status: 504,
             where: "acklink.balance",
@@ -148,12 +155,23 @@ export function registerAckLinkRoutes(app, {
           });
 
           const totalNeeded = amountUsdc6 + feeUsdc6;
-          if (BigInt(balance ?? 0n) < totalNeeded) {
+          if (BigInt(eoaBalance ?? 0n) < totalNeeded) {
             return reply.code(400).send({
               ok: false,
-              code: "INSUFFICIENT_BALANCE",
+              code: "INSUFFICIENT_BALANCE_EOA",
               needUsdc6: totalNeeded.toString(),
-              haveUsdc6: String(balance ?? 0),
+              haveUsdc6: String(eoaBalance ?? 0),
+              reqId,
+            });
+          }
+
+          if (BigInt(smartBalance ?? 0n) < totalNeeded) {
+            return reply.code(400).send({
+              ok: false,
+              code: "INSUFFICIENT_BALANCE_SMART",
+              needUsdc6: totalNeeded.toString(),
+              haveUsdc6: String(smartBalance ?? 0),
+              smartAccount: String(smart.sender),
               reqId,
             });
           }
