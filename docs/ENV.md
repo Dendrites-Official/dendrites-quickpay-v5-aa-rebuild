@@ -28,6 +28,8 @@ Admin routes under /admin are protected by HTTP Basic Auth (ADMIN_USER/ADMIN_PAS
 | ROUTER | ✅ | QuickPay router | 0x... |
 | PERMIT2 | ✅ | Permit2 address | 0x... |
 | FEEVAULT | ✅ | FeeVault address | 0x... |
+| ROUTER_BULK | Optional | Bulk router (v2) | 0x... |
+| PAYMASTER_BULK | Optional | Bulk paymaster (v2) | 0x... |
 | ENTRYPOINT | Optional | ERC-4337 entry point | 0x... |
 | EIP3009_TOKENS | Optional | Comma-separated tokens | 0x...,0x... |
 | EIP2612_TOKENS | Optional | Comma-separated tokens | 0x...,0x... |
@@ -46,6 +48,10 @@ Admin routes under /admin are protected by HTTP Basic Auth (ADMIN_USER/ADMIN_PAS
 | ADMIN_KEY | ✅ | Internal key for snapshot writes (server-only) | <ADMIN_KEY> |
 | SNAPSHOT_TOKENS | Optional | CSV tokens for FeeVault balances | 0x...,0x... |
 | ALERT_LOW_DEPOSIT_WEI | Optional | Alert threshold for paymaster deposit | 100000000000000000 |
+| BULK_MAX_RECIPIENTS | Optional | Max bulk recipients (default 25) | 25 |
+| BULK_TIMEOUT_MS | Optional | Bulk lane timeout (ms, default 30000) | 30000 |
+| RATE_LIMIT_BULK_IP | Optional | Bulk IP rate limit (per window) | 30 |
+| RATE_LIMIT_BULK_WALLET | Optional | Bulk wallet rate limit (per window) | 10 |
 
 ## API (Railway) — Faucet (if enabled)
 

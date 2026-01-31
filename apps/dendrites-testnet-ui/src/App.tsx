@@ -8,12 +8,14 @@ import NonceRescue from "./pages/NonceRescue";
 import WalletHealth from "./pages/WalletHealth";
 import WalletQA from "./pages/WalletQA";
 import AdminDashboard from "./pages/AdminDashboard";
+import BulkPay from "./pages/BulkPay";
 import WalletButton from "./components/WalletButton";
 
 function Nav() {
   return (
     <div style={{ display: "flex", gap: 12, padding: 16, borderBottom: "1px solid #333", alignItems: "center" }}>
       <Link to="/quickpay">QuickPay</Link>
+      <Link to="/bulk">Bulk Pay</Link>
       <Link to="/receipts">Receipts</Link>
       <Link to="/faucet">Faucet</Link>
       <Link to="/tx-queue">Tx Queue</Link>
@@ -33,6 +35,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/quickpay" replace />} />
         <Route path="/quickpay" element={<QuickPay />} />
+        <Route path="/bulk" element={<BulkPay />} />
         <Route path="/receipts" element={<ReceiptsList />} />
         <Route path="/receipts/:id" element={<Receipts />} />
         <Route path="/r/:id" element={<Receipts />} />

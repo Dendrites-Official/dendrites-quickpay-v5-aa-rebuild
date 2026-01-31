@@ -229,10 +229,16 @@ contract QuickPayV5Paymaster is BasePaymaster {
                 "sendERC20EIP3009Sponsored(address,address,address,uint256,address,uint256,address,uint256,uint256,bytes32,uint8,bytes32,bytes32)"
             )
         );
+        bytes4 SEL_BULK_EIP3009 = bytes4(
+            keccak256(
+                "bulkSendUSDCWithAuthorization(address,address,address[],uint256[],uint256,bytes32,uint256,uint256,bytes32,bytes)"
+            )
+        );
 
         require(
             innerSelector == SEL_SEND_ERC20 || innerSelector == SEL_SEND_ERC20_PERMIT2
-                || innerSelector == SEL_SEND_ERC20_EIP2612 || innerSelector == SEL_SEND_ERC20_EIP3009,
+                || innerSelector == SEL_SEND_ERC20_EIP2612 || innerSelector == SEL_SEND_ERC20_EIP3009
+                || innerSelector == SEL_BULK_EIP3009,
             "Paymaster: invalid router method"
         );
 
@@ -240,6 +246,9 @@ contract QuickPayV5Paymaster is BasePaymaster {
         address to;
         address feeTokenInCall;
         address owner;
+        bool isBulk = false;
+        address[] memory bulkRecipients;
+        uint256[] memory bulkAmounts;
 
         if (innerSelector == SEL_SEND_ERC20_EIP3009) {
             uint256 validAfter;
@@ -268,6 +277,45 @@ contract QuickPayV5Paymaster is BasePaymaster {
                 s := mload(add(dataPtr, 388))
             }
             require(from == owner, "QuickPayV5Paymaster: from!=owner");
+        } else if (innerSelector == SEL_BULK_EIP3009) {
+            uint256 feeAmount;
+            bytes32 referenceId;
+            uint256 validAfter;
+            uint256 validBefore;
+            bytes32 nonce;
+            bytes memory sig;
+            bytes memory funcParams = new bytes(func.length - 4);
+            assembly {
+                let len := sub(mload(func), 4)
+                let src := add(func, 0x24)
+                let dst := add(funcParams, 0x20)
+                for { let i := 0 } lt(i, len) { i := add(i, 0x20) } { mstore(add(dst, i), mload(add(src, i))) }
+            }
+            (from, token, bulkRecipients, bulkAmounts, feeAmount, referenceId, validAfter, validBefore, nonce, sig) =
+                abi.decode(
+                    funcParams,
+                    (address, address, address[], uint256[], uint256, bytes32, uint256, uint256, bytes32, bytes)
+                );
+            referenceId;
+            validAfter;
+            validBefore;
+            nonce;
+            sig;
+            feeTokenInCall = token;
+            finalFee = feeAmount;
+            isBulk = true;
+
+            require(bulkRecipients.length > 0, "QuickPayV5Paymaster: empty recipients");
+            require(bulkRecipients.length == bulkAmounts.length, "QuickPayV5Paymaster: bad recipients");
+
+            uint256 totalNet = 0;
+            for (uint256 i = 0; i < bulkAmounts.length; i++) {
+                require(bulkRecipients[i] != address(0), "QuickPayV5Paymaster: to=0");
+                require(bulkAmounts[i] > 0, "QuickPayV5Paymaster: amount=0");
+                totalNet += bulkAmounts[i];
+            }
+            amount = totalNet + feeAmount;
+            to = bulkRecipients[0];
         } else if (innerSelector == SEL_SEND_ERC20_EIP2612) {
             uint256 permitDeadline;
             uint8 v;
@@ -313,7 +361,9 @@ contract QuickPayV5Paymaster is BasePaymaster {
             }
         }
         require(token != address(0), "QuickPayV5Paymaster: token=0");
-        require(to != address(0), "QuickPayV5Paymaster: to=0");
+        if (!isBulk) {
+            require(to != address(0), "QuickPayV5Paymaster: to=0");
+        }
         require(amount > 0, "QuickPayV5Paymaster: amount=0");
         require(feeTokenInCall == expectedFeeToken, "QuickPayV5Paymaster: feeToken mismatch");
     }

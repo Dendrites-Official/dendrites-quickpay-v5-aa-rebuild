@@ -3,8 +3,22 @@ import { Link } from "react-router-dom";
 import { formatUnits } from "ethers";
 import { supabase } from "../lib/supabaseClient";
 
-const USDC_ADDRESS = String(import.meta.env.VITE_USDC_ADDRESS ?? "").trim().toLowerCase();
-const MDNDX_ADDRESS = String(import.meta.env.VITE_MDNDX_ADDRESS ?? "").trim().toLowerCase();
+const USDC_ADDRESS = String(import.meta.env.VITE_USDC_ADDRESS ?? import.meta.env.VITE_USDC ?? "")
+  .trim()
+  .toLowerCase();
+const MDNDX_ADDRESS = String(import.meta.env.VITE_MDNDX_ADDRESS ?? import.meta.env.VITE_MDNDX ?? "")
+  .trim()
+  .toLowerCase();
+const WETH_ADDRESS = String(import.meta.env.VITE_WETH_ADDRESS ?? "0x4200000000000000000000000000000000000006")
+  .trim()
+  .toLowerCase();
+const ENTRYPOINT_ADDRESS = String(import.meta.env.VITE_ENTRYPOINT ?? import.meta.env.VITE_ENTRYPOINT_ADDRESS ?? "").trim();
+const PAYMASTER_ADDRESS = String(import.meta.env.VITE_PAYMASTER ?? import.meta.env.VITE_PAYMASTER_ADDRESS ?? "").trim();
+const ROUTER_ADDRESS = String(import.meta.env.VITE_ROUTER ?? "").trim();
+const FACTORY_ADDRESS = String(import.meta.env.VITE_FACTORY ?? "").trim();
+const FEEVAULT_ADDRESS = String(import.meta.env.VITE_FEEVAULT ?? "").trim();
+const PERMIT2_ADDRESS = String(import.meta.env.VITE_PERMIT2 ?? "").trim();
+const ADMIN_LOGIN_URL = String(import.meta.env.VITE_RAILWAY_ADMIN_URL ?? "https://dendrites-quickpay-v5-aa-rebuild-production.up.railway.app/admin").trim();
 const MAX_SAMPLE = 10000;
 const ADMIN_UI_KEY = String(import.meta.env.VITE_ADMIN_UI_KEY ?? "").trim();
 
@@ -15,6 +29,14 @@ type Metrics = {
   p95: number | null;
   topErrors: Array<{ code: string; count: number }>;
   sampled: boolean;
+  txTotal: number;
+  txConfirmed: number;
+  txPending: number;
+  txFailed: number;
+  txTotalAll: number;
+  txConfirmedAll: number;
+  txPendingAll: number;
+  txFailedAll: number;
 };
 
 type Snapshot = {
@@ -41,6 +63,28 @@ function formatBalance(value: string | null, decimals?: number) {
   }
 }
 
+function formatTokenBalance(value: string | null, token: string, decimalsMap: Map<string, number>) {
+  const lower = token.toLowerCase();
+  const decimals = decimalsMap.get(lower);
+  const raw = formatBalance(value, decimals);
+  if (raw === "n/a") return raw;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return raw;
+
+  if (lower === USDC_ADDRESS) {
+    return `$${numeric.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return numeric.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
+function formatTokenLabel(token: string) {
+  const lower = token.toLowerCase();
+  if (lower === USDC_ADDRESS) return "USDC";
+  if (lower === MDNDX_ADDRESS) return "mDNDX";
+  if (lower === WETH_ADDRESS) return "WETH";
+  return token;
+}
+
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
@@ -53,6 +97,7 @@ export default function AdminDashboard() {
     const map = new Map<string, number>();
     if (USDC_ADDRESS) map.set(USDC_ADDRESS, 6);
     if (MDNDX_ADDRESS) map.set(MDNDX_ADDRESS, 18);
+    if (WETH_ADDRESS) map.set(WETH_ADDRESS, 18);
     return map;
   }, []);
 
@@ -112,6 +157,56 @@ export default function AdminDashboard() {
         .maybeSingle();
       if (snapError) throw snapError;
 
+      const txTotalRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", since);
+      if (txTotalRes.error) throw txTotalRes.error;
+
+      const txConfirmedRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", since)
+        .in("status", ["CONFIRMED", "confirmed"]);
+      if (txConfirmedRes.error) throw txConfirmedRes.error;
+
+      const txPendingRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", since)
+        .in("status", ["created", "sending", "pending", "PENDING"]);
+      if (txPendingRes.error) throw txPendingRes.error;
+
+      const txFailedRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", since)
+        .in("status", ["FAILED", "failed"]);
+      if (txFailedRes.error) throw txFailedRes.error;
+
+      const txTotalAllRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true });
+      if (txTotalAllRes.error) throw txTotalAllRes.error;
+
+      const txConfirmedAllRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["CONFIRMED", "confirmed"]);
+      if (txConfirmedAllRes.error) throw txConfirmedAllRes.error;
+
+      const txPendingAllRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["created", "sending", "pending", "PENDING"]);
+      if (txPendingAllRes.error) throw txPendingAllRes.error;
+
+      const txFailedAllRes = await supabase
+        .from("quickpay_receipts")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["FAILED", "failed"]);
+      if (txFailedAllRes.error) throw txFailedAllRes.error;
+
       setMetrics({
         total,
         successRate: total ? success / total : 0,
@@ -119,6 +214,14 @@ export default function AdminDashboard() {
         p95: p95 ?? null,
         topErrors,
         sampled: total > MAX_SAMPLE,
+        txTotal: txTotalRes.count ?? 0,
+        txConfirmed: txConfirmedRes.count ?? 0,
+        txPending: txPendingRes.count ?? 0,
+        txFailed: txFailedRes.count ?? 0,
+        txTotalAll: txTotalAllRes.count ?? 0,
+        txConfirmedAll: txConfirmedAllRes.count ?? 0,
+        txPendingAll: txPendingAllRes.count ?? 0,
+        txFailedAll: txFailedAllRes.count ?? 0,
       });
       setSnapshot((snap as Snapshot) ?? null);
       setLastUpdated(new Date().toISOString());
@@ -200,6 +303,44 @@ export default function AdminDashboard() {
         </div>
       </section>
 
+      <section style={{ marginTop: 12, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Tx Total (24h)</div>
+          <div style={{ fontSize: 24 }}>{metrics?.txTotal ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Tx Confirmed (24h)</div>
+          <div style={{ fontSize: 24 }}>{metrics?.txConfirmed ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Tx Pending (24h)</div>
+          <div style={{ fontSize: 24 }}>{metrics?.txPending ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Tx Failed (24h)</div>
+          <div style={{ fontSize: 24 }}>{metrics?.txFailed ?? "-"}</div>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 12, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Tx Total (All)</div>
+          <div style={{ fontSize: 24 }}>{metrics?.txTotalAll ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Tx Confirmed (All)</div>
+          <div style={{ fontSize: 24 }}>{metrics?.txConfirmedAll ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Tx Pending (All)</div>
+          <div style={{ fontSize: 24 }}>{metrics?.txPendingAll ?? "-"}</div>
+        </div>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ color: "#888" }}>Tx Failed (All)</div>
+          <div style={{ fontSize: 24 }}>{metrics?.txFailedAll ?? "-"}</div>
+        </div>
+      </section>
+
       {metrics?.sampled && (
         <div style={{ marginTop: 8, color: "#777" }}>
           Showing metrics from the latest {MAX_SAMPLE.toLocaleString()} rows (sampling in effect).
@@ -245,9 +386,9 @@ export default function AdminDashboard() {
                 {snapshot?.fee_vault_balances && Object.keys(snapshot.fee_vault_balances).length ? (
                   Object.entries(snapshot.fee_vault_balances).map(([token, value]) => (
                     <tr key={token}>
-                      <td style={{ padding: "4px 0", fontSize: 12 }}>{token}</td>
+                      <td style={{ padding: "4px 0", fontSize: 12 }}>{formatTokenLabel(token)}</td>
                       <td style={{ padding: "4px 0", textAlign: "right" }}>
-                        {formatBalance(value, tokenDecimals.get(token))}
+                        {formatTokenBalance(value, token, tokenDecimals)}
                       </td>
                     </tr>
                   ))
@@ -259,6 +400,43 @@ export default function AdminDashboard() {
               </tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <div style={{ padding: 16, borderRadius: 8, border: "1px solid #333", background: "#121212" }}>
+          <div style={{ marginBottom: 8, color: "#888" }}>Contract Addresses</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {[
+                ["EntryPoint", ENTRYPOINT_ADDRESS],
+                ["Paymaster", PAYMASTER_ADDRESS],
+                ["Router", ROUTER_ADDRESS],
+                ["Factory", FACTORY_ADDRESS],
+                ["FeeVault", FEEVAULT_ADDRESS],
+                ["Permit2", PERMIT2_ADDRESS],
+                ["USDC", USDC_ADDRESS],
+                ["mDNDX", MDNDX_ADDRESS],
+                ["WETH", WETH_ADDRESS],
+              ]
+                .filter(([, value]) => Boolean(value))
+                .map(([label, value]) => (
+                  <tr key={label}>
+                    <td style={{ padding: "6px 0", color: "#888", width: 140 }}>{label}</td>
+                    <td style={{ padding: "6px 0", fontSize: 12 }}>{value}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 12 }}>
+        <div style={{ padding: 12, borderRadius: 8, border: "1px solid #333", background: "#121212", fontSize: 12 }}>
+          <span style={{ color: "#888" }}>Railway Admin Login:</span>{" "}
+          <a href={ADMIN_LOGIN_URL} target="_blank" rel="noreferrer">
+            {ADMIN_LOGIN_URL}
+          </a>
         </div>
       </section>
 

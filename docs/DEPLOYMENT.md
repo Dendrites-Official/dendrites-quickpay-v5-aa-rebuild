@@ -19,6 +19,8 @@
 - ROUTER
 - PERMIT2
 - FEEVAULT
+- ROUTER_BULK
+- PAYMASTER_BULK
 - SUPABASE_URL
 - SUPABASE_SERVICE_ROLE_KEY
 
@@ -62,3 +64,8 @@
 ## Redeploy + verify
 - Trigger a Railway deploy (push to tracked branch or redeploy in Railway UI).
 - Verify: `GET /health` and `POST /quote` on the Railway URL.
+
+## Bulk V2 (Railway)
+- Add ROUTER_BULK=0xb982dDd62E023C52Bd94573Af8563604748d2d3f
+- Add PAYMASTER_BULK=0xEDb99932F5B4061dE3139aeDa74f9D8E4360Bfbd
+- Redeploy Railway after adding variables.

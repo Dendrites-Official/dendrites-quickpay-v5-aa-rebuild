@@ -36,6 +36,8 @@ interface IERC20Permit {
 contract QuickPayV5Router is Ownable {
     using SafeERC20 for IERC20;
 
+    uint256 public constant MAX_BULK_RECIPIENTS = 25;
+
     FeeVault public feeVault;
     IAllowanceTransfer public permit2;
     address public stipendSigner;
@@ -57,6 +59,17 @@ contract QuickPayV5Router is Ownable {
         uint256 finalFee,
         address to
     );
+
+    event BulkReceipt(
+        address indexed from,
+        address indexed token,
+        uint256 totalNet,
+        uint256 feeAmount,
+        bytes32 indexed referenceId,
+        uint256 recipientCount
+    );
+
+    event BulkItem(bytes32 indexed referenceId, address indexed to, uint256 amount);
 
     constructor(address _feeVault) Ownable(msg.sender) {
         require(_feeVault != address(0), "QuickPayV5Router: feeVault=0");
@@ -245,6 +258,62 @@ contract QuickPayV5Router is Ownable {
         emit FinalFeeComputed(from, token, feeToken, amount, finalFee, to);
     }
 
+    function bulkSendUSDCWithAuthorization(
+        address from,
+        address token,
+        address[] calldata recipients,
+        uint256[] calldata amounts,
+        uint256 feeAmount,
+        bytes32 referenceId,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        bytes calldata signature
+    ) external {
+        require(tokenAllowed[token] == true, "QuickPayV5Router: token not allowed");
+        require(recipients.length > 0, "QuickPayV5Router: empty recipients");
+        require(recipients.length == amounts.length, "QuickPayV5Router: bad recipients");
+        require(recipients.length <= MAX_BULK_RECIPIENTS, "QuickPayV5Router: too many recipients");
+        require(from != address(0), "QuickPayV5Router: from=0");
+        require(ISimpleAccountOwner(msg.sender).owner() == from, "QuickPayV5Router: caller not owner AA");
+
+        uint256 totalNet = 0;
+        for (uint256 i = 0; i < recipients.length; i++) {
+            address to = recipients[i];
+            uint256 amt = amounts[i];
+            require(to != address(0), "QuickPayV5Router: to=0");
+            require(amt > 0, "QuickPayV5Router: amount=0");
+            totalNet += amt;
+        }
+
+        uint256 total = totalNet + feeAmount;
+        require(total > 0, "QuickPayV5Router: total=0");
+
+        (uint8 v, bytes32 r, bytes32 s) = _splitSignature(signature);
+
+        IERC3009(token).receiveWithAuthorization(
+            from,
+            address(this),
+            total,
+            validAfter,
+            validBefore,
+            nonce,
+            v,
+            r,
+            s
+        );
+
+        for (uint256 i = 0; i < recipients.length; i++) {
+            IERC20(token).safeTransfer(recipients[i], amounts[i]);
+            emit BulkItem(referenceId, recipients[i], amounts[i]);
+        }
+        if (feeAmount > 0) {
+            IERC20(token).safeTransfer(address(feeVault), feeAmount);
+        }
+
+        emit BulkReceipt(from, token, totalNet, feeAmount, referenceId, recipients.length);
+    }
+
     function sendERC20EIP2612Sponsored(
         address from,
         address token,
@@ -309,5 +378,15 @@ contract QuickPayV5Router is Ownable {
         require(ok, "QuickPayV5Router: stipend send failed");
 
         emit ActivationStipendSent(owner, token, stipendWei, voucherHash);
+    }
+
+    function _splitSignature(bytes calldata signature) internal pure returns (uint8 v, bytes32 r, bytes32 s) {
+        require(signature.length == 65, "QuickPayV5Router: bad sig");
+        assembly {
+            r := calldataload(signature.offset)
+            s := calldataload(add(signature.offset, 32))
+            v := byte(0, calldataload(add(signature.offset, 64)))
+        }
+        if (v < 27) v += 27;
     }
 }
