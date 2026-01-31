@@ -2,6 +2,7 @@ import { Contract, JsonRpcProvider, isAddress, ethers } from "ethers";
 import { sendAcklinkSponsored } from "../core/acklinkSponsored.js";
 
 const ACKLINK_NONCE_ABI = ["function nonces(address sender) view returns (uint256)"];
+const USDC_BALANCE_ABI = ["function balanceOf(address owner) view returns (uint256)"];
 const PAYMASTER_QUOTE_ABI = [
   "function quoteFeeUsd6(address payer,uint8 mode,uint8 speed,uint256 nowTs) view returns (uint256,uint256,uint256,uint256,uint256,bool)",
 ];
@@ -255,6 +256,14 @@ export function registerAckLinkRoutes(app, {
           }
 
           const provider = new JsonRpcProvider(resolvedRpcUrl);
+          const usdcContract = new Contract(usdc, USDC_BALANCE_ABI, provider);
+          const senderBalance = await withTimeout(usdcContract.balanceOf(from), getRpcTimeoutMs(), {
+            code: "RPC_TIMEOUT",
+            status: 504,
+            where: "acklink.balance",
+            message: "RPC timeout",
+          });
+
           const quotedFeeUsdc6 = await quoteAckFee({
             provider,
             paymaster,
@@ -265,6 +274,9 @@ export function registerAckLinkRoutes(app, {
           });
 
           const totalNeeded = amountUsdc6 + quotedFeeUsdc6;
+          if (BigInt(senderBalance ?? 0) < totalNeeded) {
+            return reply.code(400).send({ ok: false, code: "INSUFFICIENT_FUNDS", reqId });
+          }
           if (authValue !== totalNeeded) {
             return reply.code(400).send({ ok: false, code: "INVALID_AUTH", reqId });
           }
@@ -585,6 +597,21 @@ export function registerAckLinkRoutes(app, {
           const txHash = laneResult?.txHash ?? null;
           const userOpHash = laneResult?.userOpHash ?? null;
 
+          if (!txHash) {
+            return reply.code(202).send({ ok: false, code: "PENDING", reqId, userOpHash });
+          }
+
+          const provider = new JsonRpcProvider(resolvedRpcUrl);
+          const txReceipt = await withTimeout(provider.waitForTransaction(txHash, 1, getRpcTimeoutMs()), getRpcTimeoutMs(), {
+            code: "RPC_TIMEOUT",
+            status: 504,
+            where: "acklink.claimReceipt",
+            message: "RPC timeout",
+          });
+          if (!txReceipt || (txReceipt.status !== null && txReceipt.status !== undefined && txReceipt.status !== 1n && txReceipt.status !== 1)) {
+            return reply.code(400).send({ ok: false, code: "CLAIM_FAILED", reqId, txHash, userOpHash });
+          }
+
           await supabase
             .from("ack_links")
             .update({
@@ -613,6 +640,7 @@ export function registerAckLinkRoutes(app, {
             message: data.meta?.message ?? null,
             reason: data.meta?.reason ?? null,
             to: claimer,
+            recipients: [{ to: claimer, amount: String(data.amount_usdc6) }],
             route: "acklink_claim",
             meta: {
               kind: "AckLink Claimed",

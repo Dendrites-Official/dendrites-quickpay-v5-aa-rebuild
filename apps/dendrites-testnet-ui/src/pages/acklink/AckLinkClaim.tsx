@@ -2,9 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { ethers } from "ethers";
-import { acklinkGet, acklinkClaim, acklinkRefund, quickpayNoteSet } from "../../lib/api";
+import { acklinkGet, acklinkClaim, acklinkRefund } from "../../lib/api";
 
-const CHAIN_ID = 84532;
 const DECIMALS = 6;
 
 type AckLinkData = {
@@ -30,7 +29,6 @@ export default function AckLinkClaim() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
-  const [note, setNote] = useState("");
   const [code, setCode] = useState("");
   const [actionResult, setActionResult] = useState<{ txHash?: string; receiptId?: string } | null>(null);
 
@@ -82,9 +80,6 @@ export default function AckLinkClaim() {
     return `${value.slice(0, 6)}…${value.slice(-4)}`;
   };
 
-  const buildNoteMessage = (receiptIdValue: string, senderLower: string) =>
-    `Dendrites QuickPay Note v1\nAction: SET\nReceipt: ${receiptIdValue}\nSender: ${senderLower}\nChainId: ${CHAIN_ID}`;
-
   const runClaim = async () => {
     if (!address) {
       setError("Connect wallet first.");
@@ -114,23 +109,6 @@ export default function AckLinkClaim() {
           userOpSignature: sig,
           userOpDraft: result.userOpDraft,
         });
-      }
-
-      if (note.trim() && result?.receiptId) {
-        try {
-          const provider = new ethers.BrowserProvider((window as any).ethereum);
-          const signer = await provider.getSigner();
-          const signature = await signer.signMessage(buildNoteMessage(result.receiptId, address.toLowerCase()));
-          await quickpayNoteSet({
-            receiptId: result.receiptId,
-            sender: address.toLowerCase(),
-            note: note.trim(),
-            signature,
-            chainId: CHAIN_ID,
-          });
-        } catch {
-          // ignore note failure
-        }
       }
 
       setActionResult({ txHash: result?.txHash, receiptId: result?.receiptId });
@@ -214,15 +192,6 @@ export default function AckLinkClaim() {
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="Enter the code from the sender"
-            />
-          </label>
-          <label>
-            Private note (optional)
-            <textarea
-              style={{ width: "100%", padding: 8, minHeight: 70 }}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Saved privately after receipt is created"
             />
           </label>
           <button
