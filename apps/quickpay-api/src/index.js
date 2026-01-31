@@ -433,6 +433,8 @@ async function runSnapshot({ reqId, logger }) {
   const bundlerUrl = String(process.env.BUNDLER_URL || "").trim();
   const entryPoint = String(process.env.ENTRYPOINT || "").trim();
   const paymaster = String(process.env.PAYMASTER || "").trim();
+  const paymasterBulk = String(process.env.PAYMASTER_BULK || "").trim();
+  const routerBulk = String(process.env.ROUTER_BULK || "").trim();
   const feeVault = String(process.env.FEEVAULT || "").trim();
 
   if (!rpcUrl) {
@@ -445,6 +447,7 @@ async function runSnapshot({ reqId, logger }) {
   let rpc_ok = false;
   let bundler_ok = false;
   let paymaster_deposit_wei = null;
+  let paymaster_bulk_deposit_wei = null;
   const fee_vault_balances = {};
   let sponsorship_24h = null;
 
@@ -495,6 +498,22 @@ async function runSnapshot({ reqId, logger }) {
       paymaster_deposit_wei = String(deposit ?? "0");
     } catch {
       paymaster_deposit_wei = null;
+    }
+  }
+
+  if (entryPoint && paymasterBulk && isAddress(entryPoint) && isAddress(paymasterBulk)) {
+    try {
+      const entryAbi = ["function balanceOf(address) view returns (uint256)"];
+      const contract = new Contract(entryPoint, entryAbi, provider);
+      const deposit = await withTimeout(contract.balanceOf(paymasterBulk), getRpcTimeoutMs(), {
+        code: "RPC_TIMEOUT",
+        status: 504,
+        where: "snapshot.paymasterBulkDeposit",
+        message: "RPC timeout",
+      });
+      paymaster_bulk_deposit_wei = String(deposit ?? "0");
+    } catch {
+      paymaster_bulk_deposit_wei = null;
     }
   }
 
@@ -573,6 +592,9 @@ async function runSnapshot({ reqId, logger }) {
       paymaster_deposit_wei,
       fee_vault_balances,
       meta: {
+        paymaster_bulk_deposit_wei,
+        paymaster_bulk: paymasterBulk || null,
+        router_bulk: routerBulk || null,
         sponsorship_24h: sponsorship_24h ?? null,
       },
     });
@@ -585,6 +607,7 @@ async function runSnapshot({ reqId, logger }) {
     rpc_ok,
     bundler_ok,
     paymaster_deposit_wei,
+    paymaster_bulk_deposit_wei,
     fee_vault_balances,
     sponsorship_24h,
     reqId,

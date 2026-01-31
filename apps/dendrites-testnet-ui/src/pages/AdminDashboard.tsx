@@ -14,9 +14,13 @@ const WETH_ADDRESS = String(import.meta.env.VITE_WETH_ADDRESS ?? "0x420000000000
   .toLowerCase();
 const ENTRYPOINT_ADDRESS = String(import.meta.env.VITE_ENTRYPOINT ?? import.meta.env.VITE_ENTRYPOINT_ADDRESS ?? "").trim();
 const PAYMASTER_ADDRESS = String(import.meta.env.VITE_PAYMASTER ?? import.meta.env.VITE_PAYMASTER_ADDRESS ?? "").trim();
-const PAYMASTER_BULK_ADDRESS = String(import.meta.env.VITE_PAYMASTER_BULK ?? "").trim();
+const PAYMASTER_BULK_ADDRESS = String(
+  import.meta.env.VITE_PAYMASTER_BULK ?? import.meta.env.VITE_PAYMASTER_BULK_ADDRESS ?? ""
+).trim();
 const ROUTER_ADDRESS = String(import.meta.env.VITE_ROUTER ?? "").trim();
-const ROUTER_BULK_ADDRESS = String(import.meta.env.VITE_ROUTER_BULK ?? "").trim();
+const ROUTER_BULK_ADDRESS = String(
+  import.meta.env.VITE_ROUTER_BULK ?? import.meta.env.VITE_ROUTER_BULK_ADDRESS ?? ""
+).trim();
 const FACTORY_ADDRESS = String(import.meta.env.VITE_FACTORY ?? "").trim();
 const FEEVAULT_ADDRESS = String(import.meta.env.VITE_FEEVAULT ?? "").trim();
 const PERMIT2_ADDRESS = String(import.meta.env.VITE_PERMIT2 ?? "").trim();
@@ -42,9 +46,9 @@ type Metrics = {
 };
 
 type Snapshot = {
-                ["Paymaster (Bulk)", PAYMASTER_BULK_ADDRESS || String(snapshot?.meta?.paymaster_bulk ?? "")],
+  ts: string;
   chain_id: number;
-                ["Router (Bulk)", ROUTER_BULK_ADDRESS || String(snapshot?.meta?.router_bulk ?? "")],
+  paymaster_deposit_wei: string | null;
   fee_vault_balances: Record<string, string | null>;
   meta?: Record<string, any> | null;
 };
@@ -95,6 +99,15 @@ export default function AdminDashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  const resolvedPaymasterBulk = useMemo(
+    () => PAYMASTER_BULK_ADDRESS || String(snapshot?.meta?.paymaster_bulk ?? "").trim(),
+    [snapshot]
+  );
+  const resolvedRouterBulk = useMemo(
+    () => ROUTER_BULK_ADDRESS || String(snapshot?.meta?.router_bulk ?? "").trim(),
+    [snapshot]
+  );
 
   const tokenDecimals = useMemo(() => {
     const map = new Map<string, number>();
@@ -422,9 +435,9 @@ export default function AdminDashboard() {
               {[
                 ["EntryPoint", ENTRYPOINT_ADDRESS],
                 ["Paymaster", PAYMASTER_ADDRESS],
-                ["Paymaster (Bulk)", PAYMASTER_BULK_ADDRESS],
+                ["Paymaster (Bulk)", resolvedPaymasterBulk],
                 ["Router", ROUTER_ADDRESS],
-                ["Router (Bulk)", ROUTER_BULK_ADDRESS],
+                ["Router (Bulk)", resolvedRouterBulk],
                 ["Factory", FACTORY_ADDRESS],
                 ["FeeVault", FEEVAULT_ADDRESS],
                 ["Permit2", PERMIT2_ADDRESS],
