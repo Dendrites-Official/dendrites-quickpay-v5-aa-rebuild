@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAccount, usePublicClient } from "wagmi";
+import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import { acklinkCreate, quickpayNoteSet } from "../../lib/api";
 
 const CHAIN_ID = 84532;
 const DECIMALS = 6;
 const USDC_ADDRESS = String(import.meta.env.VITE_USDC_ADDRESS ?? import.meta.env.VITE_USDC ?? "").trim();
+const ACKLINK_VAULT_ADDRESS = String(
+  import.meta.env.VITE_ACKLINK_VAULT ?? import.meta.env.VITE_ACKLINK ?? ""
+).trim();
 
 type CreateResult = {
   linkId?: string;
@@ -17,6 +20,7 @@ type CreateResult = {
 export default function AckLinkCreate() {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
+  const { signTypedDataAsync } = useSignTypedData();
 
   const [amount, setAmount] = useState("");
   const [speed, setSpeed] = useState<"eco" | "instant">("eco");
@@ -116,22 +120,104 @@ export default function AckLinkCreate() {
       setError(balanceError);
       return;
     }
+    if (!USDC_ADDRESS || !ethers.isAddress(USDC_ADDRESS)) {
+      setError("Missing USDC address.");
+      return;
+    }
+    if (!ACKLINK_VAULT_ADDRESS || !ethers.isAddress(ACKLINK_VAULT_ADDRESS)) {
+      setError("Missing AckLink vault address.");
+      return;
+    }
+    if (!signTypedDataAsync) {
+      setError("Wallet does not support typed-data signing.");
+      return;
+    }
 
     setLoading(true);
     setError("");
     setResult(null);
 
-    const payloadBase = {
-      from: address,
-      amountUsdc6: amountRaw.toString(),
-      speed,
-      name: name.trim() || null,
-      message: message.trim() || null,
-      reason: reason.trim() || null,
-      note: note.trim() || null,
-    };
-
     try {
+      const senderLower = address.toLowerCase();
+      const totalUsdc6 = (amountRaw ?? 0n) + feeUsdc6;
+      const eip3009Abi = [
+        { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+        { type: "function", name: "version", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+      ] as const;
+      let tokenName = "USD Coin";
+      let tokenVersion = "2";
+      if (publicClient) {
+        try {
+          tokenName = await publicClient.readContract({
+            address: USDC_ADDRESS as `0x${string}`,
+            abi: eip3009Abi,
+            functionName: "name",
+          });
+        } catch {}
+        try {
+          tokenVersion = await publicClient.readContract({
+            address: USDC_ADDRESS as `0x${string}`,
+            abi: eip3009Abi,
+            functionName: "version",
+          });
+        } catch {}
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      const validAfter = now - 10;
+      const validBefore = now + 60 * 60;
+      const nonce = ethers.hexlify(ethers.randomBytes(32));
+      const typedData = {
+        domain: {
+          name: tokenName,
+          version: tokenVersion,
+          chainId: CHAIN_ID,
+          verifyingContract: USDC_ADDRESS,
+        },
+        types: {
+          TransferWithAuthorization: [
+            { name: "from", type: "address" },
+            { name: "to", type: "address" },
+            { name: "value", type: "uint256" },
+            { name: "validAfter", type: "uint256" },
+            { name: "validBefore", type: "uint256" },
+            { name: "nonce", type: "bytes32" },
+          ],
+        },
+        primaryType: "TransferWithAuthorization",
+        message: {
+          from: senderLower,
+          to: ACKLINK_VAULT_ADDRESS,
+          value: totalUsdc6,
+          validAfter: BigInt(validAfter),
+          validBefore: BigInt(validBefore),
+          nonce,
+        },
+      } as const;
+
+      const signature = await signTypedDataAsync(typedData);
+      const split = ethers.Signature.from(signature);
+
+      const payloadBase = {
+        from: address,
+        amountUsdc6: amountRaw.toString(),
+        speed,
+        auth: {
+          from: senderLower,
+          value: totalUsdc6.toString(),
+          validAfter: String(validAfter),
+          validBefore: String(validBefore),
+          nonce,
+          v: split.v,
+          r: split.r,
+          s: split.s,
+        },
+        name: name.trim() || null,
+        message: message.trim() || null,
+        reason: reason.trim() || null,
+        note: note.trim() || null,
+      };
+
       let data = await acklinkCreate(payloadBase);
 
       const needsUserOpSig =

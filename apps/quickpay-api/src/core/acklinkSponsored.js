@@ -100,6 +100,7 @@ export async function sendAcklinkSponsored({
   feeUsdc6,
   expiresAt,
   metaHash,
+  auth,
   linkId,
   claimTo,
   userOpSignature,
@@ -133,6 +134,16 @@ export async function sendAcklinkSponsored({
     env.FEE_USDC6 = String(feeUsdc6);
     env.EXPIRES_AT = String(expiresAt);
     env.META_HASH = String(metaHash);
+    if (auth) {
+      env.AUTH_FROM = String(auth.from);
+      env.AUTH_VALUE = String(auth.value);
+      env.AUTH_VALID_AFTER = String(auth.validAfter);
+      env.AUTH_VALID_BEFORE = String(auth.validBefore);
+      env.AUTH_NONCE = String(auth.nonce);
+      env.AUTH_V = String(auth.v);
+      env.AUTH_R = String(auth.r);
+      env.AUTH_S = String(auth.s);
+    }
   } else if (action === "CLAIM") {
     env.LINK_ID = String(linkId);
     env.CLAIM_TO = String(claimTo);

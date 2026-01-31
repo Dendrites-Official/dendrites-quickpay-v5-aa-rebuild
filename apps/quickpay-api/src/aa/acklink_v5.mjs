@@ -7,10 +7,8 @@ const ACCOUNT_ABI = [
   "function executeBatch(address[] dest,uint256[] value,bytes[] func)",
 ];
 
-const ERC20_ABI = ["function transfer(address to,uint256 amount) returns (bool)"];
-
 const ACKLINK_ABI = [
-  "function createLink(uint256 amount,uint64 expiresAt,bytes32 metaHash) returns (bytes32)",
+  "function createLinkWithAuthorization(address from,uint256 totalUsdc6,uint256 feeUsdc6,uint64 expiresAt,bytes32 metaHash,bytes32 nonce,uint64 validAfter,uint64 validBefore,uint8 v,bytes32 r,bytes32 s) returns (bytes32)",
   "function claim(bytes32 linkId,address to)",
   "function refund(bytes32 linkId)",
 ];
@@ -176,7 +174,6 @@ async function main() {
   }
 
   const accountIface = new ethers.Interface(ACCOUNT_ABI);
-  const tokenIface = new ethers.Interface(ERC20_ABI);
   const ackIface = new ethers.Interface(ACKLINK_ABI);
 
   let callData = "0x";
@@ -189,15 +186,30 @@ async function main() {
     const expiresAt = BigInt(requireEnv("EXPIRES_AT"));
     const metaHash = requireEnv("META_HASH");
 
-    const approveCallData = tokenIface.encodeFunctionData("approve", [acklinkVault, amount]);
-    const feeCallData = tokenIface.encodeFunctionData("transfer", [feeVault, feeUsdc6]);
-    const createCallData = ackIface.encodeFunctionData("createLink", [amount, expiresAt, metaHash]);
+    const authFrom = requireEnv("AUTH_FROM");
+    const authValue = BigInt(requireEnv("AUTH_VALUE"));
+    const authValidAfter = BigInt(requireEnv("AUTH_VALID_AFTER"));
+    const authValidBefore = BigInt(requireEnv("AUTH_VALID_BEFORE"));
+    const authNonce = requireEnv("AUTH_NONCE");
+    const authV = Number(requireEnv("AUTH_V"));
+    const authR = requireEnv("AUTH_R");
+    const authS = requireEnv("AUTH_S");
 
-    callData = accountIface.encodeFunctionData("executeBatch", [
-      [usdc, usdc, acklinkVault],
-      [0n, 0n, 0n],
-      [approveCallData, feeCallData, createCallData],
+    const createCallData = ackIface.encodeFunctionData("createLinkWithAuthorization", [
+      authFrom,
+      authValue,
+      feeUsdc6,
+      expiresAt,
+      metaHash,
+      authNonce,
+      authValidAfter,
+      authValidBefore,
+      authV,
+      authR,
+      authS,
     ]);
+
+    callData = accountIface.encodeFunctionData("execute", [acklinkVault, 0n, createCallData]);
 
     feeUsd6 = feeUsdc6;
     feeTokenAmount = feeUsdc6;

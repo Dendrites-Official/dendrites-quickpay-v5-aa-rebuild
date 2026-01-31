@@ -10,9 +10,10 @@ contract DeployAckLinkVault is Script {
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY_DEPLOYER");
         address usdc = vm.envAddress("USDC");
+        address feeVault = vm.envAddress("FEEVAULT");
 
         vm.startBroadcast(pk);
-        AckLinkVault vault = new AckLinkVault(usdc);
+        AckLinkVault vault = new AckLinkVault(usdc, feeVault);
         vm.stopBroadcast();
 
         console2.log("ACKLINK_VAULT:", address(vault));
