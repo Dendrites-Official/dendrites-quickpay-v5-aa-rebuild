@@ -13,6 +13,7 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   const [noteError, setNoteError] = useState("");
   const [privateNote, setPrivateNote] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [showRecipients, setShowRecipients] = useState(false);
 
   const safe = receipt ?? {};
   const tokenSymbol = safe.tokenSymbol ?? safe.token_symbol ?? "";
@@ -33,6 +34,8 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   const reason = safe.reason ?? "";
   const chainId = safe.chainId ?? safe.chain_id ?? 84532;
   const lane = String(safe.lane ?? "").toUpperCase();
+  const recipients = Array.isArray(safe.meta?.recipients) ? safe.meta.recipients : null;
+  const recipientsCount = safe.recipientsCount ?? safe.recipients_count ?? (recipients ? recipients.length : null);
 
   const senderForNote = useMemo(() => (address ? String(address).toLowerCase() : ""), [address]);
   const receiptIdValue = String(receiptId || "");
@@ -239,6 +242,33 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
           ) : null}
           {reason ? (
             <div style={{ marginTop: 6 }}><strong>Reason:</strong> {String(reason)}</div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {recipientsCount ? (
+        <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ fontWeight: 600 }}>Recipients ({recipientsCount})</div>
+            {recipients?.length ? (
+              <button onClick={() => setShowRecipients((prev) => !prev)}>
+                {showRecipients ? "Hide" : "Show"}
+              </button>
+            ) : null}
+          </div>
+          {recipients?.length && showRecipients ? (
+            <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+              {recipients.map((entry: any, idx: number) => (
+                <div key={`${entry?.to ?? entry?.address ?? idx}`} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <span>{shortenAddress(String(entry?.to ?? entry?.address ?? ""))}</span>
+                  <span>
+                    {entry?.amount
+                      ? `${formatWithDecimals(String(entry.amount), tokenDecimals)} ${symbolLabel}`
+                      : "-"}
+                  </span>
+                </div>
+              ))}
+            </div>
           ) : null}
         </div>
       ) : null}

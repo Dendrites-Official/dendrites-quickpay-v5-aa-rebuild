@@ -16,6 +16,8 @@ function isAddr(x) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const ERC20_BALANCE_ABI = ["function balanceOf(address owner) view returns (uint256)"];
+
 function resolveScriptPath(scriptName) {
   const root = process.cwd();
   const candidates = [
@@ -116,6 +118,7 @@ export async function sendBulkSponsored({
   amounts,
   feeMode,
   speed,
+  amountMode,
   auth,
   userOpSignature,
   userOpDraft,
@@ -164,7 +167,7 @@ export async function sendBulkSponsored({
     normalizedRecipients.push(ethers.getAddress(addr));
   }
 
-  let totalNet = 0n;
+  let totalGross = 0n;
   const normalizedAmounts = amounts.map((value) => {
     const raw = String(value ?? "").trim();
     if (!/^\d+$/.test(raw)) {
@@ -174,11 +177,11 @@ export async function sendBulkSponsored({
     if (amt <= 0n) {
       throw new Error("Amount must be > 0");
     }
-    totalNet += amt;
+    totalGross += amt;
     return raw;
   });
 
-  if (totalNet <= 0n) {
+  if (totalGross <= 0n) {
     throw new Error("Total amount must be > 0");
   }
 
@@ -202,7 +205,7 @@ export async function sendBulkSponsored({
       feeVault: feeVault || process.env.FEEVAULT,
       ownerEoa: owner,
       token: tokenAddr,
-      amount: totalNet.toString(),
+      amount: totalGross.toString(),
       feeMode: canonicalFeeMode,
       speed: speedNum,
       permit2: process.env.PERMIT2,
@@ -228,21 +231,58 @@ export async function sendBulkSponsored({
 
     finalFee = BigInt(q.feeTokenAmount);
     maxFeeUsd6 = String(q.maxFeeUsd6 ?? "");
+  }
 
-    const totalWithFee = totalNet + finalFee;
+  const modeRaw = String(amountMode || "net").trim().toLowerCase();
+  const modeUsed = modeRaw === "plusfee" || modeRaw === "plus_fee" || modeRaw === "plus" ? "plusFee" : "net";
 
-    if (!auth || auth.type !== "EIP3009") {
-      throw new Error(`Missing/invalid auth. Expected auth.type="EIP3009"`);
+  let adjustedAmounts = normalizedAmounts;
+  let totalNet = totalGross;
+  let totalWithFee = totalGross + finalFee;
+
+  if (modeUsed === "net") {
+    if (totalGross <= finalFee) {
+      throw new Error("Total amount must be greater than fee for net mode");
     }
-    if (String(auth.from || "").toLowerCase() !== owner.toLowerCase()) {
-      throw new Error(`auth.from mismatch`);
+    totalNet = totalGross - finalFee;
+    totalWithFee = totalGross;
+    const lastIdx = adjustedAmounts.length - 1;
+    const lastAmount = BigInt(adjustedAmounts[lastIdx]);
+    if (lastAmount <= finalFee) {
+      throw new Error("Last recipient amount must exceed fee for net mode");
     }
-    if (String(auth.to || "").toLowerCase() !== routerAddr.toLowerCase()) {
-      throw new Error(`auth.to mismatch (must be router)`);
+    adjustedAmounts = adjustedAmounts.map((value, idx) =>
+      idx === lastIdx ? (BigInt(value) - finalFee).toString() : value
+    );
+  } else {
+    totalNet = totalGross;
+    totalWithFee = totalGross + finalFee;
+  }
+
+  if (!auth || auth.type !== "EIP3009") {
+    throw new Error(`Missing/invalid auth. Expected auth.type="EIP3009"`);
+  }
+  if (String(auth.from || "").toLowerCase() !== owner.toLowerCase()) {
+    throw new Error(`auth.from mismatch`);
+  }
+  if (String(auth.to || "").toLowerCase() !== routerAddr.toLowerCase()) {
+    throw new Error(`auth.to mismatch (must be router)`);
+  }
+  if (String(auth.value || "") !== String(totalWithFee)) {
+    throw new Error(`auth.value mismatch`);
+  }
+
+  try {
+    const provider = new ethers.JsonRpcProvider(resolvedRpc);
+    const erc20 = new ethers.Contract(tokenAddr, ERC20_BALANCE_ABI, provider);
+    const balance = await erc20.balanceOf(owner);
+    if (BigInt(balance ?? 0n) < totalWithFee) {
+      throw new Error(`Insufficient balance. Need ${totalWithFee} have ${balance}`);
     }
-    if (String(auth.value || "") !== String(totalWithFee)) {
-      throw new Error(`auth.value mismatch`);
-    }
+  } catch (err) {
+    const message = err?.message || String(err);
+    if (message.includes("Insufficient balance")) throw err;
+    logger?.warn?.("BULK_BALANCE_CHECK_FAILED", { error: message });
   }
 
   let refId = String(referenceId || "").trim();
@@ -271,7 +311,7 @@ export async function sendBulkSponsored({
     FINAL_FEE: String(finalFee),
     MAX_FEE_USDC6: String(maxFeeUsd6),
     RECIPIENTS_JSON: JSON.stringify(normalizedRecipients),
-    AMOUNTS_JSON: JSON.stringify(normalizedAmounts),
+    AMOUNTS_JSON: JSON.stringify(adjustedAmounts),
     REFERENCE_ID: refId,
   };
   if (auth) env.AUTH_JSON = JSON.stringify(auth);
@@ -283,5 +323,11 @@ export async function sendBulkSponsored({
   return {
     ...result,
     referenceId: refId,
+    feeAmountRaw: finalFee.toString(),
+    netAmountRaw: totalNet.toString(),
+    totalAmountRaw: totalWithFee.toString(),
+    modeUsed,
+    recipientAmounts: adjustedAmounts,
+    recipientCount: adjustedAmounts.length,
   };
 }

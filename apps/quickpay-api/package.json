@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.49.0",
     "dotenv": "^16.4.5",
     "ethers": "^6.12.1",
-    "fastify": "^4.28.1"
+    "fastify": "^4.28.1",
+    "pg": "^8.11.5"
   }
 }
