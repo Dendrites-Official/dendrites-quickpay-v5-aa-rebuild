@@ -140,7 +140,7 @@ export function registerAckLinkRoutes(app, {
 
           const provider = new JsonRpcProvider(resolvedRpcUrl);
           const erc20 = new Contract(usdc, ERC20_BALANCE_ABI, provider);
-          const balance = await withTimeout(erc20.balanceOf(smart.sender), getRpcTimeoutMs(), {
+          const balance = await withTimeout(erc20.balanceOf(from), getRpcTimeoutMs(), {
             code: "RPC_TIMEOUT",
             status: 504,
             where: "acklink.balance",
