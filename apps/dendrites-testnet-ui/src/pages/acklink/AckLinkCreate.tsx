@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
-import { acklinkCreate, acklinkQuote, quickpayNoteSet } from "../../lib/api";
+import { acklinkCreate, acklinkQuote } from "../../lib/api";
 
 const CHAIN_ID = 84532;
 const DECIMALS = 6;
@@ -122,9 +122,6 @@ export default function AckLinkCreate() {
       cancelled = true;
     };
   }, [address, amountRaw, publicClient, totalRaw]);
-
-  const buildNoteMessage = (receiptIdValue: string, senderLower: string) =>
-    `Dendrites QuickPay Note v1\nAction: SET\nReceipt: ${receiptIdValue}\nSender: ${senderLower}\nChainId: ${CHAIN_ID}`;
 
   const copy = async (value: string) => {
     if (!value) return;
@@ -296,23 +293,6 @@ export default function AckLinkCreate() {
       }
 
       const receiptId = String(data?.receiptId || "");
-
-      if (note.trim() && receiptId) {
-        try {
-          const provider = new ethers.BrowserProvider((window as any).ethereum);
-          const signer = await provider.getSigner();
-          const signature = await signer.signMessage(buildNoteMessage(receiptId, senderLower));
-          await quickpayNoteSet({
-            receiptId,
-            sender: senderLower,
-            note: note.trim(),
-            signature,
-            chainId: CHAIN_ID,
-          });
-        } catch {
-          // ignore note failure
-        }
-      }
 
       setResult({
         linkId: data?.linkId,
