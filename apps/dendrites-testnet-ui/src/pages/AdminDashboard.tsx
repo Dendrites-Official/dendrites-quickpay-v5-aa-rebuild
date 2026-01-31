@@ -14,7 +14,9 @@ const WETH_ADDRESS = String(import.meta.env.VITE_WETH_ADDRESS ?? "0x420000000000
   .toLowerCase();
 const ENTRYPOINT_ADDRESS = String(import.meta.env.VITE_ENTRYPOINT ?? import.meta.env.VITE_ENTRYPOINT_ADDRESS ?? "").trim();
 const PAYMASTER_ADDRESS = String(import.meta.env.VITE_PAYMASTER ?? import.meta.env.VITE_PAYMASTER_ADDRESS ?? "").trim();
+const PAYMASTER_BULK_ADDRESS = String(import.meta.env.VITE_PAYMASTER_BULK ?? "").trim();
 const ROUTER_ADDRESS = String(import.meta.env.VITE_ROUTER ?? "").trim();
+const ROUTER_BULK_ADDRESS = String(import.meta.env.VITE_ROUTER_BULK ?? "").trim();
 const FACTORY_ADDRESS = String(import.meta.env.VITE_FACTORY ?? "").trim();
 const FEEVAULT_ADDRESS = String(import.meta.env.VITE_FEEVAULT ?? "").trim();
 const PERMIT2_ADDRESS = String(import.meta.env.VITE_PERMIT2 ?? "").trim();
@@ -40,10 +42,11 @@ type Metrics = {
 };
 
 type Snapshot = {
-  ts: string;
+                ["Paymaster (Bulk)", PAYMASTER_BULK_ADDRESS || String(snapshot?.meta?.paymaster_bulk ?? "")],
   chain_id: number;
-  paymaster_deposit_wei: string | null;
+                ["Router (Bulk)", ROUTER_BULK_ADDRESS || String(snapshot?.meta?.router_bulk ?? "")],
   fee_vault_balances: Record<string, string | null>;
+  meta?: Record<string, any> | null;
 };
 
 function percentile(values: number[], p: number) {
@@ -151,7 +154,7 @@ export default function AdminDashboard() {
 
       const { data: snap, error: snapError } = await supabase
         .from("qp_chain_snapshots")
-        .select("ts,chain_id,paymaster_deposit_wei,fee_vault_balances")
+        .select("ts,chain_id,paymaster_deposit_wei,fee_vault_balances,meta")
         .order("ts", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -246,8 +249,8 @@ export default function AdminDashboard() {
         },
       });
       if (fnError) throw new Error(fnError.message || "Snapshot failed");
-      void data;
       await loadData();
+      void data;
     } catch (err: any) {
       setError(err?.message || String(err));
     } finally {
@@ -379,6 +382,14 @@ export default function AdminDashboard() {
                 : "-"}
             </div>
           </div>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ color: "#888" }}>Bulk Paymaster Deposit</div>
+            <div style={{ fontSize: 16 }}>
+              {snapshot?.meta?.paymaster_bulk_deposit_wei != null
+                ? `${formatBalance(snapshot.meta.paymaster_bulk_deposit_wei, 18)} ETH`
+                : "-"}
+            </div>
+          </div>
           <div>
             <div style={{ color: "#888", marginBottom: 6 }}>FeeVault Balances</div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -411,7 +422,9 @@ export default function AdminDashboard() {
               {[
                 ["EntryPoint", ENTRYPOINT_ADDRESS],
                 ["Paymaster", PAYMASTER_ADDRESS],
+                ["Paymaster (Bulk)", PAYMASTER_BULK_ADDRESS],
                 ["Router", ROUTER_ADDRESS],
+                ["Router (Bulk)", ROUTER_BULK_ADDRESS],
                 ["Factory", FACTORY_ADDRESS],
                 ["FeeVault", FEEVAULT_ADDRESS],
                 ["Permit2", PERMIT2_ADDRESS],
