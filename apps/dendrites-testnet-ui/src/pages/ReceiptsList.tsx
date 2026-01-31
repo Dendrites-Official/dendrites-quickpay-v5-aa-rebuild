@@ -161,6 +161,9 @@ export default function ReceiptsList() {
               const receiptId = item.receipt_id ?? "";
               const recipientsCount = item.recipients_count ?? (Array.isArray(item.meta?.recipients) ? item.meta.recipients.length : null);
               const isBulk = Number(recipientsCount ?? 0) > 1;
+              const route = String(item.meta?.route ?? "").toLowerCase();
+              const isAckLink = route.startsWith("acklink_");
+              const ackLinkId = item.meta?.linkId ?? item.meta?.link_id ?? "";
               return (
                 <tr
                   key={item.id ?? receiptId}
@@ -178,7 +181,12 @@ export default function ReceiptsList() {
                   <td style={{ padding: 8 }}>{formatAmount(item.net_amount_raw, decimals, symbol)}</td>
                   <td style={{ padding: 8 }}>{formatAmount(item.fee_amount_raw, decimals, symbol)}</td>
                   <td style={{ padding: 8 }}>
-                    {isBulk ? (
+                    {isAckLink ? (
+                      <span>
+                        AckLink
+                        {ackLinkId ? <div style={{ color: "#bdbdbd", fontSize: 12 }}>{shorten(ackLinkId)}</div> : null}
+                      </span>
+                    ) : isBulk ? (
                       <span>Bulk ({recipientsCount})</span>
                     ) : (
                       <>

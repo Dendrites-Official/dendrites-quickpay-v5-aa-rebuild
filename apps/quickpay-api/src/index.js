@@ -16,6 +16,7 @@ import { createTtlCache } from "./core/cache.js";
 import { getBundlerTimeoutMs, getRpcTimeoutMs, withTimeout } from "./core/withTimeout.js";
 import { registerFaucetRoutes } from "./routes/faucet.js";
 import { registerWalletRoutes } from "./routes/wallet.js";
+import { registerAckLinkRoutes } from "./routes/acklink.js";
 
 const app = Fastify({ logger: true });
 
@@ -34,6 +35,12 @@ const RATE_LIMIT_IP = Number(process.env.RATE_LIMIT_IP ?? 120);
 const RATE_LIMIT_WALLET = Number(process.env.RATE_LIMIT_WALLET ?? 60);
 const RATE_LIMIT_BULK_IP = Number(process.env.RATE_LIMIT_BULK_IP ?? 30);
 const RATE_LIMIT_BULK_WALLET = Number(process.env.RATE_LIMIT_BULK_WALLET ?? 10);
+const RATE_LIMIT_ACK_WINDOW_SEC = Number(process.env.RATE_LIMIT_ACK_WINDOW_SEC ?? 60);
+const RATE_LIMIT_ACK_IP = Number(process.env.RATE_LIMIT_ACK_IP ?? 20);
+const RATE_LIMIT_ACK_WALLET = Number(process.env.RATE_LIMIT_ACK_WALLET ?? 10);
+const RATE_LIMIT_ACK_BURST_WINDOW_SEC = Number(process.env.RATE_LIMIT_ACK_BURST_WINDOW_SEC ?? 10);
+const RATE_LIMIT_ACK_BURST_IP = Number(process.env.RATE_LIMIT_ACK_BURST_IP ?? 6);
+const RATE_LIMIT_ACK_BURST_WALLET = Number(process.env.RATE_LIMIT_ACK_BURST_WALLET ?? 3);
 const rateLimitStore = new Map();
 
 function getRateLimitEntry(key, windowMs) {
@@ -97,6 +104,55 @@ function enforceBulkRateLimit(request, reply, walletAddress) {
   if (walletAddress && isAddress(walletAddress)) {
     const walletKey = `bulk:wallet:${String(walletAddress).toLowerCase()}`;
     const walletCheck = checkRateLimit(walletKey, RATE_LIMIT_BULK_WALLET, windowMs);
+    if (!walletCheck.allowed) {
+      return reply.code(429).send({
+        ok: false,
+        code: "RATE_LIMITED",
+        retryAfterSec: walletCheck.retryAfterSec,
+      });
+    }
+  }
+  return null;
+}
+
+function enforceAckRateLimit(request, reply, walletAddress) {
+  const burstWindowMs = Math.max(1, RATE_LIMIT_ACK_BURST_WINDOW_SEC) * 1000;
+  const windowMs = Math.max(1, RATE_LIMIT_ACK_WINDOW_SEC) * 1000;
+  const ip = getClientIp(request) || "unknown";
+
+  const ipBurst = checkRateLimit(`ack:burst:ip:${ip}`, RATE_LIMIT_ACK_BURST_IP, burstWindowMs);
+  if (!ipBurst.allowed) {
+    return reply.code(429).send({
+      ok: false,
+      code: "RATE_LIMITED",
+      retryAfterSec: ipBurst.retryAfterSec,
+    });
+  }
+
+  const ipCheck = checkRateLimit(`ack:ip:${ip}`, RATE_LIMIT_ACK_IP, windowMs);
+  if (!ipCheck.allowed) {
+    return reply.code(429).send({
+      ok: false,
+      code: "RATE_LIMITED",
+      retryAfterSec: ipCheck.retryAfterSec,
+    });
+  }
+
+  if (walletAddress && isAddress(walletAddress)) {
+    const walletKey = `ack:wallet:${String(walletAddress).toLowerCase()}`;
+    const walletBurst = checkRateLimit(`ack:burst:wallet:${String(walletAddress).toLowerCase()}`,
+      RATE_LIMIT_ACK_BURST_WALLET,
+      burstWindowMs
+    );
+    if (!walletBurst.allowed) {
+      return reply.code(429).send({
+        ok: false,
+        code: "RATE_LIMITED",
+        retryAfterSec: walletBurst.retryAfterSec,
+      });
+    }
+
+    const walletCheck = checkRateLimit(walletKey, RATE_LIMIT_ACK_WALLET, windowMs);
     if (!walletCheck.allowed) {
       return reply.code(429).send({
         ok: false,
@@ -616,6 +672,18 @@ async function runSnapshot({ reqId, logger }) {
 
 registerFaucetRoutes(app);
 registerWalletRoutes(app);
+registerAckLinkRoutes(app, {
+  supabase,
+  resolveRpcUrl,
+  resolveSmartAccount,
+  withTimeout,
+  getRpcTimeoutMs,
+  callQuickpayReceipt,
+  callQuickpayNote,
+  recordSponsorshipCost,
+  enforceAckRateLimit,
+  createLogger,
+});
 
 const codeCache = createTtlCache({ ttlMs: 10 * 60 * 1000, maxSize: 2000 });
 

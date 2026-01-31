@@ -9,6 +9,8 @@ import WalletHealth from "./pages/WalletHealth";
 import WalletQA from "./pages/WalletQA";
 import AdminDashboard from "./pages/AdminDashboard";
 import BulkPay from "./pages/BulkPay";
+import AckLinkCreate from "./pages/acklink/AckLinkCreate";
+import AckLinkClaim from "./pages/acklink/AckLinkClaim";
 import WalletButton from "./components/WalletButton";
 
 function Nav() {
@@ -16,6 +18,7 @@ function Nav() {
     <div style={{ display: "flex", gap: 12, padding: 16, borderBottom: "1px solid #333", alignItems: "center" }}>
       <Link to="/quickpay">QuickPay</Link>
       <Link to="/bulk">Bulk Pay</Link>
+      <Link to="/ack">AckLink</Link>
       <Link to="/receipts">Receipts</Link>
       <Link to="/faucet">Faucet</Link>
       <Link to="/tx-queue">Tx Queue</Link>
@@ -39,6 +42,8 @@ export default function App() {
         <Route path="/receipts" element={<ReceiptsList />} />
         <Route path="/receipts/:id" element={<Receipts />} />
         <Route path="/r/:id" element={<Receipts />} />
+        <Route path="/ack" element={<AckLinkCreate />} />
+        <Route path="/ack/:id" element={<AckLinkClaim />} />
         <Route path="/faucet" element={<Faucet />} />
         <Route path="/tx-queue" element={<TxQueue />} />
         <Route path="/wallet" element={<WalletHealth />} />
