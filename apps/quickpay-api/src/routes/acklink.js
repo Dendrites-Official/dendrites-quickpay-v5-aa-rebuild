@@ -5,6 +5,9 @@ const ACKLINK_NONCE_ABI = ["function nonces(address sender) view returns (uint25
 const ACKLINK_LINK_ABI = [
   "function links(bytes32 linkId) view returns (address sender,uint256 amount,uint64 createdAt,uint64 expiresAt,bool claimed,bool refunded,bytes32 metaHash,bytes32 codeHash)",
 ];
+const ACKLINK_EVENT_ABI = [
+  "event LinkCreated(bytes32 indexed linkId,address indexed sender,uint256 amount,uint64 expiresAt,bytes32 metaHash)",
+];
 const USDC_BALANCE_ABI = ["function balanceOf(address owner) view returns (uint256)"];
 const PAYMASTER_QUOTE_ABI = [
   "function quoteFeeUsd6(address payer,uint8 mode,uint8 speed,uint256 nowTs) view returns (uint256,uint256,uint256,uint256,uint256,bool)",
@@ -297,7 +300,7 @@ export function registerAckLinkRoutes(app, {
 
           const metaHash = buildMetaHash({ name, message, reason });
           const codeHash = ethers.keccak256(ethers.toUtf8Bytes(codeRaw));
-          const linkId = ethers.solidityPackedKeccak256(
+          let linkId = ethers.solidityPackedKeccak256(
             ["address", "uint256", "uint64", "bytes32", "bytes32", "uint256", "uint256", "address"],
             [
               authFrom,
@@ -362,6 +365,27 @@ export function registerAckLinkRoutes(app, {
           );
           if (!createReceipt || (createReceipt.status !== null && createReceipt.status !== undefined && createReceipt.status !== 1n && createReceipt.status !== 1)) {
             return reply.code(400).send({ ok: false, code: "CREATE_FAILED", reqId, txHash, userOpHash });
+          }
+
+          const acklinkIface = new ethers.Interface(ACKLINK_EVENT_ABI);
+          const acklinkVaultLower = String(acklinkVault).toLowerCase();
+          let onchainLinkId = null;
+          const logs = Array.isArray(createReceipt?.logs) ? createReceipt.logs : [];
+          for (const log of logs) {
+            if (!log || String(log.address || "").toLowerCase() !== acklinkVaultLower) continue;
+            try {
+              const parsed = acklinkIface.parseLog(log);
+              if (parsed?.name === "LinkCreated" && parsed?.args?.linkId) {
+                onchainLinkId = String(parsed.args.linkId);
+                break;
+              }
+            } catch {
+              continue;
+            }
+          }
+
+          if (onchainLinkId && parseHexBytes32(onchainLinkId)) {
+            linkId = onchainLinkId;
           }
 
           await supabase.from("ack_links").insert({
