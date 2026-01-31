@@ -343,6 +343,24 @@ export function registerAckLinkRoutes(app, {
           const txHash = laneResult?.txHash ?? null;
           const userOpHash = laneResult?.userOpHash ?? null;
 
+          if (!txHash) {
+            return reply.code(202).send({ ok: false, code: "PENDING", reqId, userOpHash });
+          }
+
+          const createReceipt = await withTimeout(
+            provider.waitForTransaction(txHash, 1, getRpcTimeoutMs()),
+            getRpcTimeoutMs(),
+            {
+              code: "RPC_TIMEOUT",
+              status: 504,
+              where: "acklink.createReceipt",
+              message: "RPC timeout",
+            }
+          );
+          if (!createReceipt || (createReceipt.status !== null && createReceipt.status !== undefined && createReceipt.status !== 1n && createReceipt.status !== 1)) {
+            return reply.code(400).send({ ok: false, code: "CREATE_FAILED", reqId, txHash, userOpHash });
+          }
+
           await supabase.from("ack_links").insert({
             link_id: linkId,
             sender: String(authFrom).toLowerCase(),
@@ -402,6 +420,13 @@ export function registerAckLinkRoutes(app, {
           });
 
           const receiptId = receiptResponse?.receiptId ?? receiptResponse?.receipt_id ?? null;
+
+          if (receiptId) {
+            await supabase
+              .from("ack_links")
+              .update({ receipt_id: receiptId, updated_at: new Date().toISOString() })
+              .eq("link_id", linkId);
+          }
 
           if (note && receiptId) {
             const trimmedNote = String(note).trim();
@@ -620,6 +645,7 @@ export function registerAckLinkRoutes(app, {
 
           const receiptPayload = {
             chainId,
+            receiptId: data.receipt_id ?? null,
             userOpHash,
             txHash,
             from: claimer,
@@ -659,6 +685,12 @@ export function registerAckLinkRoutes(app, {
             message: "Receipt timeout",
           });
           const receiptId = receiptResponse?.receiptId ?? receiptResponse?.receipt_id ?? null;
+          if (!data.receipt_id && receiptId) {
+            await supabase
+              .from("ack_links")
+              .update({ receipt_id: receiptId, updated_at: new Date().toISOString() })
+              .eq("link_id", linkId);
+          }
 
           if (note && noteSignature && noteSender && receiptId) {
             await withTimeout(
