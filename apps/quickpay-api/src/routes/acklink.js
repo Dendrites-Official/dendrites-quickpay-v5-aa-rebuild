@@ -7,7 +7,9 @@ const FEE_USDC6_ECO = 200000n;
 const FEE_USDC6_INSTANT = 300000n;
 
 function parseHexBytes32(value) {
-  return typeof value === "string" && /^0x[0-9a-fA-F]{64}$/.test(value);
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return /^0x[0-9a-fA-F]{64}$/.test(trimmed) ? trimmed : null;
 }
 
 function buildMetaHash(meta) {
