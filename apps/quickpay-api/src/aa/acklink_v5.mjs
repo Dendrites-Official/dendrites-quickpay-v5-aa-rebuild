@@ -137,7 +137,7 @@ function buildPaymasterData({ speed, feeToken, maxFeeUsd6 }) {
   const coder = ethers.AbiCoder.defaultAbiCoder();
   return coder.encode(
     ["uint8", "uint8", "address", "uint256", "uint48", "uint48"],
-    [0, speed, feeToken, BigInt(maxFeeUsd6), validUntil, validAfter]
+    [3, speed, feeToken, BigInt(maxFeeUsd6), validUntil, validAfter]
   );
 }
 
