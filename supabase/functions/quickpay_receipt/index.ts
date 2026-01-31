@@ -358,6 +358,8 @@ Deno.serve(async (req) => {
   const totalEnteredRaw = body.totalEntered ? String(body.totalEntered) : null;
   const feeAmountRaw = body.feeAmount ? String(body.feeAmount) : null;
   const totalDebitedRaw = body.totalDebited ? String(body.totalDebited) : null;
+  const isSponsoredZeroFee =
+    String(bodyMode || "").toLowerCase() === "sponsored" && (feeAmountRaw === "0" || feeAmountRaw === "0x0");
 
   let derivedNetRaw: string | null = null;
   let derivedAmountRaw: string | null = null;
@@ -417,7 +419,7 @@ Deno.serve(async (req) => {
       success: null,
       lane: existing?.lane ?? null,
       fee_mode: existing?.fee_mode ?? bodyFeeMode ?? null,
-      fee_token_mode: existing?.fee_token_mode ?? (feeAmountRaw ? "same" : null),
+      fee_token_mode: existing?.fee_token_mode ?? (isSponsoredZeroFee ? "sponsored" : (feeAmountRaw ? "same" : null)),
       token: existing?.token ?? bodyToken ?? null,
       to: existing?.to ?? null,
       sender: existing?.sender ?? null,
@@ -639,7 +641,7 @@ Deno.serve(async (req) => {
 
   const status = success === false ? "FAILED" : "CONFIRMED";
   const defaultFeeMode = chosenFeeAmount > 0n ? "eco" : "unknown";
-  const defaultFeeTokenMode = chosenFeeAmount > 0n ? "same" : null;
+  const defaultFeeTokenMode = chosenFeeAmount > 0n ? "same" : (isSponsoredZeroFee ? "sponsored" : null);
 
   const rowPayload = {
     chain_id: chainId,
