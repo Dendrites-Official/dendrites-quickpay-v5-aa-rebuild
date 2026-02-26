@@ -530,7 +530,7 @@ export default function QuickPay() {
               nonce: Number(allowance[2] ?? 0n),
             },
             spender: spenderAddress,
-            sigDeadline,
+            sigDeadline: BigInt(sigDeadline),
           },
         } as const;
         const signature = await signTypedDataAsync(typedData);
