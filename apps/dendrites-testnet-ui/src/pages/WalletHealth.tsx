@@ -34,9 +34,6 @@ export default function WalletHealth() {
   const [limitInput, setLimitInput] = useState("");
   const [txHash, setTxHash] = useState("");
   const [txStatus, setTxStatus] = useState("");
-  const [lastCheckedToken, setLastCheckedToken] = useState("");
-  const [lastCheckedSpender, setLastCheckedSpender] = useState("");
-  const [lastAllowanceUnlimited, setLastAllowanceUnlimited] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 });
   const [scanError, setScanError] = useState("");
@@ -301,7 +298,7 @@ export default function WalletHealth() {
           } else {
             try {
               const code = await provider.getCode(to);
-              isContract = code && code !== "0x";
+              isContract = code !== "0x";
               codeCacheRef.current.set(to.toLowerCase(), Boolean(isContract));
             } catch {
               isContract = null;
@@ -433,14 +430,8 @@ export default function WalletHealth() {
       setTokenDetails(meta);
       setAllowance(allowanceValue);
       setAllowanceFormatted(ethers.formatUnits(allowanceValue, meta.decimals));
-      setLastCheckedToken(tokenAddr);
-      setLastCheckedSpender(spenderAddr);
-      setLastAllowanceUnlimited(allowanceValue >= ethers.MaxUint256 / 2n);
     } catch (err: any) {
       setApprovalError(err?.message || "Failed to fetch allowance.");
-      setLastCheckedToken("");
-      setLastCheckedSpender("");
-      setLastAllowanceUnlimited(false);
     } finally {
       setApprovalLoading(false);
     }
@@ -683,44 +674,6 @@ export default function WalletHealth() {
     }
   }, [activeTab, activityRows.length, loadActivity]);
 
-  const jumpToApprovals = useCallback(
-    (tokenAddr: string, spenderAddr: string) => {
-      setTokenAddress(tokenAddr);
-      if (spenderAddr.toLowerCase() === permit2Address.toLowerCase()) {
-        setSpenderMode("permit2");
-        setCustomSpender("");
-      } else if (quickpayRouter && spenderAddr.toLowerCase() === quickpayRouter.toLowerCase()) {
-        setSpenderMode("router");
-        setCustomSpender("");
-      } else {
-        setSpenderMode("custom");
-        setCustomSpender(spenderAddr);
-      }
-      setActiveTab("approvals");
-    },
-    [permit2Address, quickpayRouter]
-  );
-
-  const tabButtonStyle = useMemo(
-    () =>
-      (isActive: boolean) => ({
-        padding: "6px 10px",
-        borderRadius: 6,
-        border: "1px solid #2a2a2a",
-        background: isActive ? "#1f1f1f" : "transparent",
-        color: isActive ? "#ffffff" : "#cfcfcf",
-        cursor: "pointer",
-      }),
-    []
-  );
-
-  const tabLinkStyle = {
-    padding: "6px 10px",
-    borderRadius: 6,
-    border: "1px solid #2a2a2a",
-    color: "#cfcfcf",
-    textDecoration: "none",
-  } as const;
 
  return (
   <main className="dx-container dx-container--full">

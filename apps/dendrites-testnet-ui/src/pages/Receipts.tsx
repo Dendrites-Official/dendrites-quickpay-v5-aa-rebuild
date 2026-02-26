@@ -13,7 +13,6 @@ export default function Receipts() {
   const [receipt, setReceipt] = useState<any>(null);
 
   const trimmed = useMemo(() => query.trim(), [query]);
-  const isReceiptId = useMemo(() => trimmed.startsWith("r_"), [trimmed]);
   const isHash = useMemo(() => /^0x[0-9a-fA-F]{64}$/.test(trimmed), [trimmed]);
   const canFetch = useMemo(() => trimmed.length > 0, [trimmed]);
 

@@ -238,7 +238,7 @@ export default function AckLinkCreate() {
           name: tokenName,
           version: tokenVersion,
           chainId: CHAIN_ID,
-          verifyingContract: USDC_ADDRESS,
+          verifyingContract: USDC_ADDRESS as `0x${string}`,
         },
         types: {
           TransferWithAuthorization: [
@@ -304,8 +304,6 @@ export default function AckLinkCreate() {
       if (!data?.ok && data?.code) {
         throw new Error(data.code);
       }
-
-      const receiptId = String(data?.receiptId || "");
 
       setResult({
         linkId: data?.linkId,

@@ -547,7 +547,8 @@ export default function QuickPay() {
           signer
         );
         try {
-          const gasLimit = await erc20.estimateGas.transfer(to, BigInt(amountRaw));
+          const transferFn = erc20.getFunction("transfer");
+          const gasLimit = await transferFn.estimateGas(to, BigInt(amountRaw));
           const feeData = await provider.getFeeData();
           const maxFeePerGas = feeData.maxFeePerGas ?? feeData.gasPrice ?? 0n;
           const estCostWei = gasLimit * maxFeePerGas;
