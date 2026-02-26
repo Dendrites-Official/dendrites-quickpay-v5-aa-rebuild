@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import { acklinkCreate, acklinkQuote } from "../../lib/api";
+import { logAppEvent } from "../../lib/appEvents";
 
 const CHAIN_ID = 84532;
 const DECIMALS = 6;
@@ -195,6 +196,14 @@ export default function AckLinkCreate() {
         });
         feeToUse = BigInt(quote?.feeUsdc6 ?? feeUsdc6);
         setFeeQuoteUsdc6(feeToUse);
+        void logAppEvent("acklink_quote_success", {
+          address,
+          chainId: CHAIN_ID,
+          meta: {
+            amountUsdc6: amountRaw.toString(),
+            speed,
+          },
+        });
       }
       const totalUsdc6 = (amountRaw ?? 0n) + (feeToUse ?? feeUsdc6);
       const eip3009Abi = [
@@ -304,8 +313,28 @@ export default function AckLinkCreate() {
         txHash: data?.txHash,
         expiresAt: data?.expiresAt,
       });
+      void logAppEvent("acklink_create_success", {
+        address,
+        chainId: CHAIN_ID,
+        meta: {
+          linkId: data?.linkId ?? null,
+          receiptId: data?.receiptId ?? null,
+          txHash: data?.txHash ?? null,
+          amountUsdc6: amountRaw.toString(),
+          speed,
+        },
+      });
     } catch (err: any) {
       setError(err?.message || "Failed to create AckLink");
+      void logAppEvent("acklink_create_error", {
+        address,
+        chainId: CHAIN_ID,
+        meta: {
+          amountUsdc6: amountRaw?.toString?.() ?? null,
+          speed,
+          message: String(err?.message || "acklink_create_failed"),
+        },
+      });
     } finally {
       setLoading(false);
     }
@@ -313,135 +342,246 @@ export default function AckLinkCreate() {
 
   const shareUrl = result?.linkId ? `${window.location.origin}/ack/${result.linkId}` : "";
 
-  return (
-    <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h2>AckLink</h2>
-      <p>Create a sponsored USDC link. Fee is not refundable.</p>
+ return (
+  <main className="dx-container">
+    <header>
+      <div className="dx-kicker">DENDRITES</div>
+      <h1 className="dx-h1">AckLink</h1>
+      <p className="dx-sub">
+        Create a sponsored USDC link. Share the URL + code separately. Fee is not refundable.
+      </p>
+    </header>
 
-      <div style={{ display: "grid", gap: 12 }}>
-        <label>
-          Amount (USDC)
-          <input
-            style={{ width: "100%", padding: 8, marginTop: 4 }}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="10.00"
-          />
-        </label>
-
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <label>
-            <input
-              type="radio"
-              checked={speed === "eco"}
-              onChange={() => setSpeed("eco")}
-            />
-            Eco ($0.20)
-          </label>
-          <label>
-            <input
-              type="radio"
-              checked={speed === "instant"}
-              onChange={() => setSpeed("instant")}
-            />
-            Instant ($0.30)
-          </label>
-        </div>
-
-        <label>
-          Security code (required)
-          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-            <input
-              style={{ flex: 1, padding: 8 }}
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="Enter or generate a code"
-            />
-            <button type="button" onClick={generateCode} style={{ padding: "8px 10px" }}>
-              Generate
-            </button>
+    <div className="dx-grid" style={{ gridTemplateColumns: "1.05fr 0.95fr" }}>
+      {/* LEFT: CREATE FORM */}
+      <section className="dx-card">
+        <div className="dx-card-in">
+          <div className="dx-card-head">
+            <h2 className="dx-card-title">Create</h2>
+            <p className="dx-card-hint">USDC • Base Sepolia</p>
           </div>
-          <div style={{ color: "#bbb", fontSize: 12, marginTop: 6 }}>
-            Share this code separately. The recipient must enter it to claim.
-          </div>
-        </label>
 
-        <label>
-          Name (optional)
-          <input
-            style={{ width: "100%", padding: 8, marginTop: 4 }}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Sender name"
-          />
-        </label>
+          <form
+            className="dx-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreate();
+            }}
+          >
+            <div className="dx-row2">
+              <label className="dx-field">
+                <span className="dx-label">Amount (USDC)</span>
+                <input
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="10.00"
+                />
+                <div className="dx-help">
+                  Total charged = amount + fee. Balance check updates automatically.
+                </div>
+              </label>
 
-        <label>
-          Message (optional)
-          <textarea
-            style={{ width: "100%", padding: 8, marginTop: 4, minHeight: 80 }}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Public message"
-          />
-        </label>
+              <div className="dx-field">
+                <span className="dx-label">Speed</span>
 
-        <label>
-          Reason (optional)
-          <input
-            style={{ width: "100%", padding: 8, marginTop: 4 }}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason"
-          />
-        </label>
+                <div className="dx-radioRow">
+                  <label className={`dx-radio ${speed === "eco" ? "dx-radioOn" : ""}`}>
+                    <input
+                      type="radio"
+                      checked={speed === "eco"}
+                      onChange={() => setSpeed("eco")}
+                    />
+                    <span className="dx-radioText">Eco</span>
+                    <span className="dx-pill dx-pillBlue">$0.20</span>
+                  </label>
 
-        <label>
-          Private note (optional)
-          <textarea
-            style={{ width: "100%", padding: 8, marginTop: 4, minHeight: 70 }}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Saved privately after receipt is created"
-          />
-        </label>
+                  <label className={`dx-radio ${speed === "instant" ? "dx-radioOn" : ""}`}>
+                    <input
+                      type="radio"
+                      checked={speed === "instant"}
+                      onChange={() => setSpeed("instant")}
+                    />
+                    <span className="dx-radioText">Instant</span>
+                    <span className="dx-pill dx-pillBlue">$0.30</span>
+                  </label>
+                </div>
 
-        {balanceError ? <div style={{ color: "#f88" }}>{balanceError}</div> : null}
-        {error ? <div style={{ color: "#f88" }}>{error}</div> : null}
-
-        <button
-          onClick={handleCreate}
-          disabled={loading || !isConnected || Boolean(balanceError)}
-          style={{ padding: "10px 14px", borderRadius: 6, border: "1px solid #333" }}
-        >
-          {loading ? "Creating..." : "Create link"}
-        </button>
-      </div>
-
-      {result?.linkId ? (
-        <div style={{ marginTop: 24, padding: 16, border: "1px solid #333", borderRadius: 8 }}>
-          <div style={{ marginBottom: 8 }}>
-            <strong>Security code:</strong> {code}
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <strong>Share URL:</strong> {shareUrl}
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button onClick={() => copy(code)}>Copy code</button>
-            <button onClick={() => copy(shareUrl)}>Copy link</button>
-            {result?.receiptId ? (
-              <a href={`/receipts/${result.receiptId}`} target="_blank" rel="noreferrer">
-                View receipt
-              </a>
-            ) : null}
-          </div>
-          {result?.expiresAt ? (
-            <div style={{ marginTop: 12, color: "#bbb" }}>
-              Expires: {new Date(result.expiresAt).toLocaleString()} (fee not refundable)
+                <div className="dx-help">
+                  Live fee quote may override the fixed label.
+                </div>
+              </div>
             </div>
-          ) : null}
+
+            <div className="dx-field">
+              <span className="dx-label">Security code (required)</span>
+
+              <div className="dx-codeRow">
+                <input
+                  className="dx-mono"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="Enter or generate a code"
+                />
+                <button type="button" className="dx-miniBtn" onClick={generateCode}>
+                  Generate
+                </button>
+              </div>
+
+              <div className="dx-alert dx-alert-warn" style={{ marginTop: 10 }}>
+                Share this code separately. The recipient must enter it to claim.
+              </div>
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Name (optional)</span>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Sender name" />
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Message (optional)</span>
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Public message"
+                style={{ minHeight: 96 }}
+              />
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Reason (optional)</span>
+              <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason" />
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Private note (optional)</span>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Saved privately after receipt is created"
+                style={{ minHeight: 84 }}
+              />
+            </div>
+
+            {balanceError ? (
+              <div className="dx-alert dx-alert-danger">{balanceError}</div>
+            ) : null}
+
+            {error ? <div className="dx-alert dx-alert-danger">{error}</div> : null}
+
+            <div className="dx-actions">
+              <button
+                className="dx-primary"
+                type="submit"
+                disabled={loading || !isConnected || Boolean(balanceError)}
+              >
+                {loading ? "Creating…" : "Create link"}
+              </button>
+
+              {!isConnected ? (
+                <div className="dx-alert" style={{ marginTop: 0 }}>
+                  Connect wallet first.
+                </div>
+              ) : null}
+            </div>
+          </form>
         </div>
-      ) : null}
+      </section>
+
+      {/* RIGHT: SUMMARY / RESULT */}
+      <aside className="dx-stack">
+        <section className="dx-card">
+          <div className="dx-card-in">
+            <div className="dx-card-head">
+              <h2 className="dx-card-title">Summary</h2>
+              <p className="dx-card-hint">Live</p>
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <div className="dx-rowInline">
+                <span className="dx-pill dx-pillBlue">Chain</span>
+                <span className="dx-muted">Base Sepolia ({CHAIN_ID})</span>
+              </div>
+
+              <div className="dx-rowInline">
+                <span className="dx-pill">Token</span>
+                <span className="dx-muted dx-mono">
+                  {USDC_ADDRESS && USDC_ADDRESS.startsWith("0x") ? USDC_ADDRESS : "USDC not configured"}
+                </span>
+              </div>
+
+              <div className="dx-divider" />
+
+              <div className="dx-kv">
+                <div className="dx-k">Amount</div>
+                <div className="dx-v">{amount?.trim() ? `${amount} USDC` : "—"}</div>
+
+                <div className="dx-k">Fee (USDC)</div>
+                <div className="dx-v">
+                  {feeQuoteUsdc6 != null
+                    ? `${ethers.formatUnits(feeQuoteUsdc6, DECIMALS)} USDC`
+                    : `${ethers.formatUnits(feeUsdc6, DECIMALS)} USDC`}
+                </div>
+
+                <div className="dx-k">Total charged</div>
+                <div className="dx-v">
+                  {totalRaw != null ? `${ethers.formatUnits(totalRaw, DECIMALS)} USDC` : "—"}
+                </div>
+
+                <div className="dx-k">Vault</div>
+                <div className="dx-v dx-mono">
+                  {(quoteVault && ethers.isAddress(quoteVault) ? quoteVault : ACKLINK_VAULT_ADDRESS) || "—"}
+                </div>
+              </div>
+
+              {balanceError ? <div className="dx-alert dx-alert-danger">{balanceError}</div> : null}
+            </div>
+          </div>
+        </section>
+
+        {result?.linkId ? (
+          <section className="dx-card">
+            <div className="dx-card-in">
+              <div className="dx-card-head">
+                <h2 className="dx-card-title">Created</h2>
+                <p className="dx-card-hint">Share</p>
+              </div>
+
+              <div className="dx-section">
+                <div className="dx-kv">
+                  <div className="dx-k">Security code</div>
+                  <div className="dx-v dx-mono">{code}</div>
+
+                  <div className="dx-k">Share URL</div>
+                  <div className="dx-v dx-mono">{shareUrl}</div>
+                </div>
+
+                <div className="dx-btnRow" style={{ marginTop: 12 }}>
+                  <button className="dx-copyBtn" onClick={() => copy(code)}>
+                    Copy code
+                  </button>
+                  <button className="dx-copyBtn" onClick={() => copy(shareUrl)}>
+                    Copy link
+                  </button>
+
+                  {result?.receiptId ? (
+                    <a className="dx-linkBtn" href={`/receipts/${result.receiptId}`} target="_blank" rel="noreferrer">
+                      View receipt
+                    </a>
+                  ) : null}
+                </div>
+
+                {result?.expiresAt ? (
+                  <div className="dx-muted" style={{ marginTop: 10 }}>
+                    Expires: {new Date(result.expiresAt).toLocaleString()} (fee not refundable)
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </section>
+        ) : null}
+      </aside>
     </div>
-  );
+  </main>
+);
+
 }

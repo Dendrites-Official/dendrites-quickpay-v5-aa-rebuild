@@ -1,0 +1,335 @@
+/* =========================================================
+   Faucet — Premium centered layout (dark)
+   Works with your existing class names.
+   ========================================================= */
+
+:root{
+  --dx-blue: 0,112,243;
+  --dx-nav-h: 74px;
+}
+
+/* Page centering */
+.dx-faucetPage{
+  min-height: calc(100vh - var(--dx-nav-h));
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 26px 16px 46px;
+  background: #000;
+  color: rgba(255,255,255,0.92);
+}
+
+/* Container */
+.dx-container{
+  width: min(1120px, 100%);
+}
+
+/* Header */
+.dx-container header{
+  margin-bottom: 18px;
+}
+
+.dx-kicker{
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(255,255,255,0.55);
+}
+
+.dx-h1{
+  margin: 10px 0 6px;
+  font-size: clamp(34px, 3.2vw, 52px);
+  letter-spacing: -0.05em;
+  line-height: 1.02;
+  font-weight: 950;
+  color: rgba(255,255,255,0.95);
+  text-shadow: 0 18px 90px rgba(0,0,0,0.85);
+}
+
+.dx-sub{
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(255,255,255,0.60);
+  max-width: 72ch;
+}
+
+/* Grid */
+.dx-faucetGrid{
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+  margin-top: 18px;
+}
+
+/* Layout: 2 cards top, status spans full width (nice balance) */
+.dx-faucetGrid > section:nth-child(1){ grid-column: span 6; }
+.dx-faucetGrid > section:nth-child(2){ grid-column: span 6; }
+.dx-faucetGrid > section:nth-child(3){ grid-column: span 12; }
+
+/* Card */
+.dx-faucetCard{
+  border-radius: 28px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background:
+    radial-gradient(120% 150% at 18% 0%,
+      rgba(255,255,255,0.060) 0%,
+      rgba(255,255,255,0.030) 38%,
+      rgba(255,255,255,0.020) 72%,
+      rgba(255,255,255,0.015) 100%);
+  box-shadow:
+    0 28px 96px rgba(0,0,0,0.78),
+    0 10px 28px rgba(0,0,0,0.52),
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -1px 0 rgba(0,0,0,0.55);
+  overflow: hidden;
+  position: relative;
+}
+
+.dx-faucetCard::before{
+  content:"";
+  position:absolute;
+  inset:-1px;
+  pointer-events:none;
+  background: linear-gradient(
+    180deg,
+    rgba(255,255,255,0.10) 0%,
+    rgba(255,255,255,0.04) 18%,
+    rgba(255,255,255,0.00) 42%
+  );
+  opacity: 0.22;
+}
+
+.dx-faucetIn{
+  padding: 18px 18px 16px;
+}
+
+/* Card head */
+.dx-card-head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dx-faucetTitle{
+  margin: 0;
+  font-size: 16px;
+  font-weight: 950;
+  letter-spacing: -0.02em;
+  color: rgba(255,255,255,0.92);
+}
+
+.dx-faucetSub{
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(255,255,255,0.58);
+}
+
+/* Pills */
+.dx-faucetPill{
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(255,255,255,0.70);
+  white-space: nowrap;
+}
+
+.dx-faucetPillBlue{
+  border-color: rgba(var(--dx-blue), 0.28);
+  background: rgba(var(--dx-blue), 0.12);
+  color: rgba(255,255,255,0.78);
+}
+
+/* Rows + status text */
+.dx-faucetRow{
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.dx-faucetStatusLine{
+  font-size: 13px;
+  color: rgba(255,255,255,0.62);
+}
+
+.dx-faucetMono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: rgba(255,255,255,0.75);
+  word-break: break-word;
+}
+
+/* Input */
+.dx-faucetInputWrap{
+  display: grid;
+  gap: 6px;
+}
+
+.dx-faucetLabel{
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(255,255,255,0.52);
+}
+
+.dx-faucetInputWrap input{
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.40);
+  color: rgba(255,255,255,0.90);
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.dx-faucetInputWrap input::placeholder{
+  color: rgba(255,255,255,0.38);
+}
+
+.dx-faucetInputWrap input:focus{
+  border-color: rgba(255,255,255,0.20);
+}
+
+/* Buttons */
+.dx-faucetActions{
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dx-faucetActions button{
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.82);
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, filter 160ms ease, background 160ms ease;
+}
+
+.dx-faucetPrimary{
+  border-color: rgba(var(--dx-blue), 0.30) !important;
+  background: rgba(var(--dx-blue), 0.16) !important;
+  color: rgba(255,255,255,0.92) !important;
+}
+
+.dx-faucetActions button:hover{
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,0.18);
+  filter: brightness(1.03);
+}
+
+.dx-faucetActions button:focus-visible{
+  outline: 2px solid rgba(255,255,255,0.22);
+  outline-offset: 3px;
+}
+
+.dx-faucetActions button:disabled{
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+}
+
+/* Steps */
+.dx-faucetSteps{
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: 8px;
+}
+
+.dx-faucetSteps li{
+  counter-increment: step;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.64);
+  line-height: 1.5;
+}
+
+.dx-faucetSteps li::before{
+  content: counter(step);
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.74);
+  font-size: 12px;
+  font-weight: 900;
+  flex: 0 0 auto;
+}
+
+/* Alerts */
+.dx-alert{
+  padding: 12px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+  font-size: 13px;
+  color: rgba(255,255,255,0.72);
+}
+
+.dx-alert a{
+  color: rgba(255,255,255,0.88);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dx-alert-danger{
+  border-color: rgba(255, 80, 80, 0.28);
+  background: rgba(255, 80, 80, 0.10);
+  color: rgba(255,255,255,0.86);
+}
+
+.dx-faucetWarn{
+  border-color: rgba(255, 200, 80, 0.28);
+  background: rgba(255, 200, 80, 0.10);
+}
+
+.dx-faucetSuccess{
+  border-color: rgba(46, 229, 157, 0.22);
+  background: rgba(46, 229, 157, 0.10);
+  color: rgba(255,255,255,0.86);
+}
+
+.dx-muted{
+  font-size: 13px;
+  color: rgba(255,255,255,0.52);
+}
+
+/* Responsive */
+@media (max-width: 980px){
+  .dx-faucetPage{
+    align-items: flex-start;
+  }
+  .dx-faucetGrid{
+    grid-template-columns: 1fr;
+  }
+  .dx-faucetGrid > section:nth-child(1),
+  .dx-faucetGrid > section:nth-child(2),
+  .dx-faucetGrid > section:nth-child(3){
+    grid-column: span 12;
+  }
+}

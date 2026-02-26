@@ -7,6 +7,7 @@ import { createReceipt, updateReceiptMeta, updateReceiptStatus } from "../lib/re
 import { quickpayReceipt } from "../lib/api";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
 import { qpUrl } from "../lib/quickpayApiBase";
+import { logAppEvent } from "../lib/appEvents";
 
 export default function QuickPay() {
   const navigate = useNavigate();
@@ -148,9 +149,30 @@ export default function QuickPay() {
     try {
       const data = await fetchQuote(signal);
       setQuote(data);
+      void logAppEvent("quickpay_quote_success", {
+        address,
+        meta: {
+          token,
+          to,
+          amount,
+          mode,
+          speed,
+        },
+      });
     } catch (err: any) {
       if (err?.name === "AbortError") return;
       setQuoteError(err?.message || "Failed to get quote");
+      void logAppEvent("quickpay_quote_error", {
+        address,
+        meta: {
+          token,
+          to,
+          amount,
+          mode,
+          speed,
+          message: String(err?.message || "quote_failed"),
+        },
+      });
     } finally {
       if (!signal?.aborted) {
         setQuoteLoading(false);
@@ -677,6 +699,20 @@ export default function QuickPay() {
       const userOpHash = data?.userOpHash || data?.userOp?.userOpHash;
       const txHash = data?.txHash ?? data?.tx_hash ?? null;
 
+      void logAppEvent("quickpay_send_success", {
+        address,
+        meta: {
+          receiptId,
+          userOpHash,
+          txHash,
+          mode,
+          speed,
+          token,
+          to,
+          amount,
+        },
+      });
+
       updateReceiptMeta(receiptId ?? undefined, {
         userOpHash: userOpHash ?? undefined,
         txHash: txHash ?? undefined,
@@ -702,6 +738,17 @@ export default function QuickPay() {
     } catch (err: any) {
       setError(err?.message || "Failed to send");
       setPhase("error");
+      void logAppEvent("quickpay_send_error", {
+        address,
+        meta: {
+          token,
+          to,
+          amount,
+          mode,
+          speed,
+          message: String(err?.message || "send_failed"),
+        },
+      });
       if (receiptId) {
         updateReceiptStatus(receiptId, "FAILED").catch(() => undefined);
       }
@@ -710,273 +757,261 @@ export default function QuickPay() {
     }
   };
 
-  return (
-    <div style={{ padding: 16 }}>
-      <h2>QuickPay</h2>
-      <form onSubmit={submit} style={{ marginTop: 16, display: "grid", gap: 8, maxWidth: 520 }}>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Token</span>
-          <select
-            value={tokenPreset}
-            onChange={(e) => {
-              const nextPreset = e.target.value;
-              setTokenPreset(nextPreset);
-              const selected = tokenOptions.find((option) => option.value === nextPreset);
-              if (!selected) return;
-              if (selected.value === "custom") {
-                setDecimals(18);
-                return;
-              }
-              setToken(selected.address || "");
-              setDecimals(selected.decimals ?? 18);
-            }}
-          >
-            {tokenOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <input
-          style={{ padding: 8 }}
-          placeholder="Token address"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          readOnly={tokenLocked}
-        />
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Decimals</span>
-          <input
-            style={{ padding: 8 }}
-            type="number"
-            min={0}
-            max={36}
-            value={decimals}
-            onChange={(e) => {
-              const next = Number(e.target.value);
-              if (!Number.isFinite(next)) return;
-              setDecimals(Math.max(0, Math.min(36, Math.trunc(next))));
-            }}
-            readOnly={decimalsLocked}
-          />
-        </label>
-        <input
-          style={{ padding: 8 }}
-          placeholder="Recipient address"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-        />
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Amount</span>
-          <input
-            style={{ padding: 8 }}
-            placeholder="e.g. 1.0"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-          <small style={{ color: "#9aa0a6" }}>We convert to raw units automatically</small>
-        </label>
-        <input
-          style={{ padding: 8 }}
-          placeholder="Name (optional)"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-        />
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Message (optional)</span>
-          <textarea
-            style={{ padding: 8, minHeight: 96 }}
-            placeholder="Add a message"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-          />
-        </label>
-        <input
-          style={{ padding: 8 }}
-          placeholder="Reason (optional)"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Note (optional)</span>
-          <textarea
-            style={{ padding: 8, minHeight: 96 }}
-            placeholder="Private note"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-        </label>
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          Speed:
-          <select value={speed} onChange={(e) => setSpeed(e.target.value === "1" ? 1 : 0)}>
-            <option value={0}>Eco</option>
-            <option value={1}>Instant</option>
-          </select>
-        </label>
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          Mode:
-          <select value={mode} onChange={(e) => setMode(e.target.value as "SPONSORED" | "SELF_PAY")}>
-            <option value="SPONSORED">SPONSORED</option>
-            <option value="SELF_PAY">SELF_PAY</option>
-          </select>
-        </label>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="submit" disabled={loading || !isConnected || !quote}>
-            {loading ? "Sending..." : "Send"}
-          </button>
+return (
+  <main className="dx-container">
+    <header>
+      <div className="dx-kicker">DENDRITES</div>
+      <h1 className="dx-h1">QuickPay</h1>
+      <p className="dx-sub">
+        Premium payments UI. Quotes refresh as you type. No extra clicks.
+      </p>
+    </header>
+
+    <div className="dx-grid">
+      {/* LEFT: SEND FORM */}
+      <section className="dx-card">
+        <div className="dx-card-in">
+          <div className="dx-card-head">
+            <h2 className="dx-card-title">Send</h2>
+            <p className="dx-card-hint">UI only — functionality unchanged</p>
+          </div>
+
+          <form onSubmit={submit} className="dx-form">
+            <div className="dx-field">
+              <span className="dx-label">Token preset</span>
+              <select
+                value={tokenPreset}
+                onChange={(e) => {
+                  const nextPreset = e.target.value;
+                  setTokenPreset(nextPreset);
+                  const selected = tokenOptions.find((option) => option.value === nextPreset);
+                  if (!selected) return;
+                  if (selected.value === "custom") {
+                    setDecimals(18);
+                    return;
+                  }
+                  setToken(selected.address || "");
+                  setDecimals(selected.decimals ?? 18);
+                }}
+              >
+                {tokenOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="dx-row2">
+              <div className="dx-field">
+                <span className="dx-label">Token address</span>
+                <input
+                  placeholder="0x…"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  readOnly={tokenLocked}
+                />
+              </div>
+
+              <div className="dx-field">
+                <span className="dx-label">Decimals</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={36}
+                  value={decimals}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    if (!Number.isFinite(next)) return;
+                    setDecimals(Math.max(0, Math.min(36, Math.trunc(next))));
+                  }}
+                  readOnly={decimalsLocked}
+                />
+              </div>
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Recipient</span>
+              <input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Amount</span>
+              <input placeholder="e.g. 1.0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+              <div className="dx-help">We convert to raw units automatically.</div>
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Name (optional)</span>
+              <input placeholder="Display name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Message (optional)</span>
+              <textarea
+                placeholder="Add a message"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                style={{ minHeight: 96 }}
+              />
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Reason (optional)</span>
+              <input placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+            </div>
+
+            <div className="dx-field">
+              <span className="dx-label">Note (optional)</span>
+              <textarea
+                placeholder="Private note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                style={{ minHeight: 96 }}
+              />
+            </div>
+
+            <div className="dx-row2">
+              <label className="dx-field">
+                <span className="dx-label">Speed</span>
+                <select value={speed} onChange={(e) => setSpeed(e.target.value === "1" ? 1 : 0)}>
+                  <option value={0}>Eco</option>
+                  <option value={1}>Instant</option>
+                </select>
+              </label>
+
+              <label className="dx-field">
+                <span className="dx-label">Mode</span>
+                <select value={mode} onChange={(e) => setMode(e.target.value as "SPONSORED" | "SELF_PAY")}>
+                  <option value="SPONSORED">SPONSORED</option>
+                  <option value="SELF_PAY">SELF_PAY</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="dx-actions">
+              <button className="dx-primary" type="submit" disabled={loading || !isConnected || !quote}>
+                {loading ? "Sending…" : "Send"}
+              </button>
+            </div>
+
+            {!isConnected ? <div className="dx-alert">Connect wallet first.</div> : null}
+          </form>
         </div>
-        {!isConnected ? (
-          <div style={{ color: "#bdbdbd" }}>Connect wallet first.</div>
+      </section>
+
+      {/* RIGHT: ACTIVITY / STATUS / QUOTE */}
+      <aside className="dx-stack">
+        <section className="dx-card">
+          <div className="dx-card-in">
+            <div className="dx-card-head">
+              <h2 className="dx-card-title">Activity</h2>
+              <p className="dx-card-hint">Live</p>
+            </div>
+
+            {quoteBusy ? <div className="dx-muted">Quote: loading…</div> : null}
+            {status ? <div className="dx-muted" style={{ marginTop: 8 }}>{status}</div> : null}
+
+            {loading ? (
+              <div style={{ marginTop: 12 }}>
+                <div className="dx-muted" style={{ marginBottom: 10 }}>
+                  {mode === "SPONSORED"
+                    ? "First-time send may show extra wallet popups."
+                    : "You’ll confirm a normal wallet transfer."}
+                </div>
+
+                <ol className="dx-steps">
+                  {mode === "SELF_PAY" ? (
+                    <li className={phase === "send" ? "dx-step-active" : ""}>Confirm wallet transfer</li>
+                  ) : (
+                    <>
+                      {Array.isArray(quote?.setupNeeded) &&
+                      quote?.setupNeeded?.includes("permit2_allowance_missing") ? (
+                        <li className={phase === "approve" ? "dx-step-active" : ""}>Approve token for Permit2</li>
+                      ) : null}
+
+                      {String(quote?.lane ?? "").toUpperCase() === "PERMIT2" ? (
+                        <li className={phase === "permit2" ? "dx-step-active" : ""}>Sign Permit2 authorization</li>
+                      ) : null}
+
+                      {String(quote?.lane ?? "").toUpperCase() === "EIP3009" ? (
+                        <li className={phase === "eip3009" ? "dx-step-active" : ""}>Sign EIP-3009 authorization</li>
+                      ) : null}
+
+                      {String(quote?.lane ?? "").toUpperCase() === "EIP2612" ? (
+                        <li className={phase === "eip2612" ? "dx-step-active" : ""}>Sign EIP-2612 permit</li>
+                      ) : null}
+
+                      <li className={phase === "userop" ? "dx-step-active" : ""}>Sign send request</li>
+                      <li className={phase === "send" ? "dx-step-active" : ""}>Sending transaction</li>
+                    </>
+                  )}
+                </ol>
+              </div>
+            ) : null}
+
+            {quoteError ? <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>{quoteError}</div> : null}
+            {error ? <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>{error}</div> : null}
+          </div>
+        </section>
+
+        {quote ? (
+          <section className="dx-card">
+            <div className="dx-card-in">
+              <div className="dx-card-head">
+                <h2 className="dx-card-title">Quote</h2>
+                <p className="dx-card-hint">Breakdown</p>
+              </div>
+
+              <div style={{ display: "grid", gap: 8, fontSize: 13, color: "rgba(255,255,255,0.82)" }}>
+                <div><strong style={{ color: "rgba(255,255,255,0.92)" }}>Lane:</strong> {quote.lane ?? "—"}</div>
+                <div><strong style={{ color: "rgba(255,255,255,0.92)" }}>Sponsored:</strong> {quote.sponsored ? "Yes" : "No"}</div>
+
+                <div className="dx-divider" />
+
+                <div>
+                  <strong style={{ color: "rgba(255,255,255,0.92)" }}>Fee USD (total):</strong>{" "}
+                  {`$${(Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)}`}
+                </div>
+
+                <div>
+                  <strong style={{ color: "rgba(255,255,255,0.92)" }}>Fee token amount:</strong>{" "}
+                  {quote.feeTokenAmount ? ethers.formatUnits(quote.feeTokenAmount, decimals) : "0"}
+                </div>
+
+                <div>
+                  <strong style={{ color: "rgba(255,255,255,0.92)" }}>Net token:</strong>{" "}
+                  {quote.netAmount || quote.netAmountRaw
+                    ? ethers.formatUnits(quote.netAmountRaw ?? quote.netAmount, decimals)
+                    : "0"}
+                </div>
+              </div>
+
+              <div className="dx-divider" />
+
+              <details>
+                <summary>Raw details</summary>
+                <div style={{ marginTop: 8, fontSize: 12, color: "rgba(255,255,255,0.56)", display: "grid", gap: 6 }}>
+                  <div>feeUsd6: {quote.feeUsd6 ?? "0"}</div>
+                  <div>feeTokenAmount: {quote.feeTokenAmount ?? "0"}</div>
+                  <div>netAmount: {quote.netAmountRaw ?? quote.netAmount ?? "0"}</div>
+                  <div>feeMode: {quote.feeMode ?? "—"}</div>
+                  <div>speed: {quote.speed ?? "—"}</div>
+                </div>
+              </details>
+            </div>
+          </section>
         ) : null}
-      </form>
-
-      {quoteBusy ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>Quote: loading…</div> : null}
-      {status ? <div style={{ color: "#bdbdbd", marginTop: 8 }}>{status}</div> : null}
-      {loading ? (
-        <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Guided steps</div>
-          {mode === "SPONSORED" ? (
-            <div style={{ color: "#bdbdbd", marginBottom: 8 }}>
-              First-time send may show extra MetaMask popups.
-            </div>
-          ) : (
-            <div style={{ color: "#bdbdbd", marginBottom: 8 }}>
-              You’ll confirm a normal wallet transfer.
-            </div>
-          )}
-          <ol style={{ margin: 0, paddingLeft: 20, color: "#d6d6d6" }}>
-            {mode === "SELF_PAY" ? (
-              <li style={{ fontWeight: phase === "send" ? 700 : 400 }}>
-                Confirm wallet transfer
-              </li>
-            ) : (
-              <>
-                {Array.isArray(quote?.setupNeeded) && quote?.setupNeeded?.includes("permit2_allowance_missing") && ( 
-                  <li style={{ marginBottom: 6, fontWeight: phase === "approve" ? 700 : 400 }}>
-                    Approve token for Permit2
-                  </li>
-                )}
-                {String(quote?.lane ?? "").toUpperCase() === "PERMIT2" ? (
-                  <li style={{ marginBottom: 6, fontWeight: phase === "permit2" ? 700 : 400 }}>
-                    Sign Permit2 authorization
-                  </li>
-                ) : null}
-                {String(quote?.lane ?? "").toUpperCase() === "EIP3009" ? (
-                  <li style={{ marginBottom: 6, fontWeight: phase === "eip3009" ? 700 : 400 }}>
-                    Sign EIP‑3009 authorization
-                  </li>
-                ) : null}
-                {String(quote?.lane ?? "").toUpperCase() === "EIP2612" ? (
-                  <li style={{ marginBottom: 6, fontWeight: phase === "eip2612" ? 700 : 400 }}>
-                    Sign EIP‑2612 permit
-                  </li>
-                ) : null}
-                <li style={{ marginBottom: 6, fontWeight: phase === "userop" ? 700 : 400 }}>
-                  Sign send request
-                </li>
-                <li style={{ fontWeight: phase === "send" ? 700 : 400 }}>
-                  Sending transaction
-                </li>
-              </>
-            )}
-          </ol>
-        </div>
-      ) : null}
-      {quoteError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{quoteError}</div> : null}
-      {quote && quote.lane !== "SELF_PAY" ? (
-        <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Status</div>
-          <div>
-            <strong>AA:</strong>{" "}
-            {quote.smartDeployed ? "deployed" : "will be created automatically"}
-          </div>
-          <div>
-            <strong>Setup needed:</strong>{" "}
-            {Array.isArray(quote.setupNeeded) && quote.setupNeeded.length
-              ? quote.setupNeeded.join(", ")
-              : "none"}
-          </div>
-          {Array.isArray(quote.setupNeeded) && quote.setupNeeded.includes("permit2_allowance_missing") ? (
-            <div style={{ marginTop: 8, color: "#bdbdbd" }}>
-              First-time send: we’ll fund gas if needed, then ask you to approve once.
-            </div>
-          ) : null}
-          <div>
-            <strong>First-time surcharge:</strong>{" "}
-            {quote.firstTxSurchargePaid ? "already paid" : "applied"}
-          </div>
-          <div style={{ marginTop: 6, color: "#bdbdbd" }}>
-            Surcharge applies only on the first sponsored send per smart account. After a confirmed send, it should drop to $0.00.
-          </div>
-        </div>
-      ) : null}
-      {quote ? (
-        <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 520 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Quote</div>
-          <div><strong>Lane:</strong> {quote.lane ?? "—"}</div>
-          <div><strong>Sponsored:</strong> {quote.sponsored ? "Yes" : "No"}</div>
-          <div>
-            <strong>Token:</strong>{" "}
-            {selectedTokenPreset?.label
-              ? selectedTokenPreset.label
-              : token
-                ? token
-                : "—"}
-          </div>
-          {quote.lane === "SELF_PAY" ? (
-            <div><strong>Gas estimate (ETH):</strong> {selfPayGasEstimate || "calculating..."}</div>
-          ) : null}
-          {quote.lane === "SELF_PAY" && selfPayGasError ? (
-            <div style={{ color: "#ff7a7a" }}>{selfPayGasError}</div>
-          ) : null}
-          <div>
-            <strong>Fee USD (total):</strong>{" "}
-            {`$${(Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)}`}
-          </div>
-          {quote.lane !== "SELF_PAY" ? (
-            <div>
-              <strong>Baseline USD:</strong>{" "}
-              {`$${(Number(quote.baselineUsd6 ?? 0) / 1e6).toFixed(6)}`}
-            </div>
-          ) : null}
-          {quote.lane !== "SELF_PAY" ? (
-            <div>
-              <strong>Surcharge USD:</strong>{" "}
-              {`$${(Number(quote.surchargeUsd6 ?? 0) / 1e6).toFixed(6)}`}
-            </div>
-          ) : null}
-          <div>
-            <strong>Fee token amount:</strong>{" "}
-            {quote.feeTokenAmount ? ethers.formatUnits(quote.feeTokenAmount, decimals) : "0"}
-          </div>
-          {quote.lane !== "SELF_PAY" ? (
-            <div>
-              <strong>Fee token:</strong>{" "}
-              {quote.feeTokenMode === "same" ? "same as send token" : quote.feeTokenMode || "—"}
-            </div>
-          ) : null}
-          <div>
-            <strong>Net token:</strong>{" "}
-            {quote.netAmount || quote.netAmountRaw
-              ? ethers.formatUnits(quote.netAmountRaw ?? quote.netAmount, decimals)
-              : "0"}
-          </div>
-          <details style={{ marginTop: 8 }}>
-            <summary style={{ cursor: "pointer" }}>Raw details</summary>
-            <div style={{ marginTop: 6, fontSize: 12, color: "#bdbdbd" }}>
-              <div>feeUsd6: {quote.feeUsd6 ?? "0"}</div>
-              <div>feeTokenAmount: {quote.feeTokenAmount ?? "0"}</div>
-              <div>netAmount: {quote.netAmountRaw ?? quote.netAmount ?? "0"}</div>
-              <div>feeMode: {quote.feeMode ?? "—"}</div>
-              <div>speed: {quote.speed ?? "—"}</div>
-            </div>
-          </details>
-        </div>
-      ) : null}
-
-      {error ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{error}</div> : null}
-      {receipt ? <ReceiptCard receipt={receipt} /> : null}
+      </aside>
     </div>
-  );
+
+    {receipt ? (
+      <div style={{ marginTop: 14 }}>
+        <ReceiptCard receipt={receipt} />
+      </div>
+    ) : null}
+  </main>
+);
+
+
 }

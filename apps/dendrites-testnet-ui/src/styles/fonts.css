@@ -1,0 +1,27 @@
+/* src/styles/fonts.css */
+
+/* Import working fonts */
+@import "@fontsource-variable/manrope";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/raleway";
+
+/* Font tokens (used by index.css) */
+:root {
+  /* Primary - Bold geometric */
+  --font-hape: "Raleway Variable", sans-serif;
+
+  /* Body - Professional text */
+  --font-body: "Raleway Variable", sans-serif;
+
+  /* Navbar - Clean */
+  --font-navbar: "Inter Variable", sans-serif;
+}
+
+/* Global default typography */
+html,
+body {
+  font-family: var(--font-body);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

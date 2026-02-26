@@ -1,0 +1,574 @@
+/* PURE BLACK PAGE */
+.dx-homePage{
+  width:100%;
+  min-height:calc(100vh - var(--dx-nav-h,74px));
+  background:#000;
+  color:rgba(255,255,255,.92);
+}
+.dx-homeInner{
+  max-width:var(--dx-max,1400px);
+  margin:0 auto;
+  padding:34px 16px 34px;
+}
+
+/* HERO (keep your existing premium look) */
+.dx-homeHero{
+  padding:clamp(26px,4vw,62px) 0 clamp(18px,3vw,32px);
+  text-align:center;
+}
+.dx-homeKicker{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.03);
+  font-size:11px;
+  letter-spacing:.18em;
+  text-transform:uppercase;
+  font-weight:900;
+  color:rgba(255,255,255,.70);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+}
+.dx-homeH1{
+  margin-top:18px;
+  font-family:var(--dx-font-head,inherit);
+  font-weight:800;
+  letter-spacing:-.045em;
+  line-height:1.02;
+  font-size:clamp(44px,6.2vw,92px);
+  text-shadow:0 18px 90px rgba(0,0,0,.88);
+}
+.dx-homeH1Faint{color:rgba(255,255,255,.36);}
+.dx-homeH1Strong{color:rgba(255,255,255,.96);}
+.dx-homeLead{
+  margin:18px auto 0;
+  max-width:860px;
+  font-size:clamp(14px,1.25vw,18px);
+  line-height:1.65;
+  color:rgba(255,255,255,.62);
+}
+
+.dx-homeCtas{
+  margin-top:26px;
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:center;
+}
+.dx-homeBtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  border-radius:999px;
+  padding:12px 18px;
+  border:1px solid rgba(255,255,255,.14);
+  text-decoration:none;
+  font-weight:900;
+  letter-spacing:.01em;
+  font-size:13px;
+  cursor:pointer;
+  user-select:none;
+  transition:transform 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.dx-homeBtnIcon{width:18px;height:18px;opacity:.95;}
+.dx-homeBtnPrimary{
+  border-color:rgba(255,255,255,.18);
+  background:rgba(255,255,255,.07);
+  color:rgba(255,255,255,.96);
+  box-shadow:0 20px 70px rgba(0,0,0,.80), inset 0 1px 0 rgba(255,255,255,.10);
+  backdrop-filter:blur(10px);
+}
+.dx-homeBtnPrimary:hover{
+  transform:translateY(-1px);
+  background:rgba(255,255,255,.09);
+  border-color:rgba(255,255,255,.26);
+}
+.dx-homeBtnGhost{
+  background:rgba(255,255,255,.04);
+  color:rgba(255,255,255,.86);
+}
+.dx-homeBtnGhost:hover{
+  transform:translateY(-1px);
+  background:rgba(255,255,255,.07);
+  border-color:rgba(255,255,255,.20);
+}
+.dx-homeSubline{
+  margin-top:18px;
+  display:flex;
+  gap:10px;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+.dx-homePill{
+  font-size:12px;
+  font-weight:900;
+  color:rgba(255,255,255,.62);
+  padding:8px 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.03);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+/* SECTION HEAD */
+.dx-homeRails{
+  margin-top:clamp(18px,3.2vw,46px);
+  padding-top:10px;
+  scroll-margin-top:var(--dx-nav-h,74px);
+}
+.dx-homeSectionHead{
+  text-align:left;
+  max-width:980px;
+  margin:0 auto 16px;
+}
+.dx-homeSectionKicker{
+  font-size:11px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  font-weight:900;
+  color:rgba(255,255,255,.55);
+}
+.dx-homeSectionTitle{
+  margin-top:10px;
+  font-size:clamp(20px,2.2vw,30px);
+  letter-spacing:-.02em;
+  font-weight:900;
+  color:rgba(255,255,255,.92);
+}
+.dx-homeSectionLead{
+  margin-top:8px;
+  font-size:13px;
+  line-height:1.7;
+  color:rgba(255,255,255,.60);
+}
+
+/* EXACT BENTO STRUCTURE LIKE YOUR REFERENCE:
+   top row: 2 cards
+   bottom row: 3 cards
+*/
+.dx-bento{
+  margin-top:16px;
+  display:grid;
+  gap:18px;
+  grid-template-columns:repeat(6, minmax(0,1fr));
+  grid-template-areas:
+    "ack ack ack quick quick quick"
+    "bulk bulk undo undo escrow escrow";
+}
+.dx-bArea-ack{grid-area:ack;}
+.dx-bArea-quick{grid-area:quick;}
+.dx-bArea-bulk{grid-area:bulk;}
+.dx-bArea-undo{grid-area:undo;}
+.dx-bArea-escrow{grid-area:escrow;}
+
+/* CARD LOOK (this is where the “same” feel comes from) */
+.dx-bCard{
+  position:relative;
+  border-radius:28px;
+  border:1px solid rgba(255,255,255,.10);
+  background:linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,.018));
+  overflow:hidden;
+  text-decoration:none;
+  color:inherit;
+  box-shadow:
+    0 44px 140px rgba(0,0,0,.88),
+    inset 0 1px 0 rgba(255,255,255,.06);
+  transition:transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+.dx-bCard::before{
+  content:"";
+  position:absolute;
+  inset:-1px;
+  pointer-events:none;
+  background:
+    radial-gradient(closest-side at 18% 18%, rgba(255,255,255,.10), transparent 62%),
+    radial-gradient(closest-side at 88% 82%, rgba(255,255,255,.05), transparent 70%);
+  opacity:.75;
+}
+.dx-bCard::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:radial-gradient(closest-side at 50% 55%, transparent 62%, rgba(0,0,0,.70) 100%);
+  opacity:.85;
+}
+.dx-bClickable:hover{
+  transform:translateY(-2px);
+  border-color:rgba(255,255,255,.16);
+  background:linear-gradient(180deg, rgba(255,255,255,.032), rgba(255,255,255,.020));
+}
+.dx-bDisabled{cursor:default;opacity:.92;}
+.dx-bDisabled:hover{transform:none;}
+
+.dx-bCardInner{
+  position:relative;
+  z-index:1;
+  height:100%;
+  min-height:290px;
+  padding:18px 18px 16px;
+  display:flex;
+  flex-direction:column;
+}
+
+/* HEADER inside card (LIVE + pill + arrow) */
+.dx-bHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.dx-bStatus{
+  font-size:12px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  font-weight:900;
+  color:rgba(255,255,255,.55);
+}
+.dx-bHeaderRight{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+}
+.dx-bPill{
+  font-size:12px;
+  font-weight:900;
+  color:rgba(255,255,255,.72);
+  padding:6px 12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.04);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+.dx-bCornerBtn{
+  width:34px;height:34px;
+  border-radius:12px;
+  display:grid;
+  place-items:center;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(0,0,0,.35);
+  color:rgba(255,255,255,.62);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+/* BODY — title must sit LOWER like the reference */
+.dx-bBody{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  padding-top:58px; /* pushes title down */
+}
+.dx-bBodyCenter{
+  text-align:center;
+  padding-top:64px;
+}
+
+/* TITLE TYPOGRAPHY (thin, premium) */
+.dx-bSmall{
+  font-family:var(--dx-font-head,inherit);
+  font-weight:600;
+  letter-spacing:-.02em;
+  color:rgba(255,255,255,.42);
+  font-size:clamp(26px,2.2vw,42px);
+  line-height:1.02;
+}
+.dx-bBig{
+  margin-top:6px;
+  font-family:var(--dx-font-head,inherit);
+  font-weight:500;   /* not bold */
+  letter-spacing:-.045em;
+  color:rgba(255,255,255,.95);
+  font-size:clamp(62px,5.6vw,112px);
+  line-height:.92;
+  text-shadow:0 18px 110px rgba(0,0,0,.90);
+}
+
+.dx-bDesc{
+  margin-top:14px;
+  max-width:64ch;
+  font-size:14px;
+  line-height:1.6;
+  color:rgba(255,255,255,.56);
+}
+.dx-bBodyCenter .dx-bDesc{margin-left:auto;margin-right:auto;}
+
+.dx-bDivider{
+  margin-top:auto;
+  height:1px;
+  background:rgba(255,255,255,.08);
+}
+.dx-bFooter{
+  padding-top:12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.dx-bFootLeft{
+  font-size:13px;
+  font-weight:900;
+  color:rgba(255,255,255,.70);
+}
+.dx-bFootRight{
+  font-size:13px;
+  font-weight:900;
+  color:rgba(255,255,255,.38);
+}
+
+/* ===== DECORATIONS (match reference vibe) ===== */
+
+/* Ack: orbits + floating chips */
+.dx-bOrbits{position:absolute;inset:0;pointer-events:none;}
+.dx-bOrbit{
+  position:absolute;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.10);
+  opacity:.9;
+}
+.dx-bOrbit.o1{width:260px;height:260px;left:-60px;top:-70px;}
+.dx-bOrbit.o2{width:360px;height:360px;left:-30px;top:-110px;opacity:.55;}
+.dx-bOrbit.o3{width:520px;height:520px;left:-140px;top:-220px;opacity:.30;}
+
+.dx-bFloatChip{
+  position:absolute;
+  width:56px;height:40px;
+  border-radius:16px;
+  display:grid;
+  place-items:center;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(0,0,0,.40);
+  color:rgba(255,255,255,.70);
+  font-weight:900;
+  font-size:12px;
+  box-shadow:0 22px 80px rgba(0,0,0,.82), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.dx-bFloatChip.c1{left:56px;top:64px;}
+.dx-bFloatChip.c2{left:128px;top:28px;}
+.dx-bFloatChip.c3{left:214px;top:78px;}
+
+/* Quick: dot field on right side */
+.dx-bDots{
+  position:absolute;
+  inset:0;
+  opacity:.22;
+  background:
+    radial-gradient(circle at 9px 9px, rgba(255,255,255,.45) 1.6px, transparent 1.8px);
+  background-size:22px 22px;
+  mask-image:radial-gradient(closest-side at 62% 38%, #000 60%, transparent 100%);
+}
+
+/* Bulk: icon strip at top like ref */
+.dx-bIconStrip{
+  position:absolute;
+  left:18px;
+  top:70px;
+  display:flex;
+  gap:12px;
+  padding:14px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.02);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+.dx-bIconBtn{
+  width:52px;height:52px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(0,0,0,.35);
+  display:grid;
+  place-items:center;
+  color:rgba(255,255,255,.70);
+  font-weight:900;
+  box-shadow:0 18px 60px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+/* Undo: auth columns behind text */
+.dx-bAuthCols{
+  position:absolute;
+  inset:58px 18px 18px 18px;
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0,1fr));
+  gap:14px;
+  opacity:.95;
+}
+.dx-bAuthCol{
+  border-radius:22px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.02);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+.dx-bAuthPill{
+  margin:14px auto 0;
+  width:max-content;
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(0,0,0,.35);
+  color:rgba(255,255,255,.60);
+  font-weight:900;
+  font-size:12px;
+  letter-spacing:.08em;
+}
+
+/* Undo: avatar mosaic bottom-right (like the ref “users” card) */
+.dx-bAvatarMosaic{
+  position:absolute;
+  right:18px;
+  bottom:64px;
+  display:grid;
+  grid-template-columns:repeat(3, 48px);
+  gap:10px;
+}
+.dx-bAvatarTile{
+  width:48px;height:48px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.10);
+  background:
+    radial-gradient(closest-side at 35% 30%, rgba(255,255,255,.10), transparent 62%),
+    rgba(255,255,255,.03);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+  opacity:.95;
+}
+
+/* Escrow: stacked cards right side */
+.dx-bStack{position:absolute;inset:0;pointer-events:none;}
+.dx-bStackCard{
+  position:absolute;
+  right:18px;
+  top:92px;
+  width:260px;
+  height:140px;
+  border-radius:22px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(0,0,0,.35);
+  box-shadow:0 28px 90px rgba(0,0,0,.82), inset 0 1px 0 rgba(255,255,255,.05);
+}
+.dx-bStackCard.s1{transform:translate(0,0);opacity:.95;}
+.dx-bStackCard.s2{transform:translate(-14px,-12px);opacity:.65;}
+.dx-bStackCard.s3{transform:translate(-28px,-24px);opacity:.40;}
+
+/* FOOT */
+.dx-homeFoot{margin-top:22px;padding-top:18px;}
+.dx-homeFootLine{height:1px;background:rgba(255,255,255,.08);margin-bottom:12px;}
+.dx-homeFootText{font-size:12px;color:rgba(255,255,255,.52);}
+
+/* RESPONSIVE */
+@media (max-width: 1100px){
+  .dx-bento{
+    grid-template-columns:1fr;
+    grid-template-areas:
+      "ack"
+      "quick"
+      "bulk"
+      "undo"
+      "escrow";
+  }
+  .dx-bCardInner{min-height:270px;}
+  .dx-bStackCard{width:220px;}
+}
+
+@media (max-width: 520px){
+  .dx-homeInner{padding:22px 14px 26px;}
+  .dx-homeBtn{width:100%;}
+  .dx-bAuthCols{inset:62px 14px 18px 14px;gap:10px;}
+  .dx-bIconStrip{right:14px;left:14px;justify-content:space-between;}
+}
+
+
+/* Undo card: use a simple row of auth pills (no long rectangles) */
+.dx-bKind-undo .dx-bAuthPillsRow{
+  position:absolute;
+  left:18px;
+  right:18px;
+  top:64px;
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:flex-start;
+  z-index:2;
+  pointer-events:none;
+}
+
+.dx-bKind-undo .dx-bAuthPill{
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,0.12);
+  background:rgba(0,0,0,0.35);
+  color:rgba(255,255,255,0.62);
+  font-weight:900;
+  font-size:12px;
+  letter-spacing:0.08em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+/* Give the title breathing room now that columns are gone */
+.dx-bKind-undo .dx-bBody{
+  padding-top:110px;
+}
+/* ===== Quote-style section heading (matches your screenshot) ===== */
+
+.dx-quoteHead{
+  text-align:left !important;
+  max-width: none !important;
+  margin: 0 0 18px 0 !important;
+  padding: 0 !important;
+}
+
+/* small blue kicker */
+.dx-quoteKicker{
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(120, 150, 255, 0.92); /* Vercel-ish blue */
+  margin: 0 0 16px 0;
+}
+
+/* huge quote headline */
+.dx-quoteTitle{
+  margin: 0;
+  font-family: var(--dx-font-head, inherit);
+  font-weight: 9    00;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+  color: rgba(255,255,255,0.98);
+  font-size: clamp(44px, 7.2vw, 108px);
+  text-shadow: 0 22px 110px rgba(0,0,0,0.92);
+}
+
+/* quote marks */
+.dx-quoteMark{
+  color: rgba(255,255,255,0.98);
+}
+
+/* make the whole rails section start clean like a “page section” */
+.dx-homeRailsFull{
+  padding-top: clamp(22px, 4vw, 60px) !important;
+}
+
+.dx-homeRailsInner{
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/* tighten spacing before the bento cards */
+.dx-quoteHead + .dx-bento{
+  margin-top: 18px;
+}
+
+/* mobile tuning */
+@media (max-width: 520px){
+  .dx-quoteKicker{
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+  .dx-quoteTitle{
+    font-size: clamp(44px, 7.2vw, 108px);
+    line-height: 1.02;
+  }
+}

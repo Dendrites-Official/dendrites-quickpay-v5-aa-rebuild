@@ -1,0 +1,269 @@
+/* =========================================================
+   Payment Rails — Reference-style layout (dx-say*)
+   LEFT sticky heading, RIGHT staggered 2-col card wall
+   Clean, human-made: no noisy glows / strokes / patterns
+   ========================================================= */
+
+.dx-sayPage{
+  width:100%;
+  min-height: calc(100vh - var(--dx-nav-h, 74px));
+  background:#000;
+  color: rgba(255,255,255,0.92);
+}
+
+.dx-sayLayout{
+  max-width: var(--dx-max, 1400px);
+  margin: 0 auto;
+  padding: 26px 16px 44px;
+  display: grid;
+  grid-template-columns: 0.95fr 1.25fr;
+  gap: 26px;
+}
+
+/* LEFT (sticky) */
+.dx-sayLeft{
+  min-width: 0;
+  align-self: start;          /* critical: don't stretch to grid-row height */
+  position: sticky;
+  top: calc(var(--dx-nav-h, 74px) + 22px);
+}
+
+.dx-saySticky{
+  /* container for left content */
+  display: block;
+}
+
+.dx-sayH1{
+  margin: 0;
+  font-family: var(--dx-font-head, inherit);
+  letter-spacing: -0.05em;
+  line-height: 0.96;
+  font-size: clamp(40px, 5.2vw, 86px);
+  text-shadow: 0 18px 90px rgba(0,0,0,0.88);
+}
+
+.dx-sayH1Faint{
+  color: rgba(255,255,255,0.34);
+  font-weight: 800;
+}
+
+.dx-sayH1Strong{
+  color: rgba(255,255,255,0.96);
+  font-weight: 900;
+}
+
+.dx-sayLead{
+  margin-top: 18px;
+  max-width: 56ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.60);
+}
+
+/* RIGHT (card wall) */
+.dx-sayRight{ min-width: 0; }
+
+.dx-sayCols{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.dx-sayCol{
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* stagger like screenshot: second column starts lower */
+.dx-sayColB{
+  padding-top: 54px;
+}
+
+/* Card base */
+.dx-sayCard{
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  border-radius: 26px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+  box-shadow:
+    0 26px 90px rgba(0,0,0,0.72),
+    inset 0 1px 0 rgba(255,255,255,0.06);
+  position: relative;
+  overflow: hidden;
+  padding: 18px;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+/* sizes to create the “wall” rhythm */
+.dx-sayCard.is-tall{ min-height: 360px; }
+.dx-sayCard.is-mid{ min-height: 320px; }
+.dx-sayCard.is-short{ min-height: 280px; }
+
+/* Accent variables: used very subtly (no glows) */
+.dx-say-blue{ --accent: 0,112,243; }
+.dx-say-violet{ --accent: 168,85,247; }
+.dx-say-green{ --accent: 46,229,157; }
+.dx-say-neutral{ --accent: 255,255,255; }
+
+/* top row */
+.dx-sayTop{
+  display: grid;
+  grid-template-columns: 46px 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.dx-sayAvatar{
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.30);
+  display: grid;
+  place-items: center;
+  color: rgba(255,255,255,0.88);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.dx-sayAvatar svg{ width: 22px; height: 22px; }
+
+.dx-sayName{
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  color: rgba(255,255,255,0.92);
+}
+
+.dx-sayRole{
+  margin-top: 2px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.54);
+}
+
+/* status pill (subtle, not flashy) */
+.dx-sayPill{
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(255,255,255,0.76);
+  white-space: nowrap;
+}
+
+.dx-sayPill.is-live{
+  border-color: rgba(var(--accent), 0.28);
+  background: rgba(var(--accent), 0.10);
+}
+
+.dx-sayPill.is-planned{
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.66);
+}
+
+/* quote text */
+.dx-sayQuote{
+  margin-top: 16px;
+  font-size: 18px;
+  line-height: 1.55;
+  color: rgba(255,255,255,0.76);
+  max-width: 46ch;
+}
+
+/* tags (quiet) */
+.dx-sayTags{
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dx-sayTag{
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(255,255,255,0.68);
+}
+
+/* footer */
+.dx-sayFoot{
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.dx-sayFootLeft{
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.78);
+}
+
+.dx-sayFootRight{
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.46);
+}
+
+/* hover (clean, human) */
+.dx-sayCard:hover{
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.032);
+}
+
+/* disabled */
+.dx-sayCard.is-disabled{
+  cursor: not-allowed;
+  transform: none !important;
+  opacity: 0.88;
+}
+.dx-sayCard.is-disabled:hover{
+  border-color: rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+}
+
+/* responsive */
+@media (max-width: 980px){
+  .dx-sayLayout{
+    grid-template-columns: 1fr;
+  }
+  .dx-sayLeft{
+    position: static;         /* un-stick on mobile — single column layout */
+    align-self: auto;
+  }
+  .dx-sayCols{
+    grid-template-columns: 1fr;
+  }
+  .dx-sayColB{
+    padding-top: 0;
+  }
+}
+
+/* --- Sticky fix: ensure no parent prevents sticky --- */
+.dx-sayPage,
+.dx-sayLayout,
+.dx-sayRight {
+  overflow: visible !important;
+}
+
+/* If any parent is using transform/filter (can break sticky), neutralize here */
+.dx-sayLayout {
+  transform: none !important;
+  filter: none !important;
+}
+

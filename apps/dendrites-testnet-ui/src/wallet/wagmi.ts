@@ -2,6 +2,7 @@ import { http, createConfig } from "wagmi";
 import { injected, walletConnect } from "wagmi/connectors";
 import { defineChain } from "viem";
 import { createWeb3Modal } from "@web3modal/wagmi/react";
+import { isMobile } from "../utils/mobile";
 
 export const appName = "Dendrites Testnet UI";
 
@@ -21,7 +22,7 @@ const wcProjectId = String(import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? "").
 
 const connectors = [
   injected(),
-  ...(wcProjectId ? [walletConnect({ projectId: wcProjectId, showQrModal: true })] : []),
+  ...(wcProjectId ? [walletConnect({ projectId: wcProjectId, showQrModal: !isMobile() })] : []),
 ];
 
 export const wagmiConfig = createConfig({
@@ -40,7 +41,7 @@ if (wcProjectId) {
       metadata: {
         name: appName,
         description: "Dendrites QuickPay Testnet",
-        url: "http://localhost:5173",
+        url: "https://dendrites.xyz",
         icons: ["https://avatars.githubusercontent.com/u/38020230"],
       },
     });

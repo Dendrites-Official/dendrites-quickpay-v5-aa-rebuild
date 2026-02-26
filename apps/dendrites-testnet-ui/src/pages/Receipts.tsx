@@ -99,22 +99,52 @@ export default function Receipts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receipt, loading, trimmed]);
 
-  return (
-    <div style={{ padding: 16 }}>
-      <h2>Receipts</h2>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <input
-          style={{ width: "100%", maxWidth: 420, padding: 8 }}
-          placeholder="Receipt ID / UserOpHash / TxHash"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <button onClick={fetchReceipt} disabled={!canFetch || loading}>
-          {loading ? "Fetching..." : "Fetch"}
-        </button>
+return (
+  <main className="dx-container">
+    <header>
+      <div className="dx-kicker">DENDRITES</div>
+      <h1 className="dx-h1">Receipts</h1>
+      <p className="dx-sub">Lookup a receipt by receiptId, userOpHash, or txHash.</p>
+    </header>
+
+    <section className="dx-card" style={{ marginTop: 14 }}>
+      <div className="dx-card-in">
+        <div className="dx-card-head">
+          <h2 className="dx-card-title">Lookup</h2>
+          <p className="dx-card-hint">Search</p>
+        </div>
+
+        <div className="dx-form">
+          <div className="dx-row2">
+            <div className="dx-field">
+              <span className="dx-label">Receipt ID / UserOpHash / TxHash</span>
+              <input
+                placeholder="r_… or 0x…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+
+            <div className="dx-field" style={{ alignContent: "end" }}>
+              <span className="dx-label">&nbsp;</span>
+              <button className="dx-primary" onClick={fetchReceipt} disabled={!canFetch || loading}>
+                {loading ? "Fetching…" : "Fetch"}
+              </button>
+            </div>
+          </div>
+
+          {error ? <div className="dx-alert dx-alert-danger">{error}</div> : null}
+        </div>
       </div>
-      {error ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{error}</div> : null}
-      {receipt ? <ReceiptCard receipt={receipt} /> : null}
-    </div>
-  );
+    </section>
+
+    {receipt ? (
+      <div style={{ marginTop: 14 }}>
+        <ReceiptCard receipt={receipt} />
+      </div>
+    ) : null}
+  </main>
+);
+
+
 }

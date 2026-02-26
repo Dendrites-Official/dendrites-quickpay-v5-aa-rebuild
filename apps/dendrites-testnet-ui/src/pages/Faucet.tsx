@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { addTokenToWallet } from "../utils/wallet";
 import { ethers } from "ethers";
+import "../styles/faucet.css";
 
 const DEFAULT_USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const TODO_MDNDX = "<TODO_MDNDX_ADDRESS>";
@@ -227,28 +227,29 @@ export default function Faucet() {
     []
   );
 
-  return (
-    <div style={{ padding: 16 }}>
-      <h2>Dendrites Faucet (Base Sepolia)</h2>
-      <div style={{ color: "#bdbdbd", marginTop: 6 }}>
-        USDC comes from Circle. mDNDX is for Dendrites QuickPay testing (waitlist-only).
-      </div>
-      <div style={{ marginTop: 10, color: "#d6d6d6" }}>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>Why this exists</div>
-        <ul style={{ margin: 0, paddingLeft: 20 }}>
-          <li>USDC is a supported token (EIP-3009 lane) → fully gasless in Sponsored mode.</li>
-          <li>mDNDX is for QuickPay testing demos.</li>
-        </ul>
-      </div>
-      <div style={{ marginTop: 10 }}>
-        <Link to="/quickpay">Back to QuickPay</Link>
-      </div>
+return (
+  <main className="dx-container dx-faucetPage">
+    <header>
+      <div className="dx-kicker">DENDRITES</div>
+      <h1 className="dx-h1">Faucet</h1>
+      <p className="dx-sub">Base Sepolia • USDC (Circle) + mDNDX (waitlist-only)</p>
+    </header>
 
-      <div style={{ display: "grid", gap: 16, marginTop: 16, maxWidth: 720 }}>
-        <div style={{ padding: 16, border: "1px solid #2a2a2a", borderRadius: 10 }}>
-          <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>USDC (Circle)</div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+    <div className="dx-faucetGrid">
+      <section className="dx-faucetCard">
+        <div className="dx-faucetIn">
+          <div className="dx-card-head">
+            <h2 className="dx-faucetTitle">USDC (Circle)</h2>
+            <span className="dx-faucetPill dx-faucetPillBlue">Gasless-ready</span>
+          </div>
+
+          <div className="dx-faucetSub">
+            USDC comes from Circle Faucet. Add token + copy address quickly.
+          </div>
+
+          <div className="dx-faucetActions">
             <button
+              className="dx-faucetPrimary"
               onClick={() => window.open("https://faucet.circle.com/", "_blank", "noopener,noreferrer")}
             >
               Open Circle Faucet
@@ -259,67 +260,81 @@ export default function Faucet() {
             >
               Add USDC to wallet
             </button>
-            <button onClick={() => copyToClipboard(usdcAddress, "USDC")}>Copy USDC address</button>
+            <button onClick={() => copyToClipboard(usdcAddress, "USDC")}>
+              Copy USDC address
+            </button>
           </div>
-          <ul style={{ marginTop: 12, paddingLeft: 20, color: "#d6d6d6" }}>
+
+          <ol className="dx-faucetSteps">
             {usdcSteps.map((step) => (
               <li key={step}>{step}</li>
             ))}
-          </ul>
+          </ol>
         </div>
+      </section>
 
-        <div style={{ padding: 16, border: "1px solid #2a2a2a", borderRadius: 10 }}>
-          <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>mDNDX (Waitlist-only)</div>
-          <div style={{ display: "grid", gap: 8 }}>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span>Email</span>
+      <section className="dx-faucetCard">
+        <div className="dx-faucetIn">
+          <div className="dx-card-head">
+            <h2 className="dx-faucetTitle">mDNDX (Waitlist-only)</h2>
+            <span className="dx-faucetPill">{mdndxReady ? `${mdndxDripLabel} drip` : "Not configured"}</span>
+          </div>
+
+          <div className="dx-faucetRow">
+            <div className="dx-faucetInputWrap">
+              <div className="dx-faucetLabel">Email</div>
               <input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@domain.com"
-                style={{ maxWidth: 360, padding: 8 }}
               />
-            </label>
-            <div style={{ color: "#bdbdbd" }}>
-              Wallet: {statusAddress}
             </div>
-            <div style={{ color: "#bdbdbd" }}>
-              mDNDX address: {mdndxReady ? mdndxAddress : TODO_MDNDX}
+
+            <div className="dx-faucetStatusLine">
+              Wallet: <span className="dx-faucetMono">{statusAddress}</span>
             </div>
+
+            <div className="dx-faucetStatusLine">
+              mDNDX address:{" "}
+              <span className="dx-faucetMono">{mdndxReady ? mdndxAddress : TODO_MDNDX}</span>
+            </div>
+
             {!mdndxReady ? (
-              <div style={{ color: "#ffb74d" }}>
-                mDNDX not configured.
-              </div>
+              <div className="dx-alert dx-faucetWarn">mDNDX not configured.</div>
             ) : null}
-            {configLoading ? <div style={{ color: "#bdbdbd" }}>Loading faucet config...</div> : null}
-            {configError ? <div style={{ color: "#ff7a7a" }}>{configError}</div> : null}
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+
+            {configLoading ? <div className="dx-muted">Loading faucet config...</div> : null}
+            {configError ? <div className="dx-alert dx-alert-danger">{configError}</div> : null}
+
+            <div className="dx-faucetActions">
               <button onClick={handleVerify} disabled={!canVerify || loading}>
                 Verify waitlist status
               </button>
+
               {verifyStatus === "verified" ? (
-                <button onClick={handleClaim} disabled={!canClaim || loading}>
+                <button className="dx-faucetPrimary" onClick={handleClaim} disabled={!canClaim || loading}>
                   Claim {mdndxDripLabel} mDNDX
                 </button>
               ) : null}
+
               <button
                 onClick={() => handleAddToken({ address: mdndxAddress, symbol: "mDNDX", decimals: 18 })}
                 disabled={!mdndxReady || loading}
               >
                 Add mDNDX to wallet
               </button>
-              <button
-                onClick={() => copyToClipboard(mdndxAddress, "mDNDX")}
-                disabled={!mdndxReady}
-              >
+
+              <button onClick={() => copyToClipboard(mdndxAddress, "mDNDX")} disabled={!mdndxReady}>
                 Copy mDNDX address
               </button>
             </div>
+
             {verifyStatus === "verified" ? (
-              <div style={{ color: "#7aff9a" }}>✅ Verified</div>
+              <div className="dx-alert dx-faucetSuccess">✅ Verified</div>
             ) : null}
+
             {verifyStatus === "not_found" ? (
-              <div style={{ color: "#ffb74d" }}>
+              <div className="dx-alert dx-faucetWarn">
                 Not found. Join the waitlist at{" "}
                 <a href="https://waitlist.dendrites.ai" target="_blank" rel="noreferrer">
                   waitlist.dendrites.ai
@@ -327,20 +342,39 @@ export default function Faucet() {
                 , then click Verify again.
               </div>
             ) : null}
+
             {txHash ? (
-              <div style={{ color: "#bdbdbd" }}>Tx: {txHash}</div>
+              <div className="dx-faucetStatusLine">
+                Tx: <span className="dx-faucetMono">{txHash}</span>
+              </div>
             ) : null}
           </div>
         </div>
+      </section>
 
-        <div style={{ padding: 12, border: "1px solid #2a2a2a", borderRadius: 10 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Status</div>
-          <div><strong>Connected:</strong> {statusAddress}</div>
-          <div><strong>Chain ID:</strong> {statusChain}</div>
-          {error ? <div style={{ color: "#ff7a7a", marginTop: 6 }}>{error}</div> : null}
-          {success ? <div style={{ color: "#7aff9a", marginTop: 6 }}>{success}</div> : null}
+      <section className="dx-faucetCard">
+        <div className="dx-faucetIn">
+          <div className="dx-card-head">
+            <h2 className="dx-faucetTitle">Status</h2>
+            <span className="dx-faucetPill dx-faucetPillBlue">Live</span>
+          </div>
+
+          <div className="dx-faucetRow">
+            <div className="dx-faucetStatusLine">
+              <strong>Connected:</strong> <span className="dx-faucetMono">{statusAddress}</span>
+            </div>
+            <div className="dx-faucetStatusLine">
+              <strong>Chain ID:</strong> <span className="dx-faucetMono">{statusChain}</span>
+            </div>
+
+            {error ? <div className="dx-alert dx-alert-danger">{error}</div> : null}
+            {success ? <div className="dx-alert dx-faucetSuccess">{success}</div> : null}
+          </div>
         </div>
-      </div>
+      </section>
     </div>
-  );
+  </main>
+);
+
+
 }

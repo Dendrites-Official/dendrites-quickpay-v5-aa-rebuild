@@ -1,0 +1,469 @@
+/* Dendrites Navigation Styles */
+
+.dx-app {
+  min-height: 100vh;
+  background: #000;
+  color: #fff;
+  /* overflow-x removed — any overflow on .dx-app breaks position:sticky for nav + panels.
+     Horizontal overflow is handled by html,body in index.css */
+}
+
+/* === Header === */
+.dx-navHeader {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(10px);
+  width: 100%;
+}
+
+.dx-navInner {
+  max-width: 1152px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 64px;
+  padding: 0 16px;
+}
+
+@media (max-width: 639px) {
+  .dx-navInner {
+    gap: 8px;
+    padding: 0 12px;
+  }
+}
+
+/* === Brand === */
+.dx-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.dx-brandLogo {
+  height: 40px;
+  width: auto;
+  object-fit: contain;
+}
+
+/* Mobile - Show DX.jpg only */
+.dx-brandLogoMobile {
+  display: block;
+}
+
+.dx-brandLogoDesktop {
+  display: none;
+}
+
+/* Desktop - Show GIF only */
+@media (min-width: 640px) {
+  .dx-brandLogoMobile {
+    display: none;
+  }
+  
+  .dx-brandLogoDesktop {
+    display: block;
+  }
+}
+
+@media (max-width: 639px) {
+  .dx-brand {
+    padding: 4px;
+  }
+  
+  .dx-brandLogo {
+    height: 36px;
+  }
+}
+
+.dx-brand:focus {
+  outline: none;
+}
+
+.dx-brand:focus-visible {
+  box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.7);
+}
+
+.dx-brandMark {
+  width: 32px;
+  height: 32px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.dx-brandText {
+  line-height: 1.2;
+}
+
+.dx-brandTop {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.dx-brandBottom {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.dx-accent {
+  color: #0070f3;
+}
+
+/* === Desktop Navigation === */
+.dx-links {
+  margin-left: 8px;
+  display: none;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (min-width: 640px) {
+  .dx-links {
+    display: flex;
+  }
+}
+
+.dx-link {
+  position: relative;
+  display: block;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.dx-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dx-link:focus {
+  outline: none;
+}
+
+.dx-link:focus-visible {
+  box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.7);
+}
+
+.dx-linkActive {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dx-linkUnderline {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -9px;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(0, 112, 243, 0.8), transparent);
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+.dx-linkActive .dx-linkUnderline {
+  opacity: 1;
+}
+
+/* === Dropdown === */
+.dx-dropdown {
+  position: relative;
+}
+
+.dx-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 180px;
+  margin-top: 4px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  z-index: 100;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dx-dropdown-item {
+  display: block;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.75);
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.dx-dropdown-item:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* === Mobile Dropdown === */
+.dx-mobile-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dx-mobile-dropdown-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 16px;
+}
+
+.dx-mobile-dropdown-item {
+  display: block;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 0.2s;
+}
+
+.dx-mobile-dropdown-item:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* === Right Side === */
+.dx-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 639px) {
+  .dx-right {
+    gap: 6px;
+  }
+}
+
+.dx-menuBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dx-menuBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.dx-menuBtn:focus {
+  outline: none;
+}
+
+.dx-menuBtn:focus-visible {
+  box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.5);
+}
+
+.dx-menuBtnOpen {
+  background: rgba(0, 112, 243, 0.12);
+  border-color: rgba(0, 112, 243, 0.3);
+}
+
+@media (min-width: 640px) {
+  .dx-menuBtn {
+    display: none;
+  }
+}
+
+/* Burger icon animation */
+.dx-burger {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 18px;
+  height: 14px;
+  justify-content: center;
+}
+
+.dx-burger span {
+  display: block;
+  height: 2px;
+  background: currentColor;
+  border-radius: 2px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dx-burgerOpen span:first-child {
+  transform: translateY(5px) rotate(45deg);
+}
+
+.dx-burgerOpen span:last-child {
+  transform: translateY(-5px) rotate(-45deg);
+}
+
+.dx-menuText {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dx-walletWrap {
+  display: flex;
+  align-items: center;
+}
+
+@media (max-width: 639px) {
+  .dx-walletWrap {
+    display: none;
+  }
+}
+
+@media (min-width: 640px) {
+  .dx-walletWrap {
+    display: flex;
+  }
+}
+
+/* === Mobile Nav === */
+.dx-mobileWrap {
+  position: relative;
+  width: 100%;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.98) 100%);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  overflow-x: hidden;
+}
+
+@media (min-width: 640px) {
+  .dx-mobileWrap {
+    display: none;
+  }
+}
+
+.dx-mobileInner {
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 20px 16px 24px;
+  overflow-x: hidden;
+}
+
+.dx-mobileGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-x: hidden;
+}
+
+/* Mobile menu links - enhanced styling */
+.dx-mobileWrap .dx-link {
+  padding: 16px 18px;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.dx-mobileWrap .dx-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateX(2px);
+}
+
+.dx-mobileWrap .dx-link:active {
+  transform: translateX(1px) scale(0.99);
+}
+
+.dx-mobileWrap .dx-linkActive {
+  background: linear-gradient(135deg, rgba(0, 112, 243, 0.15) 0%, rgba(0, 112, 243, 0.08) 100%);
+  border-color: rgba(0, 112, 243, 0.3);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 112, 243, 0.1);
+}
+
+.dx-mobileWrap .dx-linkLabel {
+  display: block;
+}
+
+.dx-mobileWrap .dx-linkUnderline {
+  display: none;
+}
+
+/* Mobile footer tip */
+.dx-mobileFooter {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dx-mobileHint {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  font-weight: 500;
+}
+
+/* === Banner === */
+.dx-banner {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: #000;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+@media (min-width: 640px) {
+  .dx-banner {
+    padding: 8px 24px;
+  }
+}

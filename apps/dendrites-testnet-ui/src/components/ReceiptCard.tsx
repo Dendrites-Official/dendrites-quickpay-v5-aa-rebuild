@@ -27,15 +27,21 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   const tokenDecimals = safe.tokenDecimals ?? safe.token_decimals ?? null;
   const feeMode = safe.feeMode ?? safe.fee_mode ?? null;
   const feeTokenMode = safe.feeTokenMode ?? safe.fee_token_mode ?? null;
+
+  // IMPORTANT: use this variable in JSX (noUnusedLocals is ON)
   const sender = safe.sender ?? "";
+
   const ownerEoa = safe.ownerEoa ?? safe.owner_eoa ?? safe.createdBy ?? safe.created_by ?? "";
   const name = safe.name ?? safe.displayName ?? safe.display_name ?? "";
   const message = safe.message ?? safe.title ?? "";
   const reason = safe.reason ?? "";
   const chainId = safe.chainId ?? safe.chain_id ?? 84532;
+
   const lane = String(safe.lane ?? "").toUpperCase();
   const recipients = Array.isArray(safe.meta?.recipients) ? safe.meta.recipients : null;
-  const recipientsCount = safe.recipientsCount ?? safe.recipients_count ?? (recipients ? recipients.length : null);
+  const recipientsCount =
+    safe.recipientsCount ?? safe.recipients_count ?? (recipients ? recipients.length : null);
+
   const metaRoute = String(safe.meta?.route ?? "").toLowerCase();
   const isAckLink = metaRoute.startsWith("acklink_");
   const ackLinkId = safe.meta?.linkId ?? safe.meta?.link_id ?? "";
@@ -59,10 +65,16 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
     setNoteLoading(true);
     setNoteError("");
     try {
-      const provider = new (await import("ethers")).ethers.BrowserProvider((window as any).ethereum);
+      const { BrowserProvider } = await import("ethers");
+      const provider = new BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
       const signature = await signer.signMessage(buildNoteMessage("READ"));
-      const data = await quickpayNoteGet({ receiptId: receiptIdValue, sender: senderForNote, signature, chainId });
+      const data = await quickpayNoteGet({
+        receiptId: receiptIdValue,
+        sender: senderForNote,
+        signature,
+        chainId,
+      });
       setPrivateNote(data?.note ?? null);
     } catch (err: any) {
       setNoteError(err?.message || "Failed to load private note");
@@ -76,10 +88,17 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
     setNoteLoading(true);
     setNoteError("");
     try {
-      const provider = new (await import("ethers")).ethers.BrowserProvider((window as any).ethereum);
+      const { BrowserProvider } = await import("ethers");
+      const provider = new BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
       const signature = await signer.signMessage(buildNoteMessage("SET"));
-      await quickpayNoteSet({ receiptId: receiptIdValue, sender: senderForNote, note: noteDraft.trim(), signature, chainId });
+      await quickpayNoteSet({
+        receiptId: receiptIdValue,
+        sender: senderForNote,
+        note: noteDraft.trim(),
+        signature,
+        chainId,
+      });
       setPrivateNote(noteDraft.trim());
       setNoteDraft("");
     } catch (err: any) {
@@ -94,7 +113,7 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
     try {
       await navigator.clipboard?.writeText(value);
     } catch {
-      // ignore clipboard errors
+      // ignore
     }
   };
 
@@ -110,9 +129,8 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
       const formatted = formatUnits(BigInt(raw), resolvedDecimals);
       const [whole, fraction = ""] = formatted.split(".");
       if (!fraction) return whole;
-      let trimmed = fraction.slice(0, 6).replace(/0+$/, "");
-      if (!trimmed) return whole;
-      return `${whole}.${trimmed}`;
+      const trimmed = fraction.slice(0, 6).replace(/0+$/, "");
+      return trimmed ? `${whole}.${trimmed}` : whole;
     } catch {
       return raw;
     }
@@ -122,24 +140,30 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   const amount = formatWithDecimals(grossRaw, tokenDecimals);
   const netAmount = formatWithDecimals(netRaw, tokenDecimals);
   const feeAmount = formatWithDecimals(feeRaw, tokenDecimals);
+
   const symbolLabel = tokenSymbol || "TOKEN";
   const amountLabel = amount ? `${amount} ${symbolLabel}` : "";
   const netLabel = netAmount ? `${netAmount} ${symbolLabel}` : "";
+
   const feeHasValue = feeRaw != null && feeRaw !== "0" && feeRaw !== "0x0";
   const receiptRaw = safe.raw ?? null;
+
   const rawGasUsed = receiptRaw?.gasUsed ?? receiptRaw?.receipt?.gasUsed ?? null;
   const rawGasPrice = receiptRaw?.effectiveGasPrice ?? receiptRaw?.receipt?.effectiveGasPrice ?? null;
   const gasUsed = rawGasUsed != null ? BigInt(rawGasUsed) : null;
   const gasPrice = rawGasPrice != null ? BigInt(rawGasPrice) : null;
   const gasCostWei = gasUsed != null && gasPrice != null ? gasUsed * gasPrice : null;
   const gasCostEth = gasCostWei != null ? formatEther(gasCostWei) : "";
+
   const normalizedFeeTokenMode = feeTokenMode ? String(feeTokenMode).toLowerCase() : "";
   const laneImpliesSponsored = ["PERMIT2", "EIP3009"].includes(lane) && !feeHasValue;
   const isSponsoredFee =
     normalizedFeeTokenMode === "sponsored" ||
     normalizedFeeTokenMode === "paymaster" ||
     (!normalizedFeeTokenMode && laneImpliesSponsored);
+
   const isSelfPayFee = !isSponsoredFee && !feeHasValue && Boolean(gasCostWei);
+
   const feeLabel = isSponsoredFee
     ? "sponsored"
     : isSelfPayFee
@@ -147,6 +171,7 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
       : feeAmount
         ? `${feeAmount} ${symbolLabel}`
         : "";
+
   const feeTokenModeLabel = isSponsoredFee
     ? "sponsored"
     : isSelfPayFee
@@ -155,190 +180,271 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
         ? (feeTokenMode ?? "same")
         : "—";
 
+  const statusText = String(safe.status ?? safe.success ?? "unknown");
+  const statusLower = statusText.toLowerCase();
+  const isOk = ["success", "succeeded", "confirmed", "finalized", "complete", "completed"].includes(statusLower);
+  const isBad = ["failed", "reverted", "error"].includes(statusLower);
+  const statusChipClass = isOk ? "dx-chip dx-chipOk" : isBad ? "dx-chip dx-chipBad" : "dx-chip dx-chipWarn";
 
   return (
-    <div style={{ border: "1px solid #2a2a2a", borderRadius: 8, padding: 16, marginTop: 16 }}>
-      <div><strong>Status:</strong> {String(safe.status ?? safe.success ?? "unknown")}</div>
-      {receiptId ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <strong>Receipt ID:</strong>
-          <span>{receiptId}</span>
-          <button onClick={() => copy(receiptId)}>Copy</button>
+    <section className="dx-card" style={{ marginTop: 14 }}>
+      <div className="dx-card-in">
+        <div className="dx-card-head">
+          <h2 className="dx-card-title">Receipt</h2>
+          <span className={statusChipClass}>{statusText}</span>
         </div>
-      ) : null}
-      {isAckLink ? (
-        <div style={{ marginTop: 8, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>AckLink</div>
-          <div><strong>Action:</strong> {String(ackKind || metaRoute || "AckLink")}</div>
-          {ackLinkId ? (
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <strong>Link ID:</strong>
-              <span>{ackLinkId}</span>
-              <button onClick={() => copy(String(ackLinkId))}>Copy</button>
-              <a href={`/ack/${ackLinkId}`} target="_blank" rel="noreferrer">
-                Open AckLink
-              </a>
-            </div>
-          ) : null}
-          {ackExpiresAt ? (
-            <div><strong>Expires:</strong> {String(ackExpiresAt)}</div>
-          ) : null}
-        </div>
-      ) : null}
-      <div><strong>Lane:</strong> {String(safe.lane ?? "")}</div>
-      <div><strong>Fee Mode:</strong> {feeMode ?? "—"}</div>
-      <div><strong>Fee Token Mode:</strong> {feeTokenModeLabel}</div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <strong>Token:</strong>
-        <span>{String(tokenSymbol || "TOKEN")}</span>
-        {tokenAddress ? (
-          <>
-            <span>({shortenAddress(tokenAddress)})</span>
-            <button onClick={() => copy(tokenAddress)}>Copy</button>
-            <a href={`https://sepolia.basescan.org/token/${tokenAddress}`} target="_blank" rel="noreferrer">
-              BaseScan
-            </a>
-          </>
-        ) : null}
-      </div>
-      {safe.to ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <strong>To:</strong>
-          <span>{shortenAddress(String(safe.to))}</span>
-          <button onClick={() => copy(String(safe.to))}>Copy</button>
-          <a href={`https://sepolia.basescan.org/address/${safe.to}`} target="_blank" rel="noreferrer">
-            BaseScan
-          </a>
-        </div>
-      ) : null}
-      {ownerEoa ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <strong>From (Owner EOA):</strong>
-          <span>{shortenAddress(String(ownerEoa))}</span>
-          <button onClick={() => copy(String(ownerEoa))}>Copy</button>
-          <a href={`https://sepolia.basescan.org/address/${ownerEoa}`} target="_blank" rel="noreferrer">
-            BaseScan
-          </a>
-        </div>
-      ) : null}
-      {safe.sender ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <strong>From (Smart Account):</strong>
-          <span>{shortenAddress(String(safe.sender))}</span>
-          <button onClick={() => copy(String(safe.sender))}>Copy</button>
-          <a href={`https://sepolia.basescan.org/address/${safe.sender}`} target="_blank" rel="noreferrer">
-            BaseScan
-          </a>
-        </div>
-      ) : null}
-      <div><strong>Amount:</strong> {amountLabel || ""}</div>
-      <div><strong>Net Amount:</strong> {netLabel || ""}</div>
-      <div><strong>Fee Amount:</strong> {feeLabel || ""}</div>
-      <div><strong>Fee Vault:</strong> {String(safe.feeVault ?? "")}</div>
-      {txHash ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <strong>Tx Hash:</strong>
-          <span>{shortenAddress(txHash)}</span>
-          <button onClick={() => copy(txHash)}>Copy</button>
-          <a href={`https://sepolia.basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">
-            BaseScan
-          </a>
-        </div>
-      ) : null}
-      {userOpHash ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <strong>UserOp Hash:</strong>
-          <span>{shortenAddress(userOpHash)}</span>
-          <button onClick={() => copy(userOpHash)}>Copy</button>
-          <a href={`https://sepolia.basescan.org/tx/${userOpHash}`} target="_blank" rel="noreferrer">
-            BaseScan
-          </a>
-        </div>
-      ) : null}
 
-      {name || message || reason ? (
-        <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Details</div>
-          {name ? (
-            <div style={{ marginTop: 6 }}><strong>Name:</strong> {String(name)}</div>
-          ) : null}
-          {message ? (
-            <div style={{ marginTop: 6 }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Message</div>
-              <div style={{ padding: 10, border: "1px solid #2a2a2a", borderRadius: 6, whiteSpace: "pre-wrap" }}>
-                {String(message)}
+        <div className="dx-section">
+          <div className="dx-kv">
+            {receiptId ? (
+              <>
+                <div className="dx-k">Receipt ID</div>
+                <div className="dx-v">
+                  <div className="dx-rowInline">
+                    <span className="dx-mono">{receiptId}</span>
+                    <button className="dx-copyBtn" onClick={() => copy(receiptId)}>Copy</button>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            <div className="dx-k">Lane</div>
+            <div className="dx-v">
+              <span className="dx-chip dx-chipBlue">{String(safe.lane ?? "") || "—"}</span>
+            </div>
+
+            <div className="dx-k">Fee mode</div>
+            <div className="dx-v">{feeMode ?? "—"}</div>
+
+            <div className="dx-k">Fee token mode</div>
+            <div className="dx-v">{feeTokenModeLabel}</div>
+
+            <div className="dx-k">Token</div>
+            <div className="dx-v">
+              <div className="dx-rowInline">
+                <span className="dx-chip">{String(tokenSymbol || "TOKEN")}</span>
+                {tokenAddress ? <span className="dx-muted">({shortenAddress(tokenAddress)})</span> : null}
+                {tokenAddress ? (
+                  <>
+                    <button className="dx-copyBtn" onClick={() => copy(tokenAddress)}>Copy</button>
+                    <a className="dx-linkBtn" href={`https://sepolia.basescan.org/token/${tokenAddress}`} target="_blank" rel="noreferrer">
+                      BaseScan
+                    </a>
+                  </>
+                ) : null}
               </div>
             </div>
-          ) : null}
-          {reason ? (
-            <div style={{ marginTop: 6 }}><strong>Reason:</strong> {String(reason)}</div>
-          ) : null}
-        </div>
-      ) : null}
 
-      {recipientsCount ? (
-        <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ fontWeight: 600 }}>Recipients ({recipientsCount})</div>
-            {recipients?.length ? (
-              <button onClick={() => setShowRecipients((prev) => !prev)}>
-                {showRecipients ? "Hide" : "Show"}
-              </button>
+            {safe.to ? (
+              <>
+                <div className="dx-k">To</div>
+                <div className="dx-v">
+                  <div className="dx-rowInline">
+                    <span className="dx-mono">{shortenAddress(String(safe.to))}</span>
+                    <button className="dx-copyBtn" onClick={() => copy(String(safe.to))}>Copy</button>
+                    <a className="dx-linkBtn" href={`https://sepolia.basescan.org/address/${safe.to}`} target="_blank" rel="noreferrer">
+                      BaseScan
+                    </a>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {ownerEoa ? (
+              <>
+                <div className="dx-k">From (Owner EOA)</div>
+                <div className="dx-v">
+                  <div className="dx-rowInline">
+                    <span className="dx-mono">{shortenAddress(String(ownerEoa))}</span>
+                    <button className="dx-copyBtn" onClick={() => copy(String(ownerEoa))}>Copy</button>
+                    <a className="dx-linkBtn" href={`https://sepolia.basescan.org/address/${ownerEoa}`} target="_blank" rel="noreferrer">
+                      BaseScan
+                    </a>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {sender ? (
+              <>
+                <div className="dx-k">From (Smart Account)</div>
+                <div className="dx-v">
+                  <div className="dx-rowInline">
+                    <span className="dx-mono">{shortenAddress(String(sender))}</span>
+                    <button className="dx-copyBtn" onClick={() => copy(String(sender))}>Copy</button>
+                    <a className="dx-linkBtn" href={`https://sepolia.basescan.org/address/${sender}`} target="_blank" rel="noreferrer">
+                      BaseScan
+                    </a>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            <div className="dx-k">Amount</div>
+            <div className="dx-v">{amountLabel || "—"}</div>
+
+            <div className="dx-k">Net amount</div>
+            <div className="dx-v">{netLabel || "—"}</div>
+
+            <div className="dx-k">Fee</div>
+            <div className="dx-v">{feeLabel || "—"}</div>
+
+            <div className="dx-k">Fee vault</div>
+            <div className="dx-v">{String(safe.feeVault ?? "") || "—"}</div>
+
+            {txHash ? (
+              <>
+                <div className="dx-k">Tx hash</div>
+                <div className="dx-v">
+                  <div className="dx-rowInline">
+                    <span className="dx-mono">{shortenAddress(txHash)}</span>
+                    <button className="dx-copyBtn" onClick={() => copy(txHash)}>Copy</button>
+                    <a className="dx-linkBtn" href={`https://sepolia.basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">
+                      BaseScan
+                    </a>
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {userOpHash ? (
+              <>
+                <div className="dx-k">UserOp hash</div>
+                <div className="dx-v">
+                  <div className="dx-rowInline">
+                    <span className="dx-mono">{shortenAddress(userOpHash)}</span>
+                    <button className="dx-copyBtn" onClick={() => copy(userOpHash)}>Copy</button>
+                    <a className="dx-linkBtn" href={`https://sepolia.basescan.org/tx/${userOpHash}`} target="_blank" rel="noreferrer">
+                      BaseScan
+                    </a>
+                  </div>
+                </div>
+              </>
             ) : null}
           </div>
-          {recipients?.length && showRecipients ? (
-            <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-              {recipients.map((entry: any, idx: number) => (
-                <div key={`${entry?.to ?? entry?.address ?? idx}`} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <span>{shortenAddress(String(entry?.to ?? entry?.address ?? ""))}</span>
-                  <span>
-                    {entry?.amount
-                      ? `${formatWithDecimals(String(entry.amount), tokenDecimals)} ${symbolLabel}`
-                      : "-"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : recipientsCount ? (
-            <div style={{ marginTop: 8, color: "#bdbdbd" }}>
-              Recipient details not available yet.
-            </div>
-          ) : null}
         </div>
-      ) : null}
 
-      <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>Private Note</div>
-        {!isConnected ? (
-          <div style={{ color: "#bdbdbd" }}>Connect wallet to view or save notes.</div>
-        ) : (
-          <>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button onClick={loadPrivateNote} disabled={noteLoading || !receiptIdValue}>
-                {noteLoading ? "Loading…" : "View Note"}
-              </button>
-              <button onClick={savePrivateNote} disabled={noteLoading || !noteDraft.trim() || !receiptIdValue}>
-                {noteLoading ? "Saving…" : "Save Note"}
-              </button>
+        {isAckLink ? (
+          <div className="dx-section" style={{ marginTop: 12 }}>
+            <div className="dx-card-head" style={{ marginBottom: 8 }}>
+              <h3 className="dx-card-title">AckLink</h3>
+              <span className="dx-chip">{String(ackKind || metaRoute || "AckLink")}</span>
             </div>
-            {noteError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{noteError}</div> : null}
-            {privateNote ? (
-              <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{privateNote}</div>
-            ) : null}
-            <textarea
-              style={{ marginTop: 8, width: "100%", minHeight: 80, padding: 8 }}
-              placeholder="Write a private note"
-              value={noteDraft}
-              onChange={(e) => setNoteDraft(e.target.value)}
-            />
-          </>
-        )}
-      </div>
 
-      <details style={{ marginTop: 12 }}>
-        <summary>Raw JSON</summary>
-        <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(safe, null, 2)}</pre>
-      </details>
-    </div>
+            {ackLinkId ? (
+              <div className="dx-rowInline" style={{ marginTop: 6 }}>
+                <span className="dx-muted">Link ID:</span>
+                <span className="dx-mono">{ackLinkId}</span>
+                <button className="dx-copyBtn" onClick={() => copy(String(ackLinkId))}>Copy</button>
+                <a className="dx-linkBtn" href={`/ack/${ackLinkId}`} target="_blank" rel="noreferrer">Open AckLink</a>
+              </div>
+            ) : null}
+
+            {ackExpiresAt ? <div style={{ marginTop: 8 }} className="dx-muted">Expires: {String(ackExpiresAt)}</div> : null}
+          </div>
+        ) : null}
+
+        {name || message || reason ? (
+          <div className="dx-section" style={{ marginTop: 12 }}>
+            <div className="dx-card-head" style={{ marginBottom: 8 }}>
+              <h3 className="dx-card-title">Details</h3>
+              <p className="dx-card-hint">Optional metadata</p>
+            </div>
+
+            {name ? (
+              <div className="dx-kv">
+                <div className="dx-k">Name</div>
+                <div className="dx-v">{String(name)}</div>
+              </div>
+            ) : null}
+
+            {reason ? (
+              <div className="dx-kv" style={{ marginTop: 10 }}>
+                <div className="dx-k">Reason</div>
+                <div className="dx-v">{String(reason)}</div>
+              </div>
+            ) : null}
+
+            {message ? (
+              <div style={{ marginTop: 10 }}>
+                <div className="dx-k" style={{ marginBottom: 6 }}>Message</div>
+                <div className="dx-codeBox">{String(message)}</div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {recipientsCount ? (
+          <div className="dx-section" style={{ marginTop: 12 }}>
+            <div className="dx-card-head" style={{ marginBottom: 8 }}>
+              <h3 className="dx-card-title">Recipients</h3>
+              <div className="dx-rowInline">
+                <span className="dx-chip">{Number(recipientsCount)} total</span>
+                {recipients?.length ? (
+                  <button className="dx-copyBtn" onClick={() => setShowRecipients((prev) => !prev)}>
+                    {showRecipients ? "Hide" : "Show"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {recipients?.length && showRecipients ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                {recipients.map((entry: any, idx: number) => (
+                  <div key={`${entry?.to ?? entry?.address ?? idx}`} className="dx-section" style={{ padding: 10, borderRadius: 14 }}>
+                    <div className="dx-rowInline" style={{ justifyContent: "space-between" }}>
+                      <span className="dx-mono">{shortenAddress(String(entry?.to ?? entry?.address ?? ""))}</span>
+                      <span className="dx-muted">
+                        {entry?.amount ? `${formatWithDecimals(String(entry.amount), tokenDecimals)} ${symbolLabel}` : "-"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="dx-muted">Recipient details not available yet.</div>
+            )}
+          </div>
+        ) : null}
+
+        <div className="dx-section" style={{ marginTop: 12 }}>
+          <div className="dx-card-head" style={{ marginBottom: 8 }}>
+            <h3 className="dx-card-title">Private note</h3>
+            <p className="dx-card-hint">Signed read/write</p>
+          </div>
+
+          {!isConnected ? (
+            <div className="dx-alert">Connect wallet to view or save notes.</div>
+          ) : (
+            <>
+              <div className="dx-btnRow">
+                <button className="dx-primary" onClick={loadPrivateNote} disabled={noteLoading || !receiptIdValue}>
+                  {noteLoading ? "Loading…" : "View Note"}
+                </button>
+                <button onClick={savePrivateNote} disabled={noteLoading || !noteDraft.trim() || !receiptIdValue}>
+                  {noteLoading ? "Saving…" : "Save Note"}
+                </button>
+              </div>
+
+              {noteError ? <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>{noteError}</div> : null}
+
+              {privateNote ? <div className="dx-codeBox" style={{ marginTop: 10 }}>{privateNote}</div> : null}
+
+              <textarea
+                className="dx-textarea"
+                placeholder="Write a private note"
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+              />
+            </>
+          )}
+        </div>
+
+        <details style={{ marginTop: 12 }}>
+          <summary className="dx-muted">Raw JSON</summary>
+          <pre className="dx-codeBox">{JSON.stringify(safe, null, 2)}</pre>
+        </details>
+      </div>
+    </section>
   );
 }

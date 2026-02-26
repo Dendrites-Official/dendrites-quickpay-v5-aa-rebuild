@@ -4,6 +4,7 @@ import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
+import { logAppEvent } from "../lib/appEvents";
 
 const USDC_DEFAULT = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const DECIMALS = 6;
@@ -217,8 +218,25 @@ export default function BulkPay() {
       }
       if (!res.ok) throw new Error(data?.error || "Failed to get quote");
       setQuote(data);
+      void logAppEvent("bulk_quote_success", {
+        address,
+        meta: {
+          recipients: parsed.entries.length,
+          totalNet: parsed.totalNet.toString(),
+          speed,
+        },
+      });
     } catch (err: any) {
       setQuoteError(err?.message || "Failed to get quote");
+      void logAppEvent("bulk_quote_error", {
+        address,
+        meta: {
+          recipients: parsed.entries.length,
+          totalNet: parsed.totalNet.toString(),
+          speed,
+          message: String(err?.message || "bulk_quote_failed"),
+        },
+      });
     } finally {
       setQuoteLoading(false);
     }
@@ -387,178 +405,314 @@ export default function BulkPay() {
       setResult(data);
       setStatus("Done");
 
+      void logAppEvent("bulk_send_success", {
+        address,
+        meta: {
+          receiptId: data?.receiptId || data?.receipt_id || null,
+          userOpHash: data?.userOpHash || null,
+          recipients: parsed.entries.length,
+          totalNet: parsed.totalNet.toString(),
+          speed,
+        },
+      });
+
       const receiptId = data?.receiptId || data?.receipt_id || "";
       if (receiptId) {
         navigate(`/r/${receiptId}`);
       }
     } catch (err: any) {
       setError(err?.message || "Bulk send failed");
+      void logAppEvent("bulk_send_error", {
+        address,
+        meta: {
+          recipients: parsed.entries.length,
+          totalNet: parsed.totalNet.toString(),
+          speed,
+          message: String(err?.message || "bulk_send_failed"),
+        },
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div style={{ padding: 16 }}>
-      <h2>Bulk Pay (Beta)</h2>
-      {bulkNotConfigured ? (
-        <div style={{ background: "#2a1d00", border: "1px solid #6a4a00", padding: 12, borderRadius: 6 }}>
-          Bulk is not enabled on the API yet. Set ROUTER_BULK/PAYMASTER_BULK in Railway.
-        </div>
-      ) : null}
-      <p style={{ maxWidth: 680 }}>
-        USDC only. Enter one recipient per line using address and amount. Example:
-        <br />
-        <code>0xabc... 12.34</code>
+return (
+  <main className="dx-container">
+    <header>
+      <div className="dx-kicker">DENDRITES</div>
+      <h1 className="dx-h1">Bulk Pay</h1>
+      <p className="dx-sub">
+        USDC bulk payouts (Beta). Paste recipients as one per line: <span className="dx-muted">address amount</span>.
       </p>
+    </header>
 
-      <div style={{ display: "grid", gap: 12, maxWidth: 720 }}>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Recipients (address, amount)</span>
-          <textarea
-            rows={8}
-            value={recipientsInput}
-            onChange={(e) => setRecipientsInput(e.target.value)}
-            placeholder={`0xabc... 12.34\n0xdef... 5.00`}
-            style={{ fontFamily: "monospace" }}
-          />
-        </label>
+    {bulkNotConfigured ? (
+      <div className="dx-alert dx-alert-warn" style={{ marginTop: 12 }}>
+        Bulk is not enabled on the API yet. Set ROUTER_BULK/PAYMASTER_BULK in Railway.
+      </div>
+    ) : null}
 
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Reference ID (optional, 32-byte hex)</span>
-          <input
-            value={referenceId}
-            onChange={(e) => setReferenceId(e.target.value)}
-            placeholder="0x..."
-          />
-        </label>
-
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Speed</span>
-          <select value={speed} onChange={(e) => setSpeed(Number(e.target.value) as 0 | 1)}>
-            <option value={0}>eco</option>
-            <option value={1}>instant</option>
-          </select>
-        </label>
-
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Fee handling</span>
-          <select value={amountMode} onChange={(e) => setAmountMode(e.target.value as "net" | "plusFee")}>
-            <option value="net">Deduct fee from total (net)</option>
-            <option value="plusFee">Add fee on top (plus fee)</option>
-          </select>
-        </label>
-
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Name (optional)</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Paying out" />
-        </label>
-
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Message (optional)</span>
-          <textarea rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Thanks for your help…" />
-        </label>
-
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Reason (optional)</span>
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Invoice #123" />
-        </label>
-
-        <label style={{ display: "grid", gap: 6 }}>
-          <span>Private note (optional)</span>
-          <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Visible only to you" />
-        </label>
-
-        <div style={{ display: "grid", gap: 4 }}>
-          <div>Total recipients: {parsed.entries.length}</div>
-          <div>Total input: {totalNetDisplay} USDC</div>
-          {quote?.feeTokenAmount ? (
-            <div>
-              Fee: {ethers.formatUnits(BigInt(String(quote.feeTokenAmount)), DECIMALS)} USDC
-            </div>
-          ) : null}
-          <div>Recipients total: {totalNetDisplayAdjusted} USDC</div>
-          <div>Total charged: {totalWithFeeDisplay} USDC</div>
-        </div>
-
-        {parsed.errors.length ? (
-          <div style={{ color: "tomato" }}>
-            {parsed.errors.map((msg, idx) => (
-              <div key={`${msg}-${idx}`}>{msg}</div>
-            ))}
+<div className="dx-bulkGrid" style={{ marginTop: 14 }}>
+      {/* LEFT: FORM */}
+      <section className="dx-card">
+        <div className="dx-card-in">
+          <div className="dx-card-head">
+            <h2 className="dx-card-title">Recipients</h2>
+            <p className="dx-card-hint">{speedLabel.toUpperCase()} • USDC</p>
           </div>
-        ) : null}
 
-        {amountModeError ? <div style={{ color: "tomato" }}>{amountModeError}</div> : null}
-        {balanceError ? <div style={{ color: "tomato" }}>{balanceError}</div> : null}
+          <div className="dx-form">
+            <div className="dx-field">
+              <span className="dx-label">Recipients (address, amount)</span>
+              <textarea
+                rows={9}
+                value={recipientsInput}
+                onChange={(e) => setRecipientsInput(e.target.value)}
+                placeholder={`0xabc... 12.34\n0xdef... 5.00`}
+                style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}
+              />
+              <div className="dx-help">
+                Accepted separators: space or comma. Example: <span className="dx-muted">0xabc… 12.34</span>
+              </div>
+            </div>
 
-        {quoteError ? <div style={{ color: "tomato" }}>{quoteError}</div> : null}
-        {error ? <div style={{ color: "tomato" }}>{error}</div> : null}
-        {status ? <div>{status}</div> : null}
+            <div className="dx-row2">
+              <div className="dx-field">
+                <span className="dx-label">Reference ID (optional, 32-byte hex)</span>
+                <input value={referenceId} onChange={(e) => setReferenceId(e.target.value)} placeholder="0x..." />
+              </div>
 
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={fetchQuote} disabled={!isConnected || quoteLoading || loading}>
-            {quoteLoading ? "Quoting…" : "Get Quote"}
-          </button>
-          <button onClick={sendBulk} disabled={!isConnected || loading}>
-            {loading ? "Sending…" : "Send Bulk"}
-          </button>
-        </div>
+              <div className="dx-field">
+                <span className="dx-label">Speed</span>
+                <select value={speed} onChange={(e) => setSpeed(Number(e.target.value) as 0 | 1)}>
+                  <option value={0}>eco</option>
+                  <option value={1}>instant</option>
+                </select>
+              </div>
+            </div>
 
-        {result ? (
-          <div style={{ background: "#111", padding: 12, borderRadius: 6 }}>
-            <div>Request ID: {result.reqId || "-"}</div>
-            {result.receiptId ? (
-              <div>
-                Receipt: {" "}
-                <a href={`/receipts/${result.receiptId}`} target="_blank" rel="noreferrer">
-                  {result.receiptId}
-                </a>
+            <div className="dx-field">
+              <span className="dx-label">Fee handling</span>
+              <select value={amountMode} onChange={(e) => setAmountMode(e.target.value as "net" | "plusFee")}>
+                <option value="net">Deduct fee from total (net)</option>
+                <option value="plusFee">Add fee on top (plus fee)</option>
+              </select>
+              {amountModeError ? <div className="dx-alert dx-alert-danger">{amountModeError}</div> : null}
+            </div>
+
+            <div className="dx-section" style={{ marginTop: 12 }}>
+              <div className="dx-card-head" style={{ marginBottom: 8 }}>
+                <h3 className="dx-card-title">Metadata</h3>
+                <p className="dx-card-hint">Optional</p>
+              </div>
+
+              <div className="dx-row2">
+                <div className="dx-field">
+                  <span className="dx-label">Name</span>
+                  <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Paying out" />
+                </div>
+                <div className="dx-field">
+                  <span className="dx-label">Reason</span>
+                  <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Invoice #123" />
+                </div>
+              </div>
+
+              <div className="dx-field">
+                <span className="dx-label">Message</span>
+                <textarea
+                  rows={3}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Thanks for your help…"
+                />
+              </div>
+
+              <div className="dx-field">
+                <span className="dx-label">Private note</span>
+                <textarea
+                  rows={2}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Visible only to you"
+                />
+              </div>
+            </div>
+
+            {/* Errors / Status */}
+            {parsed.errors.length ? (
+              <div className="dx-alert dx-alert-danger">
+                {parsed.errors.map((msg, idx) => (
+                  <div key={`${msg}-${idx}`}>{msg}</div>
+                ))}
               </div>
             ) : null}
-            {result.userOpHash ? (
-              <div>
-                UserOp Hash: {" "}
-                <a
-                  href={`https://sepolia.basescan.org/tx/${result.userOpHash}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {result.userOpHash}
-                </a>
-              </div>
-            ) : (
-              <div>UserOp Hash: -</div>
-            )}
-            {result.txHash ? (
-              <div>
-                Tx Hash: {" "}
-                <a href={`https://sepolia.basescan.org/tx/${result.txHash}`} target="_blank" rel="noreferrer">
-                  {result.txHash}
-                </a>
-              </div>
-            ) : (
-              <div>Tx Hash: -</div>
-            )}
-            <div>Recipients: {parsed.entries.length}</div>
-            <div>Mode: {result.modeUsed || amountMode}</div>
-            <div>
-              Fee: {result.feeAmountRaw ? ethers.formatUnits(BigInt(String(result.feeAmountRaw)), DECIMALS) : "-"} USDC
+
+            {balanceError ? <div className="dx-alert dx-alert-danger">{balanceError}</div> : null}
+            {quoteError ? <div className="dx-alert dx-alert-danger">{quoteError}</div> : null}
+            {error ? <div className="dx-alert dx-alert-danger">{error}</div> : null}
+            {status ? <div className="dx-alert">{status}</div> : null}
+
+            <div className="dx-actions" style={{ marginTop: 12 }}>
+              <button className="dx-primary" onClick={fetchQuote} disabled={!isConnected || quoteLoading || loading}>
+                {quoteLoading ? "Quoting…" : "Get Quote"}
+              </button>
+              <button onClick={sendBulk} disabled={!isConnected || loading}>
+                {loading ? "Sending…" : "Send Bulk"}
+              </button>
             </div>
-            <div>
-              Recipients total: {result.netAmountRaw
-                ? ethers.formatUnits(BigInt(String(result.netAmountRaw)), DECIMALS)
-                : "-"} USDC
-            </div>
-            <div>
-              Total charged: {result.totalAmountRaw
-                ? ethers.formatUnits(BigInt(String(result.totalAmountRaw)), DECIMALS)
-                : "-"} USDC
-            </div>
-            <div>Reference ID: {result.referenceId || referenceId || "-"}</div>
+
+            {!isConnected ? <div className="dx-alert">Connect wallet to quote & send.</div> : null}
           </div>
-        ) : null}
-      </div>
+        </div>
+      </section>
+
+      {/* RIGHT: SUMMARY + RESULT */}
+<aside className="dx-stack dx-bulkSummary">
+        <section className="dx-card">
+          <div className="dx-card-in">
+            <div className="dx-card-head">
+              <h2 className="dx-card-title">Summary</h2>
+              <p className="dx-card-hint">Preview</p>
+            </div>
+
+            <div className="dx-section">
+              <div className="dx-kv">
+                <div className="dx-k">Recipients</div>
+                <div className="dx-v">{parsed.entries.length}</div>
+
+                <div className="dx-k">Total input</div>
+                <div className="dx-v">{totalNetDisplay} USDC</div>
+
+                <div className="dx-k">Fee</div>
+                <div className="dx-v">
+                  {quote?.feeTokenAmount
+                    ? `${ethers.formatUnits(BigInt(String(quote.feeTokenAmount)), DECIMALS)} USDC`
+                    : "—"}
+                </div>
+
+                <div className="dx-k">Recipients total</div>
+                <div className="dx-v">{totalNetDisplayAdjusted} USDC</div>
+
+                <div className="dx-k">Total charged</div>
+                <div className="dx-v">
+                  <span className="dx-chip dx-chipBlue">{totalWithFeeDisplay} USDC</span>
+                </div>
+
+                <div className="dx-k">Mode</div>
+                <div className="dx-v">{amountMode}</div>
+              </div>
+            </div>
+
+            {amountModeError ? (
+              <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>
+                {amountModeError}
+              </div>
+            ) : null}
+            {balanceError ? (
+              <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>
+                {balanceError}
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="dx-card">
+          <div className="dx-card-in">
+            <div className="dx-card-head">
+              <h2 className="dx-card-title">Result</h2>
+              <p className="dx-card-hint">{result ? "Completed" : "—"}</p>
+            </div>
+
+            {!result ? (
+              <div className="dx-muted">
+                No result yet. Get a quote, then send bulk to generate a receipt.
+              </div>
+            ) : (
+              <div className="dx-section">
+                <div className="dx-kv">
+                  <div className="dx-k">Request ID</div>
+                  <div className="dx-v">{result.reqId || "-"}</div>
+
+                  <div className="dx-k">Receipt</div>
+                  <div className="dx-v">
+                    {result.receiptId ? (
+                      <a className="dx-linkBtn" href={`/receipts/${result.receiptId}`} target="_blank" rel="noreferrer">
+                        {result.receiptId}
+                      </a>
+                    ) : (
+                      "-"
+                    )}
+                  </div>
+
+                  <div className="dx-k">UserOp Hash</div>
+                  <div className="dx-v">
+                    {result.userOpHash ? (
+                      <a
+                        className="dx-linkBtn"
+                        href={`https://sepolia.basescan.org/tx/${result.userOpHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {result.userOpHash}
+                      </a>
+                    ) : (
+                      "-"
+                    )}
+                  </div>
+
+                  <div className="dx-k">Tx Hash</div>
+                  <div className="dx-v">
+                    {result.txHash ? (
+                      <a
+                        className="dx-linkBtn"
+                        href={`https://sepolia.basescan.org/tx/${result.txHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {result.txHash}
+                      </a>
+                    ) : (
+                      "-"
+                    )}
+                  </div>
+
+                  <div className="dx-k">Recipients</div>
+                  <div className="dx-v">{parsed.entries.length}</div>
+
+                  <div className="dx-k">Mode</div>
+                  <div className="dx-v">{result.modeUsed || amountMode}</div>
+
+                  <div className="dx-k">Fee</div>
+                  <div className="dx-v">
+                    {result.feeAmountRaw ? ethers.formatUnits(BigInt(String(result.feeAmountRaw)), DECIMALS) : "-"} USDC
+                  </div>
+
+                  <div className="dx-k">Recipients total</div>
+                  <div className="dx-v">
+                    {result.netAmountRaw
+                      ? ethers.formatUnits(BigInt(String(result.netAmountRaw)), DECIMALS)
+                      : "-"}{" "}
+                    USDC
+                  </div>
+
+                  <div className="dx-k">Total charged</div>
+                  <div className="dx-v">
+                    {result.totalAmountRaw
+                      ? ethers.formatUnits(BigInt(String(result.totalAmountRaw)), DECIMALS)
+                      : "-"}{" "}
+                    USDC
+                  </div>
+
+                  <div className="dx-k">Reference ID</div>
+                  <div className="dx-v">{result.referenceId || referenceId || "-"}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      </aside>
     </div>
-  );
+  </main>
+);
+
 }

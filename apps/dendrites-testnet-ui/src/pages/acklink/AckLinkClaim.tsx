@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { useAccount } from "wagmi";
 import { ethers } from "ethers";
 import { acklinkGet, acklinkClaim, acklinkRefund } from "../../lib/api";
+import { logAppEvent } from "../../lib/appEvents";
 
 const DECIMALS = 6;
 
@@ -112,9 +113,24 @@ export default function AckLinkClaim() {
       }
 
       setActionResult({ txHash: result?.txHash, receiptId: result?.receiptId });
+      void logAppEvent("acklink_claim_success", {
+        address,
+        meta: {
+          linkId: data?.linkId ?? null,
+          receiptId: result?.receiptId ?? null,
+          txHash: result?.txHash ?? null,
+        },
+      });
       await load();
     } catch (err: any) {
       setError(err?.message || "Claim failed");
+      void logAppEvent("acklink_claim_error", {
+        address,
+        meta: {
+          linkId: data?.linkId ?? null,
+          message: String(err?.message || "acklink_claim_failed"),
+        },
+      });
     } finally {
       setActionLoading(false);
     }
@@ -146,9 +162,24 @@ export default function AckLinkClaim() {
         });
       }
       setActionResult({ txHash: result?.txHash, receiptId: result?.receiptId });
+      void logAppEvent("acklink_refund_success", {
+        address,
+        meta: {
+          linkId: data?.linkId ?? null,
+          receiptId: result?.receiptId ?? null,
+          txHash: result?.txHash ?? null,
+        },
+      });
       await load();
     } catch (err: any) {
       setError(err?.message || "Refund failed");
+      void logAppEvent("acklink_refund_error", {
+        address,
+        meta: {
+          linkId: data?.linkId ?? null,
+          message: String(err?.message || "acklink_refund_failed"),
+        },
+      });
     } finally {
       setActionLoading(false);
     }

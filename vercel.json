@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "framework": "vite",
+  "installCommand": "cd apps/dendrites-testnet-ui && npm install",
+  "buildCommand": "cd apps/dendrites-testnet-ui && npm run build",
+  "outputDirectory": "apps/dendrites-testnet-ui/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

@@ -640,10 +640,21 @@ Deno.serve(async (req) => {
       ? receiptResult?.sender ?? receiptResult?.receipt?.sender ?? receiptResult?.receipt?.from ?? null
       : receiptResult?.from ?? null;
 
-  const isAcklinkCreate = String(bodyRoute || existing?.meta?.route || "").toLowerCase() === "acklink_create";
+  const acklinkRoute = String(bodyRoute || existing?.meta?.route || "").toLowerCase();
+  const isAcklinkCreate = acklinkRoute === "acklink_create";
+  const isAcklinkClaim = acklinkRoute === "acklink_claim";
   const status = success === false ? "FAILED" : (isAcklinkCreate ? "PENDING" : "CONFIRMED");
   const defaultFeeMode = chosenFeeAmount > 0n ? "eco" : "unknown";
   const defaultFeeTokenMode = chosenFeeAmount > 0n ? "same" : (isSponsoredZeroFee ? "sponsored" : null);
+  const resolvedFeeMode = isAcklinkClaim
+    ? (existing?.fee_mode ?? bodyFeeMode ?? "sponsored")
+    : (existing?.fee_mode ?? bodyFeeMode ?? defaultFeeMode);
+  const resolvedFeeTokenMode = isAcklinkClaim
+    ? "sponsored"
+    : (existing?.fee_token_mode ?? defaultFeeTokenMode);
+  const resolvedFeeAmountRaw = isAcklinkClaim
+    ? "0"
+    : (feeAmountRaw ?? chosenFeeAmount.toString());
 
   const rowPayload = {
     chain_id: chainId,
@@ -653,14 +664,14 @@ Deno.serve(async (req) => {
     status,
     success: isAcklinkCreate ? null : success,
     lane: existing?.lane ?? "RECEIPT_ONLY",
-    fee_mode: existing?.fee_mode ?? bodyFeeMode ?? defaultFeeMode,
-    fee_token_mode: existing?.fee_token_mode ?? defaultFeeTokenMode,
+    fee_mode: resolvedFeeMode,
+    fee_token_mode: resolvedFeeTokenMode,
     token: chosenToken,
     to: chosenRecipient ?? existing?.to ?? bodyTo ?? recipientsInput?.[0]?.to ?? null,
     sender,
     owner_eoa: existing?.owner_eoa ?? bodyFrom ?? null,
     net_amount_raw: chosenToAmount.toString(),
-    fee_amount_raw: feeAmountRaw ?? chosenFeeAmount.toString(),
+    fee_amount_raw: resolvedFeeAmountRaw,
     amount_raw: amountRaw.toString(),
     fee_vault: feeVault || (existing?.fee_vault ?? null),
     title: existing?.title ?? (body.message ? String(body.message) : null),

@@ -722,107 +722,191 @@ export default function WalletHealth() {
     textDecoration: "none",
   } as const;
 
-  return (
-    <div style={{ padding: 16 }}>
-      <h2>Wallet Health Console</h2>
-      <div style={{ color: "#bdbdbd", marginTop: 6 }}>
-        Quick snapshot of wallet status and basic risk signals.
-      </div>
+ return (
+  <main className="dx-container dx-container--full">
+    <header>
+      <div className="dx-kicker">DENDRITES</div>
+      <h1 className="dx-h1">Wallet Health</h1>
+      <p className="dx-sub">Quick snapshot of wallet status and basic risk signals.</p>
+    </header>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
-        <div style={{ color: "#cfcfcf" }}>
-          Network: {displayChainLabel} {chainId ? `(${chainId})` : ""}
+    {/* Top bar */}
+    <section className="dx-card" style={{ marginTop: 14 }}>
+      <div className="dx-card-in">
+        <div className="dx-card-head">
+          <h2 className="dx-card-title">Network</h2>
+          <p className="dx-card-hint">Tools</p>
         </div>
-        <button
-          onClick={async () => {
-            setSwitchStatus("");
-            try {
-              const ethereum = (window as any)?.ethereum;
-              await switchToBase(ethereum);
-              setSwitchStatus("Switched to Base.");
-            } catch (err: any) {
-              setSwitchStatus(
-                `Switch failed: ${err?.message || "Unable to switch network"}. If using WalletConnect, open the wallet app and approve the change or add Base manually.`
-              );
-            }
-          }}
-        >
-          Switch to Base
-        </button>
-        <button
-          onClick={async () => {
-            setSwitchStatus("");
-            try {
-              const ethereum = (window as any)?.ethereum;
-              await switchToBaseSepolia(ethereum);
-              setSwitchStatus("Switched to Base Sepolia.");
-            } catch (err: any) {
-              setSwitchStatus(
-                `Switch failed: ${err?.message || "Unable to switch network"}. If using WalletConnect, open the wallet app and approve the change or add Base Sepolia manually.`
-              );
-            }
-          }}
-        >
-          Switch to Base Sepolia
-        </button>
-        {switchStatus ? <div style={{ color: "#9e9e9e" }}>{switchStatus}</div> : null}
-      </div>
 
-      <div style={{ marginTop: 12, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>Investor Snapshot</div>
-        <div><strong>Chain:</strong> {statusChain}</div>
-        <div>
-          <strong>Pending txs:</strong> {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? "Yes" : "No"}
-        </div>
-        <div><strong>Unlimited approvals:</strong> {unlimitedApprovals.length}</div>
-        <div><strong>Unknown contracts interacted:</strong> {unknownContracts.length}</div>
-        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Link to="/tx-queue" style={tabLinkStyle}>View Tx Queue</Link>
-          <button onClick={handleScanApprovals} disabled={scanLoading}>Scan Approvals</button>
-          <button onClick={() => setActiveTab("activity")}>Open Activity</button>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-        <button style={tabButtonStyle(activeTab === "overview")} onClick={() => setActiveTab("overview")}>
-          Overview
-        </button>
-        <button style={tabButtonStyle(activeTab === "approvals")} onClick={() => setActiveTab("approvals")}>
-          Approvals
-        </button>
-        <button style={tabButtonStyle(activeTab === "activity")} onClick={() => setActiveTab("activity")}>
-          Activity
-        </button>
-        <button style={tabButtonStyle(activeTab === "risk")} onClick={() => setActiveTab("risk")}>
-          Risk
-        </button>
-        <Link to="/tx-queue" style={tabLinkStyle}>
-          Tx Queue
-        </Link>
-        <Link to="/nonce-rescue" style={tabLinkStyle}>
-          Nonce Rescue
-        </Link>
-      </div>
-
-      {activeTab === "overview" ? (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Connection</div>
-          <div><strong>Connected Address:</strong> {statusAddress}</div>
-          <div><strong>Chain ID:</strong> {statusChain}</div>
-          <div><strong>Provider:</strong> {providerAvailable ? "Detected" : "Not available"}</div>
-          <div><strong>Nonce (latest):</strong> {nonceLatest ?? "—"}</div>
-          <div><strong>Nonce (pending):</strong> {noncePending ?? "—"}</div>
-          <div><strong>Native Balance (ETH):</strong> {nativeBalance ?? "—"}</div>
-          <div style={{ marginTop: 8, fontWeight: 600 }}>Token Balances</div>
-          <div style={{ color: "#bdbdbd" }}>
-            <div>USDC: {tokenBalances["0x036CbD53842c5426634e7929541eC2318f3dCF7e"] ?? "—"}</div>
-            {mdndxAddress ? (
-              <div>{tokenMeta[mdndxAddress]?.symbol || "mDNDX"}: {tokenBalances[mdndxAddress] ?? "—"}</div>
-            ) : null}
+        <div className="dx-rowInline" style={{ justifyContent: "space-between" }}>
+          <div className="dx-muted">
+            <strong style={{ color: "rgba(255,255,255,0.92)" }}>Active:</strong>{" "}
+            {displayChainLabel} {chainId ? `(${chainId})` : ""}
           </div>
-          {error ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{error}</div> : null}
-          <div style={{ marginTop: 10 }}>
+
+          <div className="dx-miniRow" style={{ marginTop: 0 }}>
             <button
+              className="dx-miniBtn"
+              onClick={async () => {
+                setSwitchStatus("");
+                try {
+                  const ethereum = (window as any)?.ethereum;
+                  await switchToBase(ethereum);
+                  setSwitchStatus("Switched to Base.");
+                } catch (err: any) {
+                  setSwitchStatus(
+                    `Switch failed: ${err?.message || "Unable to switch network"}. If using WalletConnect, open the wallet app and approve the change or add Base manually.`
+                  );
+                }
+              }}
+            >
+              Switch to Base
+            </button>
+
+            <button
+              className="dx-miniBtn"
+              onClick={async () => {
+                setSwitchStatus("");
+                try {
+                  const ethereum = (window as any)?.ethereum;
+                  await switchToBaseSepolia(ethereum);
+                  setSwitchStatus("Switched to Base Sepolia.");
+                } catch (err: any) {
+                  setSwitchStatus(
+                    `Switch failed: ${err?.message || "Unable to switch network"}. If using WalletConnect, open the wallet app and approve the change or add Base Sepolia manually.`
+                  );
+                }
+              }}
+            >
+              Switch to Base Sepolia
+            </button>
+          </div>
+        </div>
+
+        {switchStatus ? <div className="dx-muted" style={{ marginTop: 10 }}>{switchStatus}</div> : null}
+      </div>
+    </section>
+
+    {/* Snapshot */}
+    <section className="dx-card" style={{ marginTop: 14 }}>
+      <div className="dx-card-in">
+        <div className="dx-card-head">
+          <h2 className="dx-card-title">Investor Snapshot</h2>
+          <p className="dx-card-hint">High-level</p>
+        </div>
+
+        <div className="dx-kv">
+          <div className="dx-k">Connected</div>
+          <div className="dx-v">{statusAddress}</div>
+
+          <div className="dx-k">Chain</div>
+          <div className="dx-v">{statusChain}</div>
+
+          <div className="dx-k">Pending txs</div>
+          <div className="dx-v">
+            {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? (
+              <span className="dx-chip dx-chipWarn">Yes</span>
+            ) : (
+              <span className="dx-chip dx-chipOk">No</span>
+            )}
+          </div>
+
+          <div className="dx-k">Unlimited approvals</div>
+          <div className="dx-v">
+            <span className="dx-chip">{unlimitedApprovals.length}</span>
+          </div>
+
+          <div className="dx-k">Unknown contracts</div>
+          <div className="dx-v">
+            <span className="dx-chip">{unknownContracts.length}</span>
+          </div>
+        </div>
+
+        <div className="dx-miniRow" style={{ marginTop: 12 }}>
+          <Link to="/tx-queue" className="dx-miniLink">View Tx Queue</Link>
+          <button className="dx-miniBtn" onClick={handleScanApprovals} disabled={scanLoading}>
+            {scanLoading ? "Scanning..." : "Scan Approvals"}
+          </button>
+          <button className="dx-miniBtn" onClick={() => setActiveTab("activity")}>Open Activity</button>
+        </div>
+      </div>
+    </section>
+
+    {/* Tabs */}
+    <div className="dx-miniRow" style={{ marginTop: 14 }}>
+      <button
+        className={activeTab === "overview" ? "dx-miniLink" : "dx-miniBtn"}
+        onClick={() => setActiveTab("overview")}
+      >
+        Overview
+      </button>
+      <button
+        className={activeTab === "approvals" ? "dx-miniLink" : "dx-miniBtn"}
+        onClick={() => setActiveTab("approvals")}
+      >
+        Approvals
+      </button>
+      <button
+        className={activeTab === "activity" ? "dx-miniLink" : "dx-miniBtn"}
+        onClick={() => setActiveTab("activity")}
+      >
+        Activity
+      </button>
+      <button
+        className={activeTab === "risk" ? "dx-miniLink" : "dx-miniBtn"}
+        onClick={() => setActiveTab("risk")}
+      >
+        Risk
+      </button>
+
+      <Link to="/tx-queue" className="dx-miniBtn">Tx Queue</Link>
+      <Link to="/nonce-rescue" className="dx-miniBtn">Nonce Rescue</Link>
+    </div>
+
+    {/* OVERVIEW */}
+    {activeTab === "overview" ? (
+      <section className="dx-card" style={{ marginTop: 14 }}>
+        <div className="dx-card-in">
+          <div className="dx-card-head">
+            <h2 className="dx-card-title">Overview</h2>
+            <p className="dx-card-hint">Connection</p>
+          </div>
+
+          <div className="dx-kv">
+            <div className="dx-k">Connected Address</div>
+            <div className="dx-v">{statusAddress}</div>
+
+            <div className="dx-k">Chain ID</div>
+            <div className="dx-v">{statusChain}</div>
+
+            <div className="dx-k">Provider</div>
+            <div className="dx-v">{providerAvailable ? "Detected" : "Not available"}</div>
+
+            <div className="dx-k">Nonce (latest)</div>
+            <div className="dx-v">{nonceLatest ?? "—"}</div>
+
+            <div className="dx-k">Nonce (pending)</div>
+            <div className="dx-v">{noncePending ?? "—"}</div>
+
+            <div className="dx-k">Native Balance (ETH)</div>
+            <div className="dx-v">{nativeBalance ?? "—"}</div>
+
+            <div className="dx-k">USDC</div>
+            <div className="dx-v">
+              {tokenBalances["0x036CbD53842c5426634e7929541eC2318f3dCF7e"] ?? "—"}
+            </div>
+
+            <div className="dx-k">mDNDX</div>
+            <div className="dx-v">
+              {mdndxAddress ? `${tokenMeta[mdndxAddress]?.symbol || "mDNDX"}: ${tokenBalances[mdndxAddress] ?? "—"}` : "—"}
+            </div>
+          </div>
+
+          {error ? <div className="dx-alert dx-alert-danger" style={{ marginTop: 12 }}>{error}</div> : null}
+
+          <div className="dx-miniRow" style={{ marginTop: 12 }}>
+            <button
+              className="dx-miniBtn"
               onClick={async () => {
                 await loadMdndxConfig();
                 await loadOverview();
@@ -831,275 +915,334 @@ export default function WalletHealth() {
             >
               {loading ? "Refreshing..." : "Refresh"}
             </button>
-          </div>
-          <div style={{ color: "#bdbdbd", marginTop: 8 }}>
-            Signer and provider actions are handled via the existing wallet connection.
+            <div className="dx-muted">
+              Signer and provider actions are handled via the existing wallet connection.
+            </div>
           </div>
         </div>
-      ) : null}
+      </section>
+    ) : null}
 
-      {activeTab === "approvals" ? (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Token Approvals</div>
-          <div style={{ marginTop: 8, marginBottom: 12, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Approvals Scanner (v2)</div>
-            <div style={{ color: "#bdbdbd", marginBottom: 8 }}>
-              Scan tokens the wallet touched and check allowances for default spenders.
+    {/* APPROVALS */}
+    {activeTab === "approvals" ? (
+      <section className="dx-card" style={{ marginTop: 14 }}>
+        <div className="dx-card-in">
+          <div className="dx-card-head">
+            <h2 className="dx-card-title">Approvals</h2>
+            <p className="dx-card-hint">Allowances</p>
+          </div>
+
+          {/* Scanner */}
+          <div className="dx-section">
+            <div className="dx-rowInline" style={{ justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontWeight: 800, color: "rgba(255,255,255,0.92)" }}>Approvals Scanner (v2)</div>
+                <div className="dx-muted" style={{ marginTop: 4 }}>
+                  Scan tokens the wallet touched and check allowances for default spenders.
+                </div>
+              </div>
+
+              <button className="dx-miniBtn" onClick={handleScanApprovals} disabled={scanLoading}>
+                {scanLoading ? "Scanning..." : "Scan approvals"}
+              </button>
             </div>
-            <button onClick={handleScanApprovals} disabled={scanLoading}>
-              {scanLoading ? "Scanning..." : "Scan approvals"}
-            </button>
+
             {scanLoading ? (
-              <div style={{ color: "#bdbdbd", marginTop: 8 }}>
+              <div className="dx-muted" style={{ marginTop: 10 }}>
                 Scanning tokens... {scanProgress.done}/{scanProgress.total || "?"}
               </div>
             ) : null}
-            {scanError ? <div style={{ color: "#ff7a7a", marginTop: 8 }}>{scanError}</div> : null}
+
+            {scanError ? <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>{scanError}</div> : null}
+
             {scanResults.length ? (
-              <div style={{ marginTop: 12, overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ textAlign: "left" }}>
-                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Token</th>
-                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Spender</th>
-                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Allowance</th>
-                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Risk</th>
-                      <th style={{ padding: "6px", borderBottom: "1px solid #333" }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {scanResults.map((token) => {
-                      const tokenLabel = token.symbol ? `${token.symbol} (${token.tokenAddress})` : token.tokenAddress;
-                      if (token.error) {
-                        return (
-                          <tr key={token.tokenAddress}>
-                            <td style={{ padding: "6px" }} colSpan={5}>
-                              {tokenLabel}: {token.error}
-                            </td>
-                          </tr>
-                        );
-                      }
-                      return token.allowances.map((allowance, idx) => {
-                        const key = `${token.tokenAddress}:${allowance.spender}:${idx}`;
-                        const inputKey = `${token.tokenAddress}:${allowance.spender}`;
-                        const limitValue = scanLimitInputs[inputKey] ?? "";
-                        return (
-                          <tr key={key}>
-                            <td style={{ padding: "6px" }}>{tokenLabel}</td>
-                            <td style={{ padding: "6px" }}>{allowance.spender}</td>
-                            <td style={{ padding: "6px" }}>{allowance.allowance}</td>
-                            <td style={{ padding: "6px", color: allowance.isUnlimited ? "#ffb74d" : "#bdbdbd" }}>
-                              {allowance.isUnlimited ? "Unlimited" : "OK"}
-                            </td>
-                            <td style={{ padding: "6px" }}>
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                <button
-                                  onClick={() => handleApproveFor(token.tokenAddress, allowance.spender, 0n)}
-                                  disabled={approvalLoading}
-                                >
-                                  Revoke
-                                </button>
-                                <input
-                                  style={{ width: 120, padding: 6 }}
-                                  placeholder="Set limit"
-                                  value={limitValue}
-                                  onChange={(e) =>
-                                    setScanLimitInputs((prev) => ({ ...prev, [inputKey]: e.target.value }))
-                                  }
-                                />
-                                <button
-                                  onClick={async () => {
-                                    const raw = (scanLimitInputs[inputKey] ?? "").trim();
-                                    if (!raw) {
-                                      setApprovalError("Enter a limit value.");
-                                      return;
+              <div className="dx-tableWrap" style={{ marginTop: 12 }}>
+                <div className="dx-tableScroll">
+                  <table className="dx-table">
+                    <thead>
+                      <tr>
+                        <th className="dx-th">Token</th>
+                        <th className="dx-th">Spender</th>
+                        <th className="dx-th">Allowance</th>
+                        <th className="dx-th">Risk</th>
+                        <th className="dx-th">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scanResults.map((token) => {
+                        const tokenLabel = token.symbol ? `${token.symbol} (${token.tokenAddress})` : token.tokenAddress;
+
+                        if (token.error) {
+                          return (
+                            <tr key={token.tokenAddress}>
+                              <td className="dx-td" colSpan={5}>
+                                <span className="dx-muted">{tokenLabel}:</span>{" "}
+                                <span className="dx-danger">{token.error}</span>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return token.allowances.map((allowance, idx) => {
+                          const key = `${token.tokenAddress}:${allowance.spender}:${idx}`;
+                          const inputKey = `${token.tokenAddress}:${allowance.spender}`;
+                          const limitValue = scanLimitInputs[inputKey] ?? "";
+
+                          return (
+                            <tr className="dx-row" key={key}>
+                              <td className="dx-td">{tokenLabel}</td>
+                              <td className="dx-td dx-mono">{allowance.spender}</td>
+                              <td className="dx-td">{allowance.allowance}</td>
+                              <td className="dx-td">
+                                {allowance.isUnlimited ? (
+                                  <span className="dx-chip dx-chipWarn">Unlimited</span>
+                                ) : (
+                                  <span className="dx-chip dx-chipOk">OK</span>
+                                )}
+                              </td>
+                              <td className="dx-td">
+                                <div className="dx-miniRow" style={{ marginTop: 0 }}>
+                                  <button
+                                    className="dx-miniBtn"
+                                    onClick={() => handleApproveFor(token.tokenAddress, allowance.spender, 0n)}
+                                    disabled={approvalLoading}
+                                  >
+                                    Revoke
+                                  </button>
+
+                                  <input
+                                    className="dx-mono"
+                                    style={{ width: 140 }}
+                                    placeholder="Set limit"
+                                    value={limitValue}
+                                    onChange={(e) =>
+                                      setScanLimitInputs((prev) => ({ ...prev, [inputKey]: e.target.value }))
                                     }
-                                    try {
-                                      const decimals = token.decimals ?? 18;
-                                      const amount = ethers.parseUnits(raw, decimals);
-                                      await handleApproveFor(token.tokenAddress, allowance.spender, amount);
-                                    } catch (err: any) {
-                                      setApprovalError(err?.message || "Invalid limit.");
-                                    }
-                                  }}
-                                  disabled={approvalLoading}
-                                >
-                                  Set limit
-                                </button>
-                              </div>
-                              {allowance.error ? (
-                                <div style={{ color: "#ff7a7a", marginTop: 4 }}>{allowance.error}</div>
-                              ) : null}
-                            </td>
-                          </tr>
-                        );
-                      });
-                    })}
-                  </tbody>
-                </table>
+                                  />
+
+                                  <button
+                                    className="dx-miniBtn"
+                                    onClick={async () => {
+                                      const raw = (scanLimitInputs[inputKey] ?? "").trim();
+                                      if (!raw) {
+                                        setApprovalError("Enter a limit value.");
+                                        return;
+                                      }
+                                      try {
+                                        const decimals = token.decimals ?? 18;
+                                        const amount = ethers.parseUnits(raw, decimals);
+                                        await handleApproveFor(token.tokenAddress, allowance.spender, amount);
+                                      } catch (err: any) {
+                                        setApprovalError(err?.message || "Invalid limit.");
+                                      }
+                                    }}
+                                    disabled={approvalLoading}
+                                  >
+                                    Set limit
+                                  </button>
+                                </div>
+
+                                {allowance.error ? (
+                                  <div className="dx-danger" style={{ marginTop: 8 }}>{allowance.error}</div>
+                                ) : null}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : null}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label>
-              <div style={{ marginBottom: 4 }}>Token address</div>
-              <input
-                style={{ width: "100%", padding: 8 }}
-                placeholder="0x… token"
-                value={tokenAddress}
-                onChange={(e) => setTokenAddress(e.target.value)}
-              />
-            </label>
-            <label>
-              <div style={{ marginBottom: 4 }}>Spender</div>
-              <select
-                style={{ width: "100%", maxWidth: 320, padding: 8 }}
-                value={spenderMode}
-                onChange={(e) => setSpenderMode(e.target.value as "permit2" | "router" | "custom")}
-              >
-                <option value="permit2">Permit2</option>
-                {quickpayRouter ? <option value="router">QuickPay Router</option> : null}
-                <option value="custom">Custom</option>
-              </select>
-            </label>
-            {spenderMode === "custom" ? (
-              <label>
-                <div style={{ marginBottom: 4 }}>Custom spender address</div>
-                <input
-                  style={{ width: "100%", padding: 8 }}
-                  placeholder="0x… spender"
-                  value={customSpender}
-                  onChange={(e) => setCustomSpender(e.target.value)}
-                />
-              </label>
-            ) : null}
-            <div>
-              <button onClick={handleCheckAllowance} disabled={approvalLoading}>
+
+          {/* Manual check */}
+          <div className="dx-section" style={{ marginTop: 14 }}>
+            <div className="dx-rowInline" style={{ justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontWeight: 800, color: "rgba(255,255,255,0.92)" }}>Manual allowance check</div>
+                <div className="dx-muted" style={{ marginTop: 4 }}>Check & manage a specific token/spender pair.</div>
+              </div>
+              <button className="dx-miniBtn" onClick={handleCheckAllowance} disabled={approvalLoading}>
                 {approvalLoading ? "Checking..." : "Check Allowance"}
               </button>
             </div>
-          </div>
 
-          {tokenDetails ? (
-            <div style={{ marginTop: 12, color: "#d6d6d6" }}>
-              <div><strong>Token:</strong> {tokenDetails.symbol} (decimals: {tokenDetails.decimals})</div>
-              <div>
-                <strong>Allowance:</strong> {allowanceFormatted ?? "—"}
-              </div>
-              {allowance != null && allowance >= ethers.MaxUint256 / 2n ? (
-                <div style={{ marginTop: 6, color: "#ffb74d" }}>
-                  Warning: allowance is effectively unlimited.
+            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+              <label className="dx-field">
+                <span className="dx-label">Token address</span>
+                <input
+                  className="dx-mono"
+                  placeholder="0x… token"
+                  value={tokenAddress}
+                  onChange={(e) => setTokenAddress(e.target.value)}
+                />
+              </label>
+
+              <label className="dx-field">
+                <span className="dx-label">Spender</span>
+                <select
+                  value={spenderMode}
+                  onChange={(e) => setSpenderMode(e.target.value as "permit2" | "router" | "custom")}
+                  style={{ maxWidth: 360 }}
+                >
+                  <option value="permit2">Permit2</option>
+                  {quickpayRouter ? <option value="router">QuickPay Router</option> : null}
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+
+              {spenderMode === "custom" ? (
+                <label className="dx-field">
+                  <span className="dx-label">Custom spender address</span>
+                  <input
+                    className="dx-mono"
+                    placeholder="0x… spender"
+                    value={customSpender}
+                    onChange={(e) => setCustomSpender(e.target.value)}
+                  />
+                </label>
+              ) : null}
+            </div>
+
+            {tokenDetails ? (
+              <div style={{ marginTop: 12 }}>
+                <div className="dx-kv">
+                  <div className="dx-k">Token</div>
+                  <div className="dx-v">
+                    {tokenDetails.symbol} <span className="dx-muted">(decimals: {tokenDetails.decimals})</span>
+                  </div>
+
+                  <div className="dx-k">Allowance</div>
+                  <div className="dx-v">{allowanceFormatted ?? "—"}</div>
+
+                  <div className="dx-k">Unlimited</div>
+                  <div className="dx-v">
+                    {allowance != null && allowance >= ethers.MaxUint256 / 2n ? (
+                      <span className="dx-chip dx-chipWarn">Yes</span>
+                    ) : (
+                      <span className="dx-chip dx-chipOk">No</span>
+                    )}
+                  </div>
                 </div>
-              ) : null}
-            </div>
-          ) : null}
+              </div>
+            ) : null}
 
-          <div style={{ marginTop: 12 }}>
-            <button
-              onClick={() => handleApprove(0n)}
-              disabled={approvalLoading}
-            >
-              Revoke
-            </button>
+            <div className="dx-miniRow" style={{ marginTop: 12 }}>
+              <button className="dx-miniBtn" onClick={() => handleApprove(0n)} disabled={approvalLoading}>
+                Revoke
+              </button>
+
+              <input
+                className="dx-mono"
+                style={{ width: 220 }}
+                placeholder="Set limit"
+                value={limitInput}
+                onChange={(e) => setLimitInput(e.target.value)}
+              />
+
+              <button
+                className="dx-miniBtn"
+                onClick={async () => {
+                  setApprovalError("");
+                  if (!limitInput.trim()) {
+                    setApprovalError("Enter a limit value.");
+                    return;
+                  }
+                  const tokenAddr = tokenAddress.trim();
+                  if (!ethers.isAddress(tokenAddr)) {
+                    setApprovalError("Token address is invalid.");
+                    return;
+                  }
+                  const ethereum = (window as any)?.ethereum;
+                  if (!ethereum) {
+                    setApprovalError("Wallet provider not available.");
+                    return;
+                  }
+                  try {
+                    const provider = new ethers.BrowserProvider(ethereum);
+                    const meta = tokenDetails ?? (await fetchTokenDetails(provider, tokenAddr));
+                    const amount = ethers.parseUnits(limitInput, meta.decimals);
+                    await handleApprove(amount);
+                  } catch (err: any) {
+                    setApprovalError(err?.message || "Invalid limit.");
+                  }
+                }}
+                disabled={approvalLoading}
+              >
+                Set Limit
+              </button>
+            </div>
+
+            {txHash ? (
+              <div className="dx-alert" style={{ marginTop: 12 }}>
+                <div><strong>Tx Hash:</strong> <span className="dx-mono">{txHash}</span></div>
+                {txStatus ? <div><strong>Status:</strong> {txStatus}</div> : null}
+              </div>
+            ) : null}
+
+            {approvalError ? (
+              <div className="dx-alert dx-alert-danger" style={{ marginTop: 12 }}>
+                {approvalError}
+                {approvalErrorDetails ? (
+                  <details style={{ marginTop: 10 }}>
+                    <summary style={{ cursor: "pointer" }}>Technical details</summary>
+                    <div className="dx-muted" style={{ marginTop: 8 }}>{approvalErrorDetails}</div>
+                  </details>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-
-          <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input
-              style={{ width: "100%", maxWidth: 220, padding: 8 }}
-              placeholder="Set limit"
-              value={limitInput}
-              onChange={(e) => setLimitInput(e.target.value)}
-            />
-            <button
-              onClick={async () => {
-                setApprovalError("");
-                if (!limitInput.trim()) {
-                  setApprovalError("Enter a limit value.");
-                  return;
-                }
-                const tokenAddr = tokenAddress.trim();
-                if (!ethers.isAddress(tokenAddr)) {
-                  setApprovalError("Token address is invalid.");
-                  return;
-                }
-                const ethereum = (window as any)?.ethereum;
-                if (!ethereum) {
-                  setApprovalError("Wallet provider not available.");
-                  return;
-                }
-                try {
-                  const provider = new ethers.BrowserProvider(ethereum);
-                  const meta = tokenDetails ?? (await fetchTokenDetails(provider, tokenAddr));
-                  const amount = ethers.parseUnits(limitInput, meta.decimals);
-                  await handleApprove(amount);
-                } catch (err: any) {
-                  setApprovalError(err?.message || "Invalid limit.");
-                }
-              }}
-              disabled={approvalLoading}
-            >
-              Set Limit
-            </button>
-          </div>
-
-          {txHash ? (
-            <div style={{ marginTop: 8, color: "#bdbdbd" }}>
-              <div><strong>Tx Hash:</strong> {txHash}</div>
-              {txStatus ? <div><strong>Status:</strong> {txStatus}</div> : null}
-            </div>
-          ) : null}
-          {approvalError ? (
-            <div style={{ color: "#ff7a7a", marginTop: 8 }}>
-              {approvalError}
-              {approvalErrorDetails ? (
-                <details style={{ marginTop: 6, color: "#bdbdbd" }}>
-                  <summary style={{ cursor: "pointer" }}>Technical details</summary>
-                  <div style={{ marginTop: 4 }}>{approvalErrorDetails}</div>
-                </details>
-              ) : null}
-            </div>
-          ) : null}
         </div>
-      ) : null}
+      </section>
+    ) : null}
 
-      {activeTab === "activity" ? (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Recent Activity</div>
-          <div style={{ color: "#bdbdbd", marginBottom: 8 }}>
-            Contracts interacted recently (grouped by recipient address).
+    {/* ACTIVITY */}
+    {activeTab === "activity" ? (
+      <section className="dx-card" style={{ marginTop: 14 }}>
+        <div className="dx-card-in">
+          <div className="dx-card-head">
+            <h2 className="dx-card-title">Activity</h2>
+            <p className="dx-card-hint">Recent</p>
           </div>
-          <div style={{ marginBottom: 10 }}>
-            <button onClick={loadActivity} disabled={activityLoading}>
+
+          <div className="dx-rowInline" style={{ justifyContent: "space-between" }}>
+            <div className="dx-muted">Contracts interacted recently (grouped by recipient address).</div>
+            <button className="dx-miniBtn" onClick={loadActivity} disabled={activityLoading}>
               {activityLoading ? "Refreshing..." : "Refresh"}
             </button>
           </div>
-          {activityError ? <div style={{ color: "#ffb74d", marginTop: 6 }}>{activityError}</div> : null}
+
+          {activityError ? <div className="dx-alert dx-alert-warn" style={{ marginTop: 12 }}>{activityError}</div> : null}
           {!activityError && activityRows.length === 0 ? (
-            <div style={{ color: "#bdbdbd" }}>No activity found.</div>
+            <div className="dx-alert" style={{ marginTop: 12 }}>No activity found.</div>
           ) : null}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+
+          <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
             {activityRows.map((row) => {
-              const lastSeenLabel = row.lastSeen
-                ? new Date(row.lastSeen * 1000).toLocaleString()
-                : "—";
+              const lastSeenLabel = row.lastSeen ? new Date(row.lastSeen * 1000).toLocaleString() : "—";
               const knownLabel = knownLabels[row.address.toLowerCase()];
               const tagKey = `walletHealthTag:${chainId ?? "0"}:${row.address.toLowerCase()}`;
+
               return (
-                <div key={row.address} style={{ padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                    <div>
-                      <div>
-                        <strong>Address:</strong> {row.address}
-                        {knownLabel ? <span style={{ marginLeft: 6, color: "#90caf9" }}>({knownLabel})</span> : null}
+                <div key={row.address} className="dx-section">
+                  <div className="dx-rowInline" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div style={{ flex: 1, minWidth: 260 }}>
+                      <div className="dx-rowInline">
+                        <span className="dx-mono">{row.address}</span>
+                        {knownLabel ? <span className="dx-chip dx-chipBlue">{knownLabel}</span> : null}
                       </div>
-                      <div><strong>Type:</strong> {row.isContract === null ? "Unknown" : row.isContract ? "Contract" : "EOA"}</div>
-                      <div><strong>Count:</strong> {row.count}</div>
-                      <div><strong>Last Seen:</strong> {lastSeenLabel}</div>
+                      <div className="dx-muted" style={{ marginTop: 8 }}>
+                        <div><strong style={{ color: "rgba(255,255,255,0.88)" }}>Type:</strong> {row.isContract === null ? "Unknown" : row.isContract ? "Contract" : "EOA"}</div>
+                        <div><strong style={{ color: "rgba(255,255,255,0.88)" }}>Count:</strong> {row.count}</div>
+                        <div><strong style={{ color: "rgba(255,255,255,0.88)" }}>Last seen:</strong> {lastSeenLabel}</div>
+                      </div>
                     </div>
-                    <div style={{ minWidth: 200 }}>
-                      <div style={{ marginBottom: 4 }}>Tag</div>
+
+                    <div style={{ width: 280 }}>
+                      <div className="dx-label" style={{ marginBottom: 6 }}>Tag</div>
                       <input
-                        style={{ width: "100%", padding: 6 }}
                         placeholder="Add tag"
                         value={tagMap[row.address] ?? ""}
                         onChange={(e) => {
@@ -1110,24 +1253,25 @@ export default function WalletHealth() {
                       />
                     </div>
                   </div>
-                  <div style={{ marginTop: 8 }}>
+
+                  <div className="dx-miniRow" style={{ marginTop: 12 }}>
                     <button
-                      onClick={() =>
-                        setExpandedRows((prev) => ({ ...prev, [row.address]: !prev[row.address] }))
-                      }
+                      className="dx-miniBtn"
+                      onClick={() => setExpandedRows((prev) => ({ ...prev, [row.address]: !prev[row.address] }))}
                     >
                       {expandedRows[row.address] ? "Hide" : "Show"} last 5 txs
                     </button>
                   </div>
+
                   {expandedRows[row.address] ? (
-                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
                       {row.hashes.map((hash) => (
                         <a
                           key={hash}
+                          className="dx-mono"
                           href={explorerBaseUrl ? `${explorerBaseUrl}/tx/${hash}` : undefined}
                           target="_blank"
                           rel="noreferrer"
-                          style={{ color: "#90caf9" }}
                         >
                           {hash}
                         </a>
@@ -1139,148 +1283,129 @@ export default function WalletHealth() {
             })}
           </div>
         </div>
-      ) : null}
+      </section>
+    ) : null}
 
-      {activeTab === "risk" ? (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 720 }}>
-          <div style={{ padding: 10, border: "1px solid #2a2a2a", borderRadius: 8, marginBottom: 12 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Summary</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div>
-                <strong>Pending txs:</strong> {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? "Yes" : "No"}
+    {/* RISK */}
+    {activeTab === "risk" ? (
+      <section className="dx-card" style={{ marginTop: 14 }}>
+        <div className="dx-card-in">
+          <div className="dx-card-head">
+            <h2 className="dx-card-title">Risk</h2>
+            <p className="dx-card-hint">Signals</p>
+          </div>
+
+          <div className="dx-section">
+            <div style={{ fontWeight: 800, color: "rgba(255,255,255,0.92)" }}>Summary</div>
+            <div className="dx-divider" />
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <div className="dx-rowInline" style={{ justifyContent: "space-between" }}>
+                <div className="dx-muted">
+                  <strong style={{ color: "rgba(255,255,255,0.88)" }}>Pending txs:</strong>{" "}
+                  {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? "Yes" : "No"}
+                </div>
                 {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? (
-                  <span style={{ marginLeft: 8 }}>
-                    <Link to="/tx-queue">Open Tx Queue</Link>
-                  </span>
+                  <Link className="dx-miniLink" to="/tx-queue">Open Tx Queue</Link>
                 ) : null}
               </div>
-              <div>
-                <strong>Unlimited approvals found:</strong> {lastAllowanceUnlimited && lastCheckedToken && lastCheckedSpender ? "Yes" : "No"}
-                {lastAllowanceUnlimited && lastCheckedToken && lastCheckedSpender ? (
-                  <button
-                    style={{ marginLeft: 8 }}
-                    onClick={() => setActiveTab("approvals")}
-                  >
-                    Open Approvals
-                  </button>
-                ) : null}
+
+              <div className="dx-rowInline" style={{ justifyContent: "space-between" }}>
+                <div className="dx-muted">
+                  <strong style={{ color: "rgba(255,255,255,0.88)" }}>Unlimited approvals found:</strong>{" "}
+                  {scanResults.length === 0 ? "Not scanned" : unlimitedApprovals.length ? "Yes" : "No"}
+                </div>
+                <button className="dx-miniBtn" onClick={() => setActiveTab("approvals")}>Open Approvals</button>
               </div>
-              <div>
-                <strong>Unknown contracts:</strong> {unknownContracts.length}
-                {unknownContracts.length ? (
-                  <button
-                    style={{ marginLeft: 8 }}
-                    onClick={() => setActiveTab("activity")}
-                  >
-                    Open Activity
-                  </button>
-                ) : null}
+
+              <div className="dx-rowInline" style={{ justifyContent: "space-between" }}>
+                <div className="dx-muted">
+                  <strong style={{ color: "rgba(255,255,255,0.88)" }}>Unknown contracts:</strong>{" "}
+                  {unknownContracts.length}
+                </div>
+                <button className="dx-miniBtn" onClick={() => setActiveTab("activity")}>Open Activity</button>
               </div>
             </div>
           </div>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Risk Signals</div>
-          <div style={{ color: "#bdbdbd", marginBottom: 10 }}>Signals, not guarantees.</div>
 
-          <div style={{ marginTop: 8, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Pending/stuck txs</div>
-            {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? (
-              <div style={{ color: "#ffb74d" }}>
-                Pending nonce is higher than latest. You may have a stuck transaction. {" "}
-                <Link to="/tx-queue">Open Tx Queue</Link> · <Link to="/nonce-rescue">Nonce Rescue</Link>
-              </div>
-            ) : (
-              <div style={{ color: "#bdbdbd" }}>No pending nonce risk detected.</div>
-            )}
-          </div>
+          <div className="dx-section" style={{ marginTop: 12 }}>
+            <div style={{ fontWeight: 800, color: "rgba(255,255,255,0.92)" }}>Risk signals</div>
+            <div className="dx-muted" style={{ marginTop: 6 }}>Signals, not guarantees.</div>
 
-          <div style={{ marginTop: 12, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Unlimited approvals</div>
-            {scanResults.length === 0 ? (
-              <div style={{ color: "#bdbdbd" }}>Run the Approvals Scanner to evaluate allowances.</div>
-            ) : unlimitedApprovals.length === 0 ? (
-              <div style={{ color: "#bdbdbd" }}>No unlimited approvals detected in scan results.</div>
-            ) : (
-              <div>
-                <div style={{ color: "#ffb74d", marginBottom: 8 }}>
-                  Unlimited approvals found: {unlimitedApprovals.length}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {unlimitedApprovals.slice(0, 5).map((row) => (
-                    <div key={`${row.tokenAddress}:${row.spender}`} style={{ padding: 8, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-                      <div>
-                        <strong>Token:</strong> {row.symbol ? `${row.symbol} (${row.tokenAddress})` : row.tokenAddress}
-                      </div>
-                      <div><strong>Spender:</strong> {row.spender}</div>
-                      <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button onClick={() => jumpToApprovals(row.tokenAddress, row.spender)}>
-                          Open Approvals
-                        </button>
-                        <button
-                          onClick={() => {
-                            setActiveTab("approvals");
-                            jumpToApprovals(row.tokenAddress, row.spender);
-                          }}
-                        >
-                          Revoke
-                        </button>
-                      </div>
+            <div className="dx-divider" />
+
+            <div style={{ display: "grid", gap: 12 }}>
+              <div className="dx-section">
+                <div style={{ fontWeight: 800, color: "rgba(255,255,255,0.92)" }}>Pending / stuck txs</div>
+                <div style={{ marginTop: 6 }}>
+                  {nonceLatest != null && noncePending != null && noncePending > nonceLatest ? (
+                    <div className="dx-alert dx-alert-warn">
+                      Pending nonce is higher than latest. You may have a stuck transaction.{" "}
+                      <Link to="/tx-queue">Open Tx Queue</Link> · <Link to="/nonce-rescue">Nonce Rescue</Link>
                     </div>
-                  ))}
+                  ) : (
+                    <div className="dx-muted">No pending nonce risk detected.</div>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
 
-          <div style={{ marginTop: 12, padding: 10, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Unknown contract activity</div>
-            {unknownContracts.length === 0 ? (
-              <div style={{ color: "#bdbdbd" }}>No unknown contracts found.</div>
-            ) : (
-              <div>
-                <div style={{ color: "#ffb74d", marginBottom: 6 }}>
-                  Unknown contracts: {unknownContracts.length}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {unknownContracts.slice(0, 5).map((row) => (
-                    <div key={row.address} style={{ padding: 8, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-                      <div><strong>Address:</strong> {row.address}</div>
-                      <div style={{ marginTop: 6 }}>
-                        <button onClick={() => setActiveTab("activity")}>Open Activity</button>
-                      </div>
+              <div className="dx-section">
+                <div style={{ fontWeight: 800, color: "rgba(255,255,255,0.92)" }}>Unlimited approvals</div>
+                <div style={{ marginTop: 6 }}>
+                  {scanResults.length === 0 ? (
+                    <div className="dx-muted">Run the Approvals Scanner to evaluate allowances.</div>
+                  ) : unlimitedApprovals.length === 0 ? (
+                    <div className="dx-muted">No unlimited approvals detected in scan results.</div>
+                  ) : (
+                    <div className="dx-alert dx-alert-warn">
+                      Unlimited approvals found: {unlimitedApprovals.length}
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
-            )}
+
+              <div className="dx-section">
+                <div style={{ fontWeight: 800, color: "rgba(255,255,255,0.92)" }}>Unknown contract activity</div>
+                <div style={{ marginTop: 6 }}>
+                  {unknownContracts.length === 0 ? (
+                    <div className="dx-muted">No unknown contracts found.</div>
+                  ) : (
+                    <div className="dx-alert dx-alert-warn">Unknown contracts: {unknownContracts.length}</div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
         </div>
-      ) : null}
+      </section>
+    ) : null}
 
-      <MainnetConfirmModal
-        open={confirmOpen}
-        summary={confirmSummary}
-        gasEstimate={confirmGasEstimate}
-        gasEstimateError={confirmGasError}
-        onCancel={() => {
-          setConfirmOpen(false);
-          setConfirmAction(null);
-          setConfirmSummary("");
-          setConfirmGasEstimate(null);
-          setConfirmGasError(null);
-        }}
-        onConfirm={async () => {
-          const action = confirmAction;
-          setConfirmOpen(false);
-          setConfirmAction(null);
-          setConfirmSummary("");
-          setConfirmGasEstimate(null);
-          setConfirmGasError(null);
-          if (action) {
-            await action();
-          }
-        }}
-      />
-    </div>
-  );
+    <MainnetConfirmModal
+      open={confirmOpen}
+      summary={confirmSummary}
+      gasEstimate={confirmGasEstimate}
+      gasEstimateError={confirmGasError}
+      onCancel={() => {
+        setConfirmOpen(false);
+        setConfirmAction(null);
+        setConfirmSummary("");
+        setConfirmGasEstimate(null);
+        setConfirmGasError(null);
+      }}
+      onConfirm={async () => {
+        const action = confirmAction;
+        setConfirmOpen(false);
+        setConfirmAction(null);
+        setConfirmSummary("");
+        setConfirmGasEstimate(null);
+        setConfirmGasError(null);
+        if (action) {
+          await action();
+        }
+      }}
+    />
+  </main>
+);
+
 }

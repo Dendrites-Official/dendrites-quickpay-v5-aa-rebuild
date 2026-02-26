@@ -566,161 +566,233 @@ export default function WalletQA() {
     }
   }, [address, isConnected, selectedChainId, updateWriteStep, writeEnabled]);
 
-  return (
-    <div style={{ padding: 16 }}>
-      <h2>Wallet QA Harness</h2>
-      <div style={{ color: "#bdbdbd", marginTop: 6 }}>
-        Internal checks for Wallet Health, Activity, Approvals, Risk, Tx Queue, and Nonce Rescue.
-      </div>
+ return (
+  <div className="dx-container">
+    <div className="dx-kicker">Utilities</div>
+    <h1 className="dx-h1">Wallet QA Harness</h1>
+    <div className="dx-sub">
+      Internal checks for Wallet Health, Activity, Approvals, Risk, Tx Queue, and Nonce Rescue.
+    </div>
 
-      <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 820 }}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>Input</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <label>
-            <div style={{ marginBottom: 4 }}>Connected address</div>
-            <input style={{ width: "100%", padding: 8 }} value={address || ""} disabled />
-          </label>
-          <label>
-            <div style={{ marginBottom: 4 }}>Chain ID</div>
-            <select
-              style={{ width: 240, padding: 8 }}
-              value={selectedChainId}
-              onChange={(e) => setChainInput(Number(e.target.value))}
-              disabled={isConnected}
-            >
-              <option value={84532}>Base Sepolia (84532)</option>
-              <option value={8453}>Base Mainnet (8453)</option>
-            </select>
-          </label>
-          {!isConnected ? (
-            <label>
-              <div style={{ marginBottom: 4 }}>Read-only address</div>
-              <input
-                style={{ width: "100%", padding: 8 }}
-                placeholder="0x…"
-                value={addressInput}
-                onChange={(e) => setAddressInput(e.target.value)}
-              />
-            </label>
-          ) : null}
-          {error ? <div style={{ color: "#ff6b6b" }}>{error}</div> : null}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button onClick={runChecks} disabled={loading}>
-              {loading ? "Running..." : "Run Checks"}
-            </button>
-            <button onClick={handleExport} disabled={!results.length}>
-              Export report
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8, maxWidth: 820 }}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>Write Test: Cancel/Speed-up</div>
-        <div style={{ color: "#bdbdbd", marginBottom: 8 }}>
-          Runs an end-to-end nonce replacement on Base Sepolia. Sends 2 transactions and uses small gas.
-        </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <input
-            type="checkbox"
-            checked={writeEnabled}
-            onChange={(e) => {
-              setWriteEnabled(e.target.checked);
-              setWriteSteps([]);
-              setWriteError("");
-            }}
-          />
-          Enable write tests (Sepolia only)
-        </label>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={() => setConfirmOpen(true)}
-            disabled={!writeEnabled || writeRunning || selectedChainId !== 84532}
-          >
-            {writeRunning ? "Running..." : "Run Cancel/Speed-up Test"}
-          </button>
-          {selectedChainId !== 84532 ? (
-            <div style={{ color: "#ffb74d" }}>Switch to Base Sepolia (84532) to run write tests.</div>
-          ) : null}
-        </div>
-        {writeError ? <div style={{ color: "#ff6b6b", marginTop: 8 }}>{writeError}</div> : null}
-        {writeSteps.length ? (
-          <div style={{ marginTop: 10, color: "#d6d6d6" }}>
-            {writeSteps.map((step) => (
-              <div key={step.step} style={{ marginBottom: 6 }}>
-                <strong>{step.step}:</strong> {step.status} — {step.details}
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      <div style={{ marginTop: 16, padding: 12, border: "1px solid #2a2a2a", borderRadius: 8 }}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>Results</div>
-        <div style={{ marginBottom: 8, color: "#cfcfcf" }}>
-          PASS: {totalSummary.PASS} | WARN: {totalSummary.WARN} | FAIL: {totalSummary.FAIL}
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #2a2a2a" }}>Check Name</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #2a2a2a" }}>Status</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #2a2a2a" }}>Details</th>
-                <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #2a2a2a" }}>Fix suggestion</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.length === 0 ? (
-                <tr>
-                  <td style={{ padding: 8, color: "#888" }} colSpan={4}>
-                    No checks run yet.
-                  </td>
-                </tr>
-              ) : (
-                results.map((row) => (
-                  <tr key={`${row.name}-${row.durationMs}`}>
-                    <td style={{ padding: 8, borderBottom: "1px solid #1f1f1f" }}>{row.name}</td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #1f1f1f", color: statusColor[row.status] }}>
-                      {row.status}
-                    </td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #1f1f1f" }}>
-                      {row.details} ({formatMs(row.durationMs)})
-                    </td>
-                    <td style={{ padding: 8, borderBottom: "1px solid #1f1f1f" }}>{row.fix}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        {lastRunRef.current ? (
-          <div style={{ marginTop: 10, color: "#9e9e9e" }}>
-            Last run: {lastRunRef.current.address} on {lastRunRef.current.chainId}
-          </div>
-        ) : null}
-      </div>
-
-      {confirmOpen ? (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.65)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-        >
-          <div style={{ background: "#151515", border: "1px solid #2a2a2a", borderRadius: 10, padding: 16, maxWidth: 420 }}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>Confirm write test</div>
-            <div style={{ color: "#d6d6d6", marginBottom: 12 }}>
-              This will send 2 transactions and spend a small amount of gas on Base Sepolia.
+    <div className="dx-grid">
+      {/* Input */}
+      <div className="dx-card">
+        <div className="dx-card-in">
+          <div className="dx-card-head">
+            <div>
+              <div className="dx-card-title">Input</div>
+              <div className="dx-card-hint">Run read-only checks or export a report.</div>
             </div>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setConfirmOpen(false)}>Cancel</button>
+          </div>
+
+          <div className="dx-form">
+            <div className="dx-field">
+              <div className="dx-label">Connected address</div>
+              <input value={address || ""} disabled />
+            </div>
+
+            <div className="dx-field" style={{ maxWidth: 380 }}>
+              <div className="dx-label">Chain ID</div>
+              <select
+                value={selectedChainId}
+                onChange={(e) => setChainInput(Number(e.target.value))}
+                disabled={isConnected}
+              >
+                <option value={84532}>Base Sepolia (84532)</option>
+                <option value={8453}>Base Mainnet (8453)</option>
+              </select>
+              <div className="dx-help">
+                {isConnected ? "Locked while wallet is connected." : "Choose a chain for read-only checks."}
+              </div>
+            </div>
+
+            {!isConnected ? (
+              <div className="dx-field">
+                <div className="dx-label">Read-only address</div>
+                <input
+                  placeholder="0x…"
+                  value={addressInput}
+                  onChange={(e) => setAddressInput(e.target.value)}
+                />
+              </div>
+            ) : null}
+
+            {error ? <div className="dx-alert dx-alert-danger">{error}</div> : null}
+
+            <div className="dx-actions">
+              <button className="dx-primary" onClick={runChecks} disabled={loading}>
+                {loading ? "Running..." : "Run Checks"}
+              </button>
+              <button className="dx-miniBtn" onClick={handleExport} disabled={!results.length}>
+                Export report
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Write Test */}
+      <div className="dx-card">
+        <div className="dx-card-in">
+          <div className="dx-card-head">
+            <div>
+              <div className="dx-card-title">Write test</div>
+              <div className="dx-card-hint">
+                Cancel/Speed-up end-to-end on Base Sepolia. Sends 2 txs with small gas.
+              </div>
+            </div>
+          </div>
+
+          <div className="dx-form">
+            <label className="dx-check">
+              <input
+                type="checkbox"
+                checked={writeEnabled}
+                onChange={(e) => {
+                  setWriteEnabled(e.target.checked);
+                  setWriteSteps([]);
+                  setWriteError("");
+                }}
+              />
+              Enable write tests (Sepolia only)
+            </label>
+
+            <div className="dx-actions">
               <button
+                className="dx-primary"
+                onClick={() => setConfirmOpen(true)}
+                disabled={!writeEnabled || writeRunning || selectedChainId !== 84532}
+              >
+                {writeRunning ? "Running..." : "Run Cancel/Speed-up Test"}
+              </button>
+            </div>
+
+            {selectedChainId !== 84532 ? (
+              <div className="dx-alert dx-alert-warn">
+                Switch to Base Sepolia (84532) to run write tests.
+              </div>
+            ) : null}
+
+            {writeError ? <div className="dx-alert dx-alert-danger">{writeError}</div> : null}
+
+            {writeSteps.length ? (
+              <div className="dx-section">
+                <div className="dx-card-title" style={{ marginBottom: 10 }}>
+                  Progress
+                </div>
+                <div className="dx-form">
+                  {writeSteps.map((step) => (
+                    <div key={step.step} className="dx-alert">
+                      <div className="dx-rowInline" style={{ justifyContent: "space-between" }}>
+                        <div style={{ fontWeight: 800 }}>{step.step}</div>
+                        <div className="dx-muted">{step.status}</div>
+                      </div>
+                      <div className="dx-subline">{step.details}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Results */}
+    <div className="dx-card" style={{ marginTop: 14 }}>
+      <div className="dx-card-in">
+        <div className="dx-card-head">
+          <div>
+            <div className="dx-card-title">Results</div>
+            <div className="dx-card-hint">PASS / WARN / FAIL summary + per-check details.</div>
+          </div>
+
+          <div className="dx-miniRow">
+            <span className="dx-chip dx-chipOk">PASS: {totalSummary.PASS}</span>
+            <span className="dx-chip dx-chipWarn">WARN: {totalSummary.WARN}</span>
+            <span className="dx-chip dx-chipBad">FAIL: {totalSummary.FAIL}</span>
+          </div>
+        </div>
+
+        <div className="dx-tableWrap">
+          <div className="dx-tableScroll">
+            <table className="dx-table">
+              <thead>
+                <tr>
+                  <th className="dx-th">Check Name</th>
+                  <th className="dx-th">Status</th>
+                  <th className="dx-th">Details</th>
+                  <th className="dx-th">Fix suggestion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.length === 0 ? (
+                  <tr>
+                    <td className="dx-td dx-muted" colSpan={4}>
+                      No checks run yet.
+                    </td>
+                  </tr>
+                ) : (
+                  results.map((row) => (
+                    <tr key={`${row.name}-${row.durationMs}`} className="dx-row">
+                      <td className="dx-td">{row.name}</td>
+                      <td className="dx-td">
+                        <span className="dx-pill" style={{ color: statusColor[row.status] }}>
+                          {row.status}
+                        </span>
+                      </td>
+                      <td className="dx-td">
+                        {row.details} <span className="dx-muted">({formatMs(row.durationMs)})</span>
+                      </td>
+                      <td className="dx-td">{row.fix}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {lastRunRef.current ? (
+          <div className="dx-muted" style={{ marginTop: 10 }}>
+            Last run: <span className="dx-mono">{lastRunRef.current.address}</span> on{" "}
+            <span className="dx-mono">{lastRunRef.current.chainId}</span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+
+    {/* Confirm modal */}
+    {confirmOpen ? (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.65)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+          padding: 14,
+        }}
+      >
+        <div className="dx-card" style={{ width: "min(520px, 100%)" }}>
+          <div className="dx-card-in">
+            <div className="dx-card-head">
+              <div>
+                <div className="dx-card-title">Confirm write test</div>
+                <div className="dx-card-hint">
+                  This will send 2 transactions and spend a small amount of gas on Base Sepolia.
+                </div>
+              </div>
+            </div>
+
+            <div className="dx-actions" style={{ justifyContent: "flex-end" }}>
+              <button className="dx-miniBtn" onClick={() => setConfirmOpen(false)}>
+                Cancel
+              </button>
+              <button
+                className="dx-primary"
                 onClick={async () => {
                   setConfirmOpen(false);
                   await runWriteTest();
@@ -731,7 +803,9 @@ export default function WalletQA() {
             </div>
           </div>
         </div>
-      ) : null}
-    </div>
-  );
+      </div>
+    ) : null}
+  </div>
+);
+
 }

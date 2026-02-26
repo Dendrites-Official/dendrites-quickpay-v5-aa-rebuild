@@ -1,0 +1,8 @@
+[functions.admin_connections_metrics]
+verify_jwt = false
+
+[functions.admin_snapshot_proxy]
+verify_jwt = false
+
+[functions.app_events_ingest]
+verify_jwt = false
