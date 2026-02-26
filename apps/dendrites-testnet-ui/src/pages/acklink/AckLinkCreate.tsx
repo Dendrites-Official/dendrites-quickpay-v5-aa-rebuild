@@ -252,8 +252,8 @@ export default function AckLinkCreate() {
         },
         primaryType: "TransferWithAuthorization",
         message: {
-          from: senderLower,
-          to: resolvedVault,
+          from: senderLower as `0x${string}`,
+          to: resolvedVault as `0x${string}`,
           value: totalUsdc6,
           validAfter: BigInt(validAfter),
           validBefore: BigInt(validBefore),

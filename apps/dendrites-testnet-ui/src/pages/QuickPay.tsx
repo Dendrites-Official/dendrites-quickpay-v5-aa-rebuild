@@ -301,6 +301,13 @@ export default function QuickPay() {
       const amountRaw = ethers.parseUnits(amount, decimals).toString();
       let auth: any = null;
       let eip3009Router: string | undefined;
+      const needsPublicClient =
+        mode === "SPONSORED" && (lane === "EIP3009" || lane === "EIP2612" || lane === "PERMIT2");
+      if (needsPublicClient && !publicClient) {
+        setError("Wallet client unavailable. Please reconnect and try again.");
+        setLoading(false);
+        return;
+      }
       if (mode === "SPONSORED" && lane === "EIP3009") {
         setPhase("eip3009");
         const routerAddr = String(activeQuote?.router ?? getQuickPayChainConfig(chainId)?.router ?? "");
@@ -310,6 +317,9 @@ export default function QuickPay() {
           return;
         }
         eip3009Router = routerAddr;
+        const tokenAddress = token as `0x${string}`;
+        const routerAddress = routerAddr as `0x${string}`;
+        const senderAddress = senderLower as `0x${string}`;
         const eip3009Abi = [
           { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
           { type: "function", name: "version", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
@@ -318,14 +328,14 @@ export default function QuickPay() {
         let tokenVersion = "2";
         try {
           tokenName = await publicClient.readContract({
-            address: token as `0x${string}`,
+            address: tokenAddress,
             abi: eip3009Abi,
             functionName: "name",
           });
         } catch {}
         try {
           tokenVersion = await publicClient.readContract({
-            address: token as `0x${string}`,
+            address: tokenAddress,
             abi: eip3009Abi,
             functionName: "version",
           });
@@ -339,7 +349,7 @@ export default function QuickPay() {
             name: tokenName,
             version: tokenVersion,
             chainId,
-            verifyingContract: token,
+            verifyingContract: tokenAddress,
           },
           types: {
             ReceiveWithAuthorization: [
@@ -353,8 +363,8 @@ export default function QuickPay() {
           },
           primaryType: "ReceiveWithAuthorization",
           message: {
-            from: senderLower,
-            to: routerAddr,
+            from: senderAddress,
+            to: routerAddress,
             value: BigInt(amountRaw),
             validAfter: BigInt(validAfter),
             validBefore: BigInt(validBefore),
@@ -372,6 +382,9 @@ export default function QuickPay() {
           setLoading(false);
           return;
         }
+        const tokenAddress = token as `0x${string}`;
+        const routerAddress = routerAddr as `0x${string}`;
+        const senderAddress = senderLower as `0x${string}`;
         const permitAbi = [
           { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
           { type: "function", name: "version", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
@@ -382,24 +395,24 @@ export default function QuickPay() {
         let nonce = 0n;
         try {
           tokenName = await publicClient.readContract({
-            address: token as `0x${string}`,
+            address: tokenAddress,
             abi: permitAbi,
             functionName: "name",
           });
         } catch {}
         try {
           tokenVersion = await publicClient.readContract({
-            address: token as `0x${string}`,
+            address: tokenAddress,
             abi: permitAbi,
             functionName: "version",
           });
         } catch {}
         try {
           nonce = await publicClient.readContract({
-            address: token as `0x${string}`,
+            address: tokenAddress,
             abi: permitAbi,
             functionName: "nonces",
-            args: [senderLower as `0x${string}`],
+            args: [senderAddress],
           });
         } catch {}
         const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
@@ -408,7 +421,7 @@ export default function QuickPay() {
             name: tokenName,
             version: tokenVersion,
             chainId,
-            verifyingContract: token,
+            verifyingContract: tokenAddress,
           },
           types: {
             Permit: [
@@ -421,8 +434,8 @@ export default function QuickPay() {
           },
           primaryType: "Permit",
           message: {
-            owner: senderLower,
-            spender: routerAddr,
+            owner: senderAddress,
+            spender: routerAddress,
             value: BigInt(amountRaw),
             nonce: BigInt(nonce),
             deadline: BigInt(deadline),
@@ -441,6 +454,10 @@ export default function QuickPay() {
         if (!ethers.isAddress(spender)) {
           throw new Error("Missing router address for Permit2");
         }
+        const permit2AddressTyped = permit2Address as `0x${string}`;
+        const spenderAddress = spender as `0x${string}`;
+        const tokenAddress = token as `0x${string}`;
+        const senderAddress = senderLower as `0x${string}`;
         // Do not attempt approve here. Server will return NEEDS_APPROVE
         // and optionally stipend ETH for first-time wallets.
         const permit2Abi = [
@@ -461,10 +478,10 @@ export default function QuickPay() {
           },
         ] as const;
         const allowance = await publicClient.readContract({
-          address: permit2Address as `0x${string}`,
+          address: permit2AddressTyped,
           abi: permit2Abi,
           functionName: "allowance",
-          args: [senderLower as `0x${string}`, token as `0x${string}`, spender as `0x${string}`],
+          args: [senderAddress, tokenAddress, spenderAddress],
         });
         const now = Math.floor(Date.now() / 1000);
         const permitExpiration = now + 60 * 60 * 24 * 30;
@@ -473,7 +490,7 @@ export default function QuickPay() {
           domain: {
             name: "Permit2",
             chainId,
-            verifyingContract: permit2Address,
+            verifyingContract: permit2AddressTyped,
           },
           types: {
             PermitDetails: [
@@ -491,12 +508,12 @@ export default function QuickPay() {
           primaryType: "PermitSingle",
           message: {
             details: {
-              token,
+              token: tokenAddress,
               amount: BigInt(amountRaw),
               expiration: BigInt(permitExpiration),
               nonce: BigInt(allowance[2] ?? 0n),
             },
-            spender,
+            spender: spenderAddress,
             sigDeadline,
           },
         } as const;
