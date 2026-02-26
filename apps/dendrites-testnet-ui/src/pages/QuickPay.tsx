@@ -29,8 +29,8 @@ export default function QuickPay() {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quotePending, setQuotePending] = useState(false);
   const [quoteError, setQuoteError] = useState("");
-  const [selfPayGasEstimate, setSelfPayGasEstimate] = useState("");
-  const [selfPayGasError, setSelfPayGasError] = useState("");
+  const [, setSelfPayGasEstimate] = useState("");
+  const [, setSelfPayGasError] = useState("");
   const quoteAbortRef = useRef<AbortController | null>(null);
   const quoteDebounceRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -301,14 +301,20 @@ export default function QuickPay() {
       const amountRaw = ethers.parseUnits(amount, decimals).toString();
       let auth: any = null;
       let eip3009Router: string | undefined;
+      const client = publicClient;
       const needsPublicClient =
         mode === "SPONSORED" && (lane === "EIP3009" || lane === "EIP2612" || lane === "PERMIT2");
-      if (needsPublicClient && !publicClient) {
+      if (needsPublicClient && !client) {
         setError("Wallet client unavailable. Please reconnect and try again.");
         setLoading(false);
         return;
       }
       if (mode === "SPONSORED" && lane === "EIP3009") {
+        if (!client) {
+          setError("Wallet client unavailable. Please reconnect and try again.");
+          setLoading(false);
+          return;
+        }
         setPhase("eip3009");
         const routerAddr = String(activeQuote?.router ?? getQuickPayChainConfig(chainId)?.router ?? "");
         if (!ethers.isAddress(routerAddr)) {
@@ -327,14 +333,14 @@ export default function QuickPay() {
         let tokenName = "USD Coin";
         let tokenVersion = "2";
         try {
-          tokenName = await publicClient.readContract({
+          tokenName = await client.readContract({
             address: tokenAddress,
             abi: eip3009Abi,
             functionName: "name",
           });
         } catch {}
         try {
-          tokenVersion = await publicClient.readContract({
+          tokenVersion = await client.readContract({
             address: tokenAddress,
             abi: eip3009Abi,
             functionName: "version",
@@ -343,7 +349,7 @@ export default function QuickPay() {
         const now = Math.floor(Date.now() / 1000);
         const validAfter = now - 10;
         const validBefore = now + 60 * 60;
-        const nonce = ethers.hexlify(ethers.randomBytes(32));
+        const nonce = ethers.hexlify(ethers.randomBytes(32)) as `0x${string}`;
         const typedData = {
           domain: {
             name: tokenName,
@@ -375,6 +381,11 @@ export default function QuickPay() {
         auth = { type: "EIP3009", ...typedData.message, signature };
       }
       if (mode === "SPONSORED" && lane === "EIP2612") {
+        if (!client) {
+          setError("Wallet client unavailable. Please reconnect and try again.");
+          setLoading(false);
+          return;
+        }
         setPhase("eip2612");
         const routerAddr = String(activeQuote?.router ?? getQuickPayChainConfig(chainId)?.router ?? "");
         if (!ethers.isAddress(routerAddr)) {
@@ -394,21 +405,21 @@ export default function QuickPay() {
         let tokenVersion = "1";
         let nonce = 0n;
         try {
-          tokenName = await publicClient.readContract({
+          tokenName = await client.readContract({
             address: tokenAddress,
             abi: permitAbi,
             functionName: "name",
           });
         } catch {}
         try {
-          tokenVersion = await publicClient.readContract({
+          tokenVersion = await client.readContract({
             address: tokenAddress,
             abi: permitAbi,
             functionName: "version",
           });
         } catch {}
         try {
-          nonce = await publicClient.readContract({
+          nonce = await client.readContract({
             address: tokenAddress,
             abi: permitAbi,
             functionName: "nonces",
@@ -445,6 +456,11 @@ export default function QuickPay() {
         auth = { type: "EIP2612", ...typedData.message, signature };
       }
       if (mode === "SPONSORED" && lane === "PERMIT2") {
+        if (!client) {
+          setError("Wallet client unavailable. Please reconnect and try again.");
+          setLoading(false);
+          return;
+        }
         setPhase("permit2");
         const permit2Address = String(activeQuote?.permit2 ?? "0x000000000022D473030F116dDEE9F6B43aC78BA3");
         const spender = String(activeQuote?.router ?? "");
@@ -477,7 +493,7 @@ export default function QuickPay() {
             ],
           },
         ] as const;
-        const allowance = await publicClient.readContract({
+        const allowance = await client.readContract({
           address: permit2AddressTyped,
           abi: permit2Abi,
           functionName: "allowance",
@@ -510,7 +526,7 @@ export default function QuickPay() {
             details: {
               token: tokenAddress,
               amount: BigInt(amountRaw),
-              expiration: BigInt(permitExpiration),
+              expiration: permitExpiration,
               nonce: BigInt(allowance[2] ?? 0n),
             },
             spender: spenderAddress,

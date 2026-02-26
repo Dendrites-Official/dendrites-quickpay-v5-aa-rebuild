@@ -232,7 +232,7 @@ export default function AckLinkCreate() {
       const now = Math.floor(Date.now() / 1000);
       const validAfter = now - 10;
       const validBefore = now + 60 * 60;
-      const nonce = ethers.hexlify(ethers.randomBytes(32));
+      const nonce = ethers.hexlify(ethers.randomBytes(32)) as `0x${string}`;
       const typedData = {
         domain: {
           name: tokenName,

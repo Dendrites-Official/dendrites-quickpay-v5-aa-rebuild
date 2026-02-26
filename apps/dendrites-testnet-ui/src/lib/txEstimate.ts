@@ -81,7 +81,7 @@ export async function buildEip1559Fees(
     };
   }
 
-  const gasPrice = feeData.gasPrice ?? (await provider.getGasPrice());
+  const gasPrice = feeData.gasPrice ?? MIN_PRIORITY_FEE;
   let nextGasPrice = applyMultiplier(gasPrice, multiplier);
   if (previous?.gasPrice) {
     const bumped = bumpValue(previous.gasPrice);
