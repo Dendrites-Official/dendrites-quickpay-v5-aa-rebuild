@@ -527,7 +527,7 @@ export default function QuickPay() {
               token: tokenAddress,
               amount: BigInt(amountRaw),
               expiration: permitExpiration,
-              nonce: BigInt(allowance[2] ?? 0n),
+              nonce: Number(allowance[2] ?? 0n),
             },
             spender: spenderAddress,
             sigDeadline,
