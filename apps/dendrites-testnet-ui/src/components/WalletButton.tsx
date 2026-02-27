@@ -4,7 +4,7 @@ import { useWeb3Modal } from "@web3modal/wagmi/react";
 import MobileConnectBanner from "./MobileConnectBanner";
 import { logDappConnection } from "../lib/dappConnections";
 import { logAppEvent } from "../lib/appEvents";
-import { isInWalletBrowser, isMobile } from "../utils/mobile";
+import { buildDeepLink, getWalletStoreUrl, isInWalletBrowser, isMobile } from "../utils/mobile";
 
 const WC_PROJECT_ID = String(import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? "").trim();
 
@@ -46,6 +46,19 @@ export default function WalletButton() {
     doConnect();
   };
 
+  const openWallet = (wallet: "metamask" | "coinbase") => {
+    const currentUrl = window.location.href;
+    const deepLink = buildDeepLink(currentUrl, wallet);
+    const storeUrl = getWalletStoreUrl(wallet);
+    if (!deepLink) return;
+    window.location.href = deepLink;
+    if (storeUrl) {
+      setTimeout(() => {
+        window.location.href = storeUrl;
+      }, 1200);
+    }
+  };
+
   const doConnect = () => {
     if (web3Modal?.open) {
       web3Modal.open();
@@ -78,9 +91,8 @@ export default function WalletButton() {
             position: "fixed",
             inset: 0,
             background: "rgba(0,0,0,0.6)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            display: "grid",
+            placeItems: "center",
             zIndex: 60,
           }}
         >
@@ -98,6 +110,10 @@ export default function WalletButton() {
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Best mobile UX</div>
             <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginBottom: 12 }}>
               For the smoothest experience, open this site in your wallet browser.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <button type="button" onClick={() => openWallet("metamask")}>Open in MetaMask</button>
+              <button type="button" onClick={() => openWallet("coinbase")}>Open in Coinbase Wallet</button>
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button
