@@ -79,7 +79,7 @@ export default function WalletButton() {
             inset: 0,
             background: "rgba(0,0,0,0.6)",
             display: "flex",
-            alignItems: "flex-end",
+            alignItems: "center",
             justifyContent: "center",
             zIndex: 60,
           }}
@@ -87,7 +87,7 @@ export default function WalletButton() {
           <div
             style={{
               width: "min(520px, calc(100% - 24px))",
-              marginBottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
+              margin: "0 auto",
               background: "#111",
               border: "1px solid #2a2a2a",
               borderRadius: 12,
