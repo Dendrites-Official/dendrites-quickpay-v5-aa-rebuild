@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAccount, useConnect, useDisconnect, useChainId } from "wagmi";
 import { useWeb3Modal } from "@web3modal/wagmi/react";
-import MobileConnectBanner from "./MobileConnectBanner";
 import { logDappConnection } from "../lib/dappConnections";
 import { logAppEvent } from "../lib/appEvents";
 import { buildDeepLink, getWalletStoreUrl, isInWalletBrowser, isMobile } from "../utils/mobile";
@@ -39,7 +39,7 @@ export default function WalletButton() {
 
   const handleConnect = () => {
     const injected = connectors.find((connector) => connector.type === "injected");
-    const needsMobileNote = isMobile() && !isInWalletBrowser() && !injected;
+    const needsMobileNote = isMobile() && !isInWalletBrowser();
     if (needsMobileNote) {
       setShowMobileNote(true);
       return;
@@ -90,63 +90,61 @@ export default function WalletButton() {
     </div>
   ) : (
     <div className="dx-walletWrapper">
-      {showMobileNote ? (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.6)",
-            display: "grid",
-            placeItems: "center",
-            zIndex: 60,
-          }}
-        >
-          <div
-            style={{
-              width: "min(520px, calc(100% - 24px))",
-              margin: "0 auto",
-              background: "#111",
-              border: "1px solid #2a2a2a",
-              borderRadius: 12,
-              padding: 14,
-              boxShadow: "0 18px 40px rgba(0,0,0,0.55)",
-            }}
-          >
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Best mobile UX</div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginBottom: 12 }}>
-              For the smoothest experience, open this site in your wallet browser.
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-              <button type="button" onClick={() => openWallet("metamask")}>Open in MetaMask</button>
-              <button type="button" onClick={() => openWallet("coinbase")}>Open in Coinbase Wallet</button>
-              <button type="button" onClick={() => openWallet("coinbase")}>Open in Base Wallet</button>
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                onClick={() => setShowMobileNote(false)}
-                style={{ background: "transparent", color: "#bdbdbd", border: "1px solid #333" }}
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowMobileNote(false);
-                  doConnect();
+      {showMobileNote && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0,0,0,0.6)",
+                display: "grid",
+                placeItems: "center",
+                zIndex: 100000,
+              }}
+            >
+              <div
+                style={{
+                  width: "min(520px, calc(100% - 24px))",
+                  margin: "0 auto",
+                  background: "#111",
+                  border: "1px solid #2a2a2a",
+                  borderRadius: 12,
+                  padding: 14,
+                  boxShadow: "0 18px 40px rgba(0,0,0,0.55)",
                 }}
               >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      <MobileConnectBanner
-        isConnected={isConnected}
-        onMoreWallets={handleConnect}
-        hasWalletConnect={Boolean(WC_PROJECT_ID)}
-      />
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Best mobile UX</div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginBottom: 12 }}>
+                  For the smoothest experience, open this site in your wallet browser.
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  <button type="button" onClick={() => openWallet("metamask")}>Open in MetaMask</button>
+                  <button type="button" onClick={() => openWallet("coinbase")}>Open in Coinbase Wallet</button>
+                  <button type="button" onClick={() => openWallet("coinbase")}>Open in Base Wallet</button>
+                </div>
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowMobileNote(false)}
+                    style={{ background: "transparent", color: "#bdbdbd", border: "1px solid #333" }}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMobileNote(false);
+                      doConnect();
+                    }}
+                  >
+                    Continue
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
       {isPending ? (
         <button className="dx-walletConnect" disabled>
           Connecting…
