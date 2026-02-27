@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useChainId } from "wagmi";
 import { useWeb3Modal } from "@web3modal/wagmi/react";
 import MobileConnectBanner from "./MobileConnectBanner";
 import { logDappConnection } from "../lib/dappConnections";
 import { logAppEvent } from "../lib/appEvents";
+import { isInWalletBrowser, isMobile } from "../utils/mobile";
 
 const WC_PROJECT_ID = String(import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? "").trim();
 
@@ -21,6 +22,7 @@ export default function WalletButton() {
   const { disconnect } = useDisconnect();
   const { connect, connectors, isPending } = useConnect();
   const web3Modal = useOptionalWeb3Modal();
+  const [showMobileNote, setShowMobileNote] = useState(false);
 
   const shortAddress = address
     ? `${address.slice(0, 6)}…${address.slice(-4)}`
@@ -36,6 +38,15 @@ export default function WalletButton() {
   }, [address, isConnected]);
 
   const handleConnect = () => {
+    const needsMobileNote = isMobile() && !isInWalletBrowser();
+    if (needsMobileNote) {
+      setShowMobileNote(true);
+      return;
+    }
+    doConnect();
+  };
+
+  const doConnect = () => {
     if (web3Modal?.open) {
       web3Modal.open();
       return;
@@ -61,6 +72,54 @@ export default function WalletButton() {
     </div>
   ) : (
     <div className="dx-walletWrapper">
+      {showMobileNote ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "center",
+            zIndex: 60,
+          }}
+        >
+          <div
+            style={{
+              width: "min(520px, calc(100% - 24px))",
+              marginBottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
+              background: "#111",
+              border: "1px solid #2a2a2a",
+              borderRadius: 12,
+              padding: 14,
+              boxShadow: "0 18px 40px rgba(0,0,0,0.55)",
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Best mobile UX</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginBottom: 12 }}>
+              For the smoothest experience, open this site in your wallet browser.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setShowMobileNote(false)}
+                style={{ background: "transparent", color: "#bdbdbd", border: "1px solid #333" }}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMobileNote(false);
+                  doConnect();
+                }}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <MobileConnectBanner
         isConnected={isConnected}
         onMoreWallets={handleConnect}
