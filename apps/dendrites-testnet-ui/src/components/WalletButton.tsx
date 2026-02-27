@@ -38,7 +38,8 @@ export default function WalletButton() {
   }, [address, isConnected]);
 
   const handleConnect = () => {
-    const needsMobileNote = isMobile() && !isInWalletBrowser();
+    const injected = connectors.find((connector) => connector.type === "injected");
+    const needsMobileNote = isMobile() && !isInWalletBrowser() && !injected;
     if (needsMobileNote) {
       setShowMobileNote(true);
       return;
@@ -114,6 +115,7 @@ export default function WalletButton() {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
               <button type="button" onClick={() => openWallet("metamask")}>Open in MetaMask</button>
               <button type="button" onClick={() => openWallet("coinbase")}>Open in Coinbase Wallet</button>
+              <button type="button" onClick={() => openWallet("coinbase")}>Open in Base Wallet</button>
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button

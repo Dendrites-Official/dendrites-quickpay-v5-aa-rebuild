@@ -9,10 +9,14 @@ export function isMobile() {
 export function isInWalletBrowser() {
   if (typeof navigator === "undefined") return false;
   const ua = (navigator.userAgent || "").toLowerCase();
+  const injected = typeof window !== "undefined" ? (window as any)?.ethereum : null;
+  const hasInjected = Boolean(injected?.isMetaMask || injected?.isCoinbaseWallet || injected?.providers?.length);
   return (
+    hasInjected ||
     ua.includes("metamask") ||
     ua.includes("coinbasewallet") ||
     ua.includes("cbwallet") ||
+    ua.includes("base") ||
     ua.includes("trust") ||
     ua.includes("rainbow") ||
     ua.includes("tokenpocket")
