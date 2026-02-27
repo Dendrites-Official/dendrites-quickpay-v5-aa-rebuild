@@ -33,15 +33,22 @@ export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWal
   return (
     <div
       style={{
+        position: "fixed",
+        left: "50%",
+        bottom: "16px",
+        transform: "translateX(-50%)",
+        width: "min(520px, calc(100% - 24px))",
+        zIndex: 40,
+        boxShadow: "0 14px 30px rgba(0,0,0,0.45)",
         border: "1px solid #2a2a2a",
         borderRadius: 8,
         padding: 10,
-        marginBottom: 10,
+        marginBottom: 0,
         background: "#141414",
       }}
     >
       <div style={{ fontSize: 12, color: "#bdbdbd", marginBottom: 8 }}>
-        On mobile? Open in your wallet for the smoothest experience.
+        On mobile? Open in your wallet browser for the smoothest experience.
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button onClick={() => openWallet("metamask")}>Open in MetaMask</button>
