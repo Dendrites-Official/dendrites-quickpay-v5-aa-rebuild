@@ -33,7 +33,6 @@ export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWal
   return (
     <div
       style={{
-        display: "none", // Hidden via CSS - functionality preserved
         border: "1px solid #2a2a2a",
         borderRadius: 8,
         padding: 10,
