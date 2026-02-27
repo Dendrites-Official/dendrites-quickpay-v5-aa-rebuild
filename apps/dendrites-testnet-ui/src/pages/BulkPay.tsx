@@ -5,6 +5,7 @@ import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
 import { logAppEvent } from "../lib/appEvents";
+import { quickpayNoteSet } from "../lib/api";
 
 const USDC_DEFAULT = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const DECIMALS = 6;
@@ -417,6 +418,18 @@ export default function BulkPay() {
       });
 
       const receiptId = data?.receiptId || data?.receipt_id || "";
+      if (receiptId && note.trim()) {
+        try {
+          const provider = new ethers.BrowserProvider((window as any).ethereum);
+          const signer = await provider.getSigner();
+          const senderLower = address.toLowerCase();
+          const noteMessage = `Dendrites QuickPay Note v1\nAction: SET\nReceipt: ${receiptId}\nSender: ${senderLower}\nChainId: ${chainId}`;
+          const signature = await signer.signMessage(noteMessage);
+          await quickpayNoteSet({ receiptId, sender: senderLower, note: note.trim(), signature, chainId });
+        } catch (err) {
+          console.warn("NOTE_SAVE_FAILED", err);
+        }
+      }
       if (receiptId) {
         navigate(`/r/${receiptId}`);
       }
