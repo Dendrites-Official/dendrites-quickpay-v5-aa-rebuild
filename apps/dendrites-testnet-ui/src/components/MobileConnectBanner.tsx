@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { buildDeepLink, getWalletStoreUrl, isInWalletBrowser, isMobile, type WalletDeepLink } from "../utils/mobile";
 
 type MobileConnectBannerProps = {
@@ -30,7 +31,7 @@ export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWal
     onMoreWallets();
   };
 
-  return (
+  const content = (
     <div
       style={{
         position: "fixed",
@@ -39,7 +40,7 @@ export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWal
         transform: "translateX(-50%)",
         width: "min(520px, calc(100% - 20px))",
         boxSizing: "border-box",
-        zIndex: 40,
+        zIndex: 9999,
         boxShadow: "0 14px 30px rgba(0,0,0,0.45)",
         border: "1px solid #2a2a2a",
         borderRadius: 8,
@@ -58,4 +59,7 @@ export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWal
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
 }
