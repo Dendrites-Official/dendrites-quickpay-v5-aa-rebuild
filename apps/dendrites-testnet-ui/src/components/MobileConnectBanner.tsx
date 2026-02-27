@@ -35,9 +35,10 @@ export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWal
       style={{
         position: "fixed",
         left: "50%",
-        bottom: "16px",
+        bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
         transform: "translateX(-50%)",
-        width: "min(520px, calc(100% - 24px))",
+        width: "min(520px, calc(100% - 20px))",
+        boxSizing: "border-box",
         zIndex: 40,
         boxShadow: "0 14px 30px rgba(0,0,0,0.45)",
         border: "1px solid #2a2a2a",
