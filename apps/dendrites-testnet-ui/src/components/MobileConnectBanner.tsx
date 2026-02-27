@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { buildDeepLink, getWalletStoreUrl, isInWalletBrowser, isMobile, type WalletDeepLink } from "../utils/mobile";
 
@@ -9,26 +9,9 @@ type MobileConnectBannerProps = {
 };
 
 export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWalletConnect }: MobileConnectBannerProps) {
-  const [modalOpen, setModalOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const checkModal = () => {
-      const hasModal = Boolean(
-        document.querySelector(
-          "w3m-modal,w3m-modal-container,w3m-modal-card,[data-testid='w3m-modal'],[role='dialog']"
-        )
-      );
-      setModalOpen(hasModal);
-    };
-    checkModal();
-    const observer = new MutationObserver(checkModal);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, []);
-
-  if (!isMobile() || isInWalletBrowser() || isConnected || modalOpen || dismissed) return null;
+  if (!isMobile() || isInWalletBrowser() || isConnected || dismissed) return null;
 
   const openWallet = (wallet: WalletDeepLink) => {
     const currentUrl = window.location.href;

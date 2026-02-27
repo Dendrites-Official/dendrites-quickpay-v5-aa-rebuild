@@ -44,6 +44,10 @@ export default function WalletButton() {
       setShowMobileNote(true);
       return;
     }
+    if (isInWalletBrowser() && injected) {
+      connect({ connector: injected });
+      return;
+    }
     doConnect();
   };
 
