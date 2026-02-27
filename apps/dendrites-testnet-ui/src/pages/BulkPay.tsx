@@ -419,13 +419,38 @@ export default function BulkPay() {
 
       const receiptId = data?.receiptId || data?.receipt_id || "";
       if (receiptId && note.trim()) {
+        const pendingKey = `qp_note_pending_${receiptId}`;
         try {
+          localStorage.setItem(pendingKey, note.trim());
+        } catch {
+          // ignore localStorage failures
+        }
+        try {
+          setStatus("Saving private note…");
           const provider = new ethers.BrowserProvider((window as any).ethereum);
           const signer = await provider.getSigner();
           const senderLower = address.toLowerCase();
           const noteMessage = `Dendrites QuickPay Note v1\nAction: SET\nReceipt: ${receiptId}\nSender: ${senderLower}\nChainId: ${chainId}`;
           const signature = await signer.signMessage(noteMessage);
-          await quickpayNoteSet({ receiptId, sender: senderLower, note: note.trim(), signature, chainId });
+          let lastError: unknown;
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
+            try {
+              await quickpayNoteSet({ receiptId, sender: senderLower, note: note.trim(), signature, chainId });
+              lastError = undefined;
+              break;
+            } catch (err) {
+              lastError = err;
+              if (attempt < 3) {
+                await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+              }
+            }
+          }
+          if (lastError) throw lastError;
+          try {
+            localStorage.removeItem(pendingKey);
+          } catch {
+            // ignore localStorage failures
+          }
         } catch (err) {
           console.warn("NOTE_SAVE_FAILED", err);
         }

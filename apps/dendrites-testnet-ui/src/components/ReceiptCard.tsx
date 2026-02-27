@@ -14,6 +14,7 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   const [privateNote, setPrivateNote] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [showRecipients, setShowRecipients] = useState(false);
+  const [autoNoteAttempted, setAutoNoteAttempted] = useState(false);
 
   const safe = receipt ?? {};
   const tokenSymbol = safe.tokenSymbol ?? safe.token_symbol ?? "";
@@ -56,9 +57,66 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
 
   const senderForNote = useMemo(() => (address ? String(address).toLowerCase() : ""), [address]);
   const receiptIdValue = String(receiptId || "");
+  const pendingNoteKey = useMemo(
+    () => (receiptIdValue ? `qp_note_pending_${receiptIdValue}` : ""),
+    [receiptIdValue]
+  );
 
   const buildNoteMessage = (action: "SET" | "READ") =>
     `Dendrites QuickPay Note v1\nAction: ${action}\nReceipt: ${receiptIdValue}\nSender: ${senderForNote}\nChainId: ${chainId}`;
+
+  useEffect(() => {
+    setAutoNoteAttempted(false);
+  }, [receiptIdValue, senderForNote]);
+
+  useEffect(() => {
+    if (!isConnected || !receiptIdValue || !senderForNote || autoNoteAttempted) return;
+    let cancelled = false;
+
+    const run = async () => {
+      setAutoNoteAttempted(true);
+      let pendingNote = "";
+      try {
+        pendingNote = pendingNoteKey ? localStorage.getItem(pendingNoteKey) || "" : "";
+      } catch {
+        return;
+      }
+      if (!pendingNote || privateNote) return;
+
+      setNoteLoading(true);
+      setNoteError("");
+      try {
+        const { BrowserProvider } = await import("ethers");
+        const provider = new BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+        const signature = await signer.signMessage(buildNoteMessage("SET"));
+        await quickpayNoteSet({
+          receiptId: receiptIdValue,
+          sender: senderForNote,
+          note: pendingNote,
+          signature,
+          chainId,
+        });
+        if (!cancelled) {
+          setPrivateNote(pendingNote);
+        }
+        try {
+          if (pendingNoteKey) localStorage.removeItem(pendingNoteKey);
+        } catch {
+          // ignore localStorage failures
+        }
+      } catch (err: any) {
+        if (!cancelled) setNoteError(err?.message || "Failed to save private note");
+      } finally {
+        if (!cancelled) setNoteLoading(false);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [autoNoteAttempted, buildNoteMessage, chainId, isConnected, pendingNoteKey, privateNote, receiptIdValue, senderForNote]);
 
   const loadPrivateNote = async () => {
     if (!receiptIdValue || !senderForNote) return;
