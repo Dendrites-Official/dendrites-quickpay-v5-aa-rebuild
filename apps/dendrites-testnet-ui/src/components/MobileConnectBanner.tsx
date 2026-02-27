@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { buildDeepLink, getWalletStoreUrl, isInWalletBrowser, isMobile, type WalletDeepLink } from "../utils/mobile";
 
@@ -8,7 +9,26 @@ type MobileConnectBannerProps = {
 };
 
 export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWalletConnect }: MobileConnectBannerProps) {
-  if (!isMobile() || isInWalletBrowser() || isConnected) return null;
+  const [modalOpen, setModalOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const checkModal = () => {
+      const hasModal = Boolean(
+        document.querySelector(
+          "w3m-modal,w3m-modal-container,w3m-modal-card,[data-testid='w3m-modal'],[role='dialog']"
+        )
+      );
+      setModalOpen(hasModal);
+    };
+    checkModal();
+    const observer = new MutationObserver(checkModal);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  if (!isMobile() || isInWalletBrowser() || isConnected || modalOpen || dismissed) return null;
 
   const openWallet = (wallet: WalletDeepLink) => {
     const currentUrl = window.location.href;
@@ -40,7 +60,7 @@ export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWal
         transform: "translateX(-50%)",
         width: "min(520px, calc(100% - 20px))",
         boxSizing: "border-box",
-        zIndex: 9999,
+        zIndex: 20,
         boxShadow: "0 14px 30px rgba(0,0,0,0.45)",
         border: "1px solid #2a2a2a",
         borderRadius: 8,
@@ -49,6 +69,23 @@ export default function MobileConnectBanner({ isConnected, onMoreWallets, hasWal
         background: "#141414",
       }}
     >
+      <button
+        type="button"
+        onClick={() => setDismissed(true)}
+        aria-label="Dismiss"
+        style={{
+          position: "absolute",
+          top: 6,
+          right: 8,
+          background: "transparent",
+          border: "none",
+          color: "rgba(255,255,255,0.6)",
+          fontSize: 16,
+          cursor: "pointer",
+        }}
+      >
+        ×
+      </button>
       <div style={{ fontSize: 12, color: "#bdbdbd", marginBottom: 8 }}>
         On mobile? Open in your wallet browser for the smoothest experience.
       </div>
