@@ -19,7 +19,7 @@ type SortDir = "asc" | "desc";
 
 export default function ReceiptsList() {
   const navigate = useNavigate();
-  const { address } = useWalletState();
+  const { address, isConnected } = useWalletState();
   const { isDemo, mergedReceipts, listReceipts } = useReceiptsData();
 
   const [loading, setLoading] = useState(false);
