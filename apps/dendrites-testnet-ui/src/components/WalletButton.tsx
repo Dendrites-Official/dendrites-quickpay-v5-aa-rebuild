@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useAccount, useConnect, useDisconnect, useChainId } from "wagmi";
+import { useConnect, useDisconnect } from "wagmi";
 import { useWeb3Modal } from "@web3modal/wagmi/react";
 import { logDappConnection } from "../lib/dappConnections";
 import { logAppEvent } from "../lib/appEvents";
 import { buildDeepLink, getWalletStoreUrl, isInWalletBrowser, isMobile } from "../utils/mobile";
+import { useAppMode } from "../demo/AppModeContext";
+import { useWalletState } from "../demo/useWalletState";
 
 const WC_PROJECT_ID = String(import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? "").trim();
 
@@ -17,8 +19,8 @@ function useOptionalWeb3Modal() {
 }
 
 export default function WalletButton() {
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const { isDemo } = useAppMode();
+  const { address, isConnected, chainId, chainName } = useWalletState();
   const { disconnect } = useDisconnect();
   const { connect, connectors, isPending } = useConnect();
   const web3Modal = useOptionalWeb3Modal();
@@ -29,15 +31,16 @@ export default function WalletButton() {
     : "";
 
   useEffect(() => {
-    if (!isConnected || !address) return;
+    if (isDemo || !isConnected || !address) return;
     void logDappConnection(address);
     void logAppEvent("wallet_connect", {
       address,
       chainId,
     });
-  }, [address, isConnected]);
+  }, [address, chainId, isConnected, isDemo]);
 
   const handleConnect = () => {
+    if (isDemo) return;
     const injected = connectors.find((connector) => connector.type === "injected");
     const needsMobileNote = isMobile() && !isInWalletBrowser();
     if (needsMobileNote) {
@@ -80,6 +83,16 @@ export default function WalletButton() {
       console.warn("No wallet connectors available.");
     }
   };
+
+  if (isDemo) {
+    return (
+      <div className="dx-walletConnected">
+        <span className="dx-walletAddress">Demo: connected</span>
+        <span className="dx-walletChain">{chainName || "Base Sepolia"}</span>
+        <span className="dx-walletAddress">{shortAddress}</span>
+      </div>
+    );
+  }
 
   return isConnected ? (
     <div className="dx-walletConnected">

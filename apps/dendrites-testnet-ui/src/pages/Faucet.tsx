@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAccount } from "wagmi";
+import { useAppMode } from "../demo/AppModeContext";
+import { useWalletState } from "../demo/useWalletState";
+import { DEMO_MDNDX, DEMO_USDC } from "../demo/demoData";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { addTokenToWallet } from "../utils/wallet";
 import { ethers } from "ethers";
@@ -9,7 +11,8 @@ const DEFAULT_USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const TODO_MDNDX = "<TODO_MDNDX_ADDRESS>";
 
 export default function Faucet() {
-  const { address, isConnected, chainId } = useAccount();
+  const { isDemo } = useAppMode();
+  const { address, isConnected, chainId } = useWalletState();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -35,6 +38,16 @@ export default function Faucet() {
     const loadConfig = async () => {
       setConfigLoading(true);
       setConfigError("");
+      if (isDemo) {
+        setConfig({
+          ok: true,
+          usdc: { address: DEMO_USDC },
+          mdndx: { address: DEMO_MDNDX, dripAmount: "20" },
+          mdndxConfigured: true,
+        });
+        setConfigLoading(false);
+        return;
+      }
       try {
         const res = await fetch(qpUrl("/faucet/config"));
         const data = await res.json();
@@ -49,7 +62,7 @@ export default function Faucet() {
       }
     };
     loadConfig();
-  }, []);
+  }, [isDemo]);
 
   useEffect(() => {
     setVerifyStatus("idle");
@@ -95,6 +108,10 @@ export default function Faucet() {
     setError("");
     setSuccess("");
     setTxHash("");
+    if (isDemo) {
+      setError("Demo mode: faucet is disabled.");
+      return;
+    }
     if (!isConnected || !address) {
       setError("Connect your wallet to claim mDNDX.");
       return;
@@ -174,6 +191,10 @@ export default function Faucet() {
     setError("");
     setSuccess("");
     setTxHash("");
+    if (isDemo) {
+      setError("Demo mode: verification is disabled.");
+      return;
+    }
     if (!canVerify) {
       setError("Connect your wallet and enter email to verify.");
       return;

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useAccount } from "wagmi";
 import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { logEvent } from "../lib/analytics";
@@ -8,6 +7,9 @@ import MainnetConfirmModal from "../components/MainnetConfirmModal";
 import { buildEip1559Fees, estimateTxCost } from "../lib/txEstimate";
 import { normalizeWalletError } from "../lib/walletErrors";
 import { switchToBase, switchToBaseSepolia } from "../lib/switchChain";
+import { useAppMode } from "../demo/AppModeContext";
+import { useWalletState } from "../demo/useWalletState";
+import { demoActivity, demoWalletHealth } from "../demo/demoData";
 
 type ActivityItem = {
   hash?: string;
@@ -19,7 +21,8 @@ type ActivityItem = {
 };
 
 export default function TxQueue() {
-  const { address, isConnected, chainId } = useAccount();
+  const { isDemo } = useAppMode();
+  const { address, isConnected, chainId } = useWalletState();
   const [inputAddress, setInputAddress] = useState("");
   const [activeAddress, setActiveAddress] = useState<string | null>(null);
   const [nonceLatest, setNonceLatest] = useState<number | null>(null);
@@ -114,6 +117,11 @@ export default function TxQueue() {
 
   const loadNonces = useCallback(
     async (target: string) => {
+      if (isDemo) {
+        setNonceLatest(demoWalletHealth.nonceLatest);
+        setNoncePending(demoWalletHealth.noncePending);
+        return;
+      }
       setNonceLatest(null);
       setNoncePending(null);
       if (!providerAvailable) {
@@ -132,10 +140,24 @@ export default function TxQueue() {
         setNonceLoading(false);
       }
     },
-    [providerAvailable]
+    [isDemo, providerAvailable]
   );
 
   const loadActivity = useCallback(async (target: string) => {
+    if (isDemo) {
+      const rows: ActivityItem[] = demoActivity.map((item, idx) => ({
+        hash: item.hashes[0] ?? "",
+        nonce: String(demoWalletHealth.nonceLatest + idx),
+        to: item.address,
+        timeStamp: String(item.lastSeen),
+        isError: "0",
+        txreceipt_status: "1",
+      }));
+      setExplorerBaseUrl("https://sepolia.basescan.org/tx/");
+      setActivityRows(rows);
+      setActivityLoading(false);
+      return;
+    }
     setActivityLoading(true);
     setActivityRows([]);
     setExplorerBaseUrl("");
@@ -171,7 +193,7 @@ export default function TxQueue() {
     } finally {
       setActivityLoading(false);
     }
-  }, [chainId]);
+  }, [chainId, isDemo]);
 
   useEffect(() => {
     if (!activeAddress) return;
@@ -183,6 +205,7 @@ export default function TxQueue() {
 
   useEffect(() => {
     const ethereum = (window as any)?.ethereum;
+    if (isDemo) return;
     if (!ethereum?.on) return;
     const handler = () => {
       if (!activeAddress) return;
@@ -251,6 +274,10 @@ export default function TxQueue() {
     setActionErrorDetails(null);
     setActionStatus("");
     setActionTxHash("");
+    if (isDemo) {
+      setActionError("Demo mode: transactions are disabled.");
+      return;
+    }
     if (!isConnected || !address) {
       setActionError("Connect your wallet first.");
       return;
@@ -302,6 +329,10 @@ export default function TxQueue() {
     setActionError("");
     setActionErrorDetails(null);
     setSpeedDraft(null);
+    if (isDemo) {
+      setActionError("Demo mode: transactions are disabled.");
+      return;
+    }
     if (!providerAvailable) {
       setActionError("Wallet provider not available.");
       return;
@@ -350,6 +381,10 @@ export default function TxQueue() {
     setActionErrorDetails(null);
     setActionStatus("");
     setActionTxHash("");
+    if (isDemo) {
+      setActionError("Demo mode: transactions are disabled.");
+      return;
+    }
     if (!speedDraft) {
       setActionError("Load a transaction by hash first.");
       return;
@@ -409,6 +444,10 @@ export default function TxQueue() {
     setDemoError("");
     setDemoStatus("");
     setDemoTxHash("");
+    if (isDemo) {
+      setDemoError("Demo mode: transactions are disabled.");
+      return;
+    }
     if (!onSepolia) {
       setDemoError("Demo only available on Base Sepolia.");
       return;
@@ -503,6 +542,7 @@ return (
         <button
           className="dx-miniBtn"
           onClick={async () => {
+              if (isDemo) return;
             setSwitchStatus("");
             try {
               const ethereum = (window as any)?.ethereum;
@@ -514,6 +554,7 @@ return (
               );
             }
           }}
+            disabled={isDemo}
         >
           Switch to Base
         </button>
@@ -521,6 +562,7 @@ return (
         <button
           className="dx-miniBtn"
           onClick={async () => {
+              if (isDemo) return;
             setSwitchStatus("");
             try {
               const ethereum = (window as any)?.ethereum;
@@ -532,6 +574,7 @@ return (
               );
             }
           }}
+            disabled={isDemo}
         >
           Switch to Base Sepolia
         </button>

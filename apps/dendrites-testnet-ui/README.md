@@ -1,5 +1,13 @@
 # React + TypeScript + Vite
 
+## Demo Mode
+
+Demo Mode is a UI-only overlay that disables transactions, wallet signatures, and backend writes while keeping the real flows intact when Demo Mode is off.
+
+- Enable via the header toggle or add `?demo=1` to the URL (persisted in localStorage key `DENDRITES_DEMO_MODE`).
+- Demo data lives in `src/demo/demoData.ts` and adapters under `src/demo/`.
+- Simulations append in-memory receipts via `DemoReceiptsStore` so Receipt Explorer updates immediately.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

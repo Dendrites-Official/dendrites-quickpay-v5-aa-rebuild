@@ -20,10 +20,13 @@ import AckLinkCreate from "./pages/acklink/AckLinkCreate";
 import AckLinkClaim from "./pages/acklink/AckLinkClaim";
 import WalletButton from "./components/WalletButton";
 import { logAppEvent } from "./lib/appEvents";
+import { useAppMode } from "./demo/AppModeContext";
+import DemoBanner from "./components/DemoBanner";
 
 type NavItem = { to: string; label: string; end?: boolean; dropdown?: { to: string; label: string }[] };
 
 function Nav() {
+  const { isDemo, toggleDemo } = useAppMode();
   const [open, setOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -156,6 +159,22 @@ function Nav() {
 
         {/* Right side */}
         <div className="dx-right">
+          <div className="dx-demoToggleWrap">
+            <button
+              type="button"
+              className={`dx-demoToggle ${isDemo ? "dx-demoToggleOn" : ""}`}
+              onClick={toggleDemo}
+              aria-pressed={isDemo}
+            >
+              <span>Demo Mode</span>
+              <span className="dx-demoToggleState">{isDemo ? "On" : "Off"}</span>
+            </button>
+            {isDemo ? <span className="dx-demoPill">DEMO</span> : null}
+            {isDemo ? (
+              <span className="dx-demoNote">Demo mode — transactions disabled. Connect wallet for live mode.</span>
+            ) : null}
+          </div>
+
           <div className="dx-walletWrap">
             <WalletButton />
           </div>
@@ -239,6 +258,8 @@ export default function App() {
   return (
     <div className="dx-app">
       <Nav />
+
+      <DemoBanner />
 
       <div className="dx-banner">
         <div className="dx-bannerInner">

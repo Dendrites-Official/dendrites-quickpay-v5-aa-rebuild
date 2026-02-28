@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAccount } from "wagmi";
+import { useAppMode } from "../demo/AppModeContext";
+import { useWalletState } from "../demo/useWalletState";
 import { formatEther, formatUnits } from "viem";
 import { quickpayNoteGet, quickpayNoteSet } from "../lib/api";
 
@@ -8,7 +9,8 @@ type ReceiptCardProps = {
 };
 
 export default function ReceiptCard({ receipt }: ReceiptCardProps) {
-  const { address, isConnected } = useAccount();
+  const { isDemo } = useAppMode();
+  const { address, isConnected } = useWalletState();
   const [noteLoading, setNoteLoading] = useState(false);
   const [noteError, setNoteError] = useState("");
   const [privateNote, setPrivateNote] = useState<string | null>(null);
@@ -37,6 +39,7 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   const message = safe.message ?? safe.title ?? "";
   const reason = safe.reason ?? "";
   const chainId = safe.chainId ?? safe.chain_id ?? 84532;
+  const receiptNote = safe.note ?? safe.meta?.note ?? null;
 
   const lane = String(safe.lane ?? "").toUpperCase();
   const recipients = Array.isArray(safe.meta?.recipients) ? safe.meta.recipients : null;
@@ -70,7 +73,7 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   }, [receiptIdValue, senderForNote]);
 
   useEffect(() => {
-    if (!isConnected || !receiptIdValue || !senderForNote || autoNoteAttempted) return;
+    if (isDemo || !isConnected || !receiptIdValue || !senderForNote || autoNoteAttempted) return;
     let cancelled = false;
 
     const run = async () => {
@@ -116,10 +119,14 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
     return () => {
       cancelled = true;
     };
-  }, [autoNoteAttempted, buildNoteMessage, chainId, isConnected, pendingNoteKey, privateNote, receiptIdValue, senderForNote]);
+  }, [autoNoteAttempted, buildNoteMessage, chainId, isConnected, isDemo, pendingNoteKey, privateNote, receiptIdValue, senderForNote]);
 
   const loadPrivateNote = async () => {
     if (!receiptIdValue || !senderForNote) return;
+    if (isDemo) {
+      setNoteError("Demo mode: private notes are disabled.");
+      return;
+    }
     setNoteLoading(true);
     setNoteError("");
     try {
@@ -143,6 +150,10 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
 
   const savePrivateNote = async () => {
     if (!receiptIdValue || !senderForNote || !noteDraft.trim()) return;
+    if (isDemo) {
+      setNoteError("Demo mode: private notes are disabled.");
+      return;
+    }
     setNoteLoading(true);
     setNoteError("");
     try {
@@ -471,7 +482,12 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
             <p className="dx-card-hint">Signed read/write</p>
           </div>
 
-          {!isConnected ? (
+          {isDemo ? (
+            <>
+              <div className="dx-alert">Demo mode: private notes are disabled.</div>
+              {receiptNote ? <div className="dx-codeBox" style={{ marginTop: 10 }}>{receiptNote}</div> : null}
+            </>
+          ) : !isConnected ? (
             <div className="dx-alert">Connect wallet to view or save notes.</div>
           ) : (
             <>

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAccount } from "wagmi";
 import { formatUnits } from "viem";
-import { listReceipts } from "../lib/receiptsApi";
+import { useReceiptsData } from "../demo/useReceiptsData";
+import { useWalletState } from "../demo/useWalletState";
 
 type SortKey =
   | "status"
@@ -19,7 +19,8 @@ type SortDir = "asc" | "desc";
 
 export default function ReceiptsList() {
   const navigate = useNavigate();
-  const { address, isConnected } = useAccount();
+  const { address } = useWalletState();
+  const { isDemo, mergedReceipts, listReceipts } = useReceiptsData();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -54,6 +55,12 @@ export default function ReceiptsList() {
     fetchList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myOnly, address]);
+
+  useEffect(() => {
+    if (!isDemo) return;
+    fetchList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemo, mergedReceipts]);
 
   const shorten = (value: string) => {
     if (!value || value.length < 10) return value;

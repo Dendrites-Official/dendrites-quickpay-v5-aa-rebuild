@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
+import { usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
 import { logAppEvent } from "../lib/appEvents";
 import { quickpayNoteSet } from "../lib/api";
+import { useAppMode } from "../demo/AppModeContext";
+import { useWalletState } from "../demo/useWalletState";
+import { useQuoteDataBulk } from "../demo/useQuoteDataBulk";
+import { createDemoReceipt } from "../demo/demoData";
+import { useDemoReceiptsStore } from "../demo/DemoReceiptsStore";
+import { demoBulkPresets, seedDemo } from "../demo/seedDemo";
 
 const USDC_DEFAULT = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const DECIMALS = 6;
@@ -20,10 +26,14 @@ function parseLine(line: string) {
 }
 
 export default function BulkPay() {
-  const { address, isConnected } = useAccount();
+  const { isDemo } = useAppMode();
+  const { address, isConnected, chainId, chainName } = useWalletState();
+  const { getQuote } = useQuoteDataBulk();
+  const { addReceipt, receipts } = useDemoReceiptsStore();
   const publicClient = usePublicClient({ chainId: 84532 });
   const { signTypedDataAsync } = useSignTypedData();
   const navigate = useNavigate();
+  const [demoPresetIndex, setDemoPresetIndex] = useState(0);
   const [speed, setSpeed] = useState<0 | 1>(1);
   const [amountMode, setAmountMode] = useState<"net" | "plusFee">("plusFee");
   const [recipientsInput, setRecipientsInput] = useState("");
@@ -44,6 +54,50 @@ export default function BulkPay() {
 
   const usdcAddress = String(import.meta.env.VITE_USDC_ADDRESS || USDC_DEFAULT).trim();
   const speedLabel = speed === 0 ? "eco" : "instant";
+
+  const applyDemoDefaults = (force: boolean) => {
+    const preset = demoBulkPresets[demoPresetIndex % demoBulkPresets.length];
+    if (!preset) return;
+
+    if (!force) {
+      const hasValues =
+        Boolean(recipientsInput) ||
+        Boolean(name) ||
+        Boolean(message) ||
+        Boolean(reason) ||
+        Boolean(note);
+      if (hasValues) return;
+    }
+
+    setRecipientsInput(preset.recipients);
+    setName(preset.name);
+    setMessage(preset.message);
+    setReason(preset.reason);
+    setNote(preset.note);
+    setSpeed(preset.speed);
+    setAmountMode(preset.amountMode);
+  };
+
+  const shuffleDemoDefaults = () => {
+    const next = (demoPresetIndex + 1) % demoBulkPresets.length;
+    setDemoPresetIndex(next);
+    const preset = demoBulkPresets[next];
+    if (!preset) return;
+    setRecipientsInput(preset.recipients);
+    setName(preset.name);
+    setMessage(preset.message);
+    setReason(preset.reason);
+    setNote(preset.note);
+    setSpeed(preset.speed);
+    setAmountMode(preset.amountMode);
+  };
+
+  useEffect(() => {
+    if (!isDemo) return;
+    seedDemo(addReceipt, receipts.length);
+    applyDemoDefaults(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemo]);
 
   const parsed = useMemo(() => {
     const lines = recipientsInput
@@ -142,6 +196,7 @@ export default function BulkPay() {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
+      if (isDemo) return;
       if (!address || !publicClient || !usdcAddress || !quote) {
         setBalanceError("");
         return;
@@ -178,7 +233,7 @@ export default function BulkPay() {
     return () => {
       cancelled = true;
     };
-  }, [address, amountMode, amountModeError, parsed.entries.length, parsed.errors.length, publicClient, quote, totalGrossRaw, totalWithFeeRaw, usdcAddress]);
+  }, [address, amountMode, amountModeError, isDemo, parsed.entries.length, parsed.errors.length, publicClient, quote, totalGrossRaw, totalWithFeeRaw, usdcAddress]);
 
   const fetchQuote = async () => {
     if (!address) {
@@ -195,29 +250,15 @@ export default function BulkPay() {
     setQuoteError("");
     setQuote(null);
     try {
-      const res = await fetch(qpUrl("/quoteBulk"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chainId: 84532,
-          from: address,
-          token: usdcAddress,
-          to,
-          amount: amountRaw,
-          feeMode: speedLabel,
-          speed,
-        }),
+      const data = await getQuote({
+        chainId: 84532,
+        from: address,
+        token: usdcAddress,
+        to,
+        amountRaw,
+        speed,
+        speedLabel,
       });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 503 && data?.code === "BULK_NOT_CONFIGURED") {
-        setBulkNotConfigured(true);
-        throw new Error("Bulk is not enabled on the API yet. Set ROUTER_BULK/PAYMASTER_BULK in Railway.");
-      }
-      if (res.status === 400 || data?.ok === false) {
-        const details = data?.details ? ` ${JSON.stringify(data.details)}` : "";
-        throw new Error(`${data?.error || "Bad request"}${details}`.trim());
-      }
-      if (!res.ok) throw new Error(data?.error || "Failed to get quote");
       setQuote(data);
       void logAppEvent("bulk_quote_success", {
         address,
@@ -273,6 +314,40 @@ export default function BulkPay() {
 
     try {
       const chainId = 84532;
+
+      if (isDemo) {
+        const feeAmountRaw = BigInt(String(quote?.feeTokenAmount || 0));
+        const totalAmountRaw = totalWithFeeRaw;
+        const demoReceipt = createDemoReceipt({
+          amount_raw: totalAmountRaw.toString(),
+          net_amount_raw: totalNetRaw.toString(),
+          fee_amount_raw: feeAmountRaw.toString(),
+          fee_mode: speedLabel,
+          fee_token_mode: "sponsored",
+          to: parsed.entries[0]?.address ?? "",
+          owner_eoa: address.toLowerCase(),
+          sender: address.toLowerCase(),
+          recipients_count: parsed.entries.length,
+          meta: {
+            route: "sendBulk",
+            recipients: parsed.entries.map((entry) => ({ to: entry.address, amount: entry.amountRaw })),
+          },
+        });
+        addReceipt(demoReceipt);
+        setResult({
+          receiptId: demoReceipt.receipt_id,
+          userOpHash: demoReceipt.userop_hash,
+          txHash: demoReceipt.tx_hash,
+          feeAmountRaw: feeAmountRaw.toString(),
+          netAmountRaw: totalNetRaw.toString(),
+          totalAmountRaw: totalAmountRaw.toString(),
+          modeUsed: amountMode,
+          referenceId: referenceId || "demo_ref",
+        });
+        setStatus("Simulation complete.");
+        navigate(`/r/${demoReceipt.receipt_id}`);
+        return;
+      }
       const routerAddr = String(
         import.meta.env.VITE_ROUTER_BULK ?? quote?.router ?? getQuickPayChainConfig(chainId)?.router ?? ""
       ).trim();
@@ -595,11 +670,23 @@ return (
                 {quoteLoading ? "Quoting…" : "Get Quote"}
               </button>
               <button onClick={sendBulk} disabled={!isConnected || loading}>
-                {loading ? "Sending…" : "Send Bulk"}
+                {loading ? (isDemo ? "Simulating…" : "Sending…") : isDemo ? "Simulate Bulk" : "Send Bulk"}
               </button>
+              {isDemo ? (
+                <button type="button" className="dx-miniBtn" onClick={shuffleDemoDefaults}>
+                  Shuffle Example
+                </button>
+              ) : null}
             </div>
 
-            {!isConnected ? <div className="dx-alert">Connect wallet to quote & send.</div> : null}
+            {!isConnected ? (
+              <div className="dx-alert">Connect wallet to quote & send.</div>
+            ) : isDemo ? (
+              <div className="dx-alert">
+                Demo: connected {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : ""}
+                {chainId ? ` on ${chainName || "Base Sepolia"} (${chainId})` : ""}.
+              </div>
+            ) : null}
           </div>
         </div>
       </section>

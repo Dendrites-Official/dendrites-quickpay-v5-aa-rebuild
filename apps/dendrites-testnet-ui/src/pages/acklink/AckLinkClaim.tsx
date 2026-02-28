@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
-import { useAccount } from "wagmi";
+import { useNavigate, useParams } from "react-router-dom";
 import { ethers } from "ethers";
 import { acklinkGet, acklinkClaim, acklinkRefund } from "../../lib/api";
 import { logAppEvent } from "../../lib/appEvents";
+import { useAppMode } from "../../demo/AppModeContext";
+import { useWalletState } from "../../demo/useWalletState";
+import { createDemoReceipt } from "../../demo/demoData";
+import { useDemoReceiptsStore } from "../../demo/DemoReceiptsStore";
+import type { DemoAckLink } from "../../demo/demoAckLinkStore";
+import { useDemoAckLinkStore } from "../../demo/demoAckLinkStore";
 
 const DECIMALS = 6;
 
@@ -25,8 +30,13 @@ type AckLinkData = {
 
 export default function AckLinkClaim() {
   const { id } = useParams();
-  const { address, isConnected } = useAccount();
+  const navigate = useNavigate();
+  const { isDemo } = useAppMode();
+  const { address, isConnected } = useWalletState();
+  const { addReceipt } = useDemoReceiptsStore();
+  const { getLink, updateLink } = useDemoAckLinkStore();
   const [data, setData] = useState<AckLinkData | null>(null);
+  const [demoLink, setDemoLink] = useState<DemoAckLink | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
@@ -35,6 +45,33 @@ export default function AckLinkClaim() {
 
   const load = async () => {
     if (!id) return;
+    if (isDemo) {
+      setLoading(true);
+      setError("");
+      const link = getLink(id);
+      if (!link) {
+        setDemoLink(null);
+        setData(null);
+        setError("Demo link expired — go back and generate again.");
+        setLoading(false);
+        return;
+      }
+      setDemoLink(link);
+      const expiresAt = new Date(new Date(link.createdAt).getTime() + 1000 * 60 * 60 * 6).toISOString();
+      setData({
+        linkId: link.id,
+        status: link.status.toUpperCase(),
+        sender: link.sender,
+        token: link.tokenSymbol,
+        amountUsdc6: link.amountUsdc6,
+        feeUsdc6: link.feeUsdc6,
+        speed: "instant",
+        expiresAt,
+        meta: { name: link.senderName ?? undefined, message: link.message ?? undefined, reason: link.reason ?? undefined },
+      });
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -50,7 +87,7 @@ export default function AckLinkClaim() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, isDemo]);
 
   const expiresAtMs = data?.expiresAt ? new Date(data.expiresAt).getTime() : 0;
   const nowMs = Date.now();
@@ -89,6 +126,56 @@ export default function AckLinkClaim() {
     if (!data?.linkId) return;
     if (!code.trim() || code.trim().length < 4 || code.trim().length > 64) {
       setError("Enter the security code (4-64 characters).");
+      return;
+    }
+    if (isDemo) {
+      if (!demoLink) {
+        setError("Demo link expired — go back and generate again.");
+        return;
+      }
+      if (demoLink.status === "claimed") {
+        setError("This demo link has already been claimed.");
+        return;
+      }
+      if (code.trim() !== demoLink.code) {
+        setError("Incorrect code. Ask the sender to re-share the code.");
+        return;
+      }
+
+      setActionResult(null);
+      setError("");
+      const feeRaw = BigInt(demoLink.feeUsdc6);
+      const amountRaw = BigInt(demoLink.amountUsdc6);
+      const netRaw = amountRaw > feeRaw ? amountRaw - feeRaw : 0n;
+
+      const demoReceipt = createDemoReceipt({
+        status: "SIMULATED",
+        token: demoLink.token,
+        token_symbol: demoLink.tokenSymbol,
+        token_decimals: demoLink.tokenDecimals,
+        amount_raw: demoLink.amountUsdc6,
+        fee_amount_raw: demoLink.feeUsdc6,
+        net_amount_raw: netRaw.toString(),
+        fee_mode: "instant",
+        fee_token_mode: "sponsored",
+        sender: demoLink.sender,
+        owner_eoa: demoLink.sender,
+        to: address,
+        display_name: demoLink.senderName ?? null,
+        title: demoLink.message ?? null,
+        reason: demoLink.reason ?? null,
+        meta: {
+          route: "acklink_claim",
+          demoLinkId: demoLink.id,
+          kind: "claim",
+          status: "Simulated",
+        },
+      });
+      addReceipt(demoReceipt);
+      updateLink(demoLink.id, { status: "claimed", claimedTo: address });
+      setData((prev) => (prev ? { ...prev, status: "CLAIMED", claimedTo: address } : prev));
+      setActionResult({ txHash: demoReceipt.tx_hash, receiptId: demoReceipt.receipt_id });
+      navigate(`/receipts/${demoReceipt.receipt_id}`);
       return;
     }
     setActionLoading(true);
@@ -142,6 +229,36 @@ export default function AckLinkClaim() {
       return;
     }
     if (!data?.linkId) return;
+    if (isDemo) {
+      if (!demoLink) {
+        setError("Demo link expired — go back and generate again.");
+        return;
+      }
+      setError("");
+      const demoReceipt = createDemoReceipt({
+        status: "SIMULATED",
+        token: demoLink.token,
+        token_symbol: demoLink.tokenSymbol,
+        token_decimals: demoLink.tokenDecimals,
+        amount_raw: demoLink.amountUsdc6,
+        fee_amount_raw: "0",
+        net_amount_raw: demoLink.amountUsdc6,
+        fee_mode: "eco",
+        fee_token_mode: "sponsored",
+        sender: demoLink.sender,
+        owner_eoa: demoLink.sender,
+        to: demoLink.sender,
+        display_name: demoLink.senderName ?? null,
+        title: demoLink.message ?? null,
+        reason: demoLink.reason ?? null,
+        meta: { route: "acklink_refund", demoLinkId: demoLink.id, kind: "refund", status: "Simulated" },
+      });
+      addReceipt(demoReceipt);
+      updateLink(demoLink.id, { status: "refunded" });
+      setData((prev) => (prev ? { ...prev, status: "REFUNDED" } : prev));
+      setActionResult({ txHash: demoReceipt.tx_hash, receiptId: demoReceipt.receipt_id });
+      return;
+    }
     setActionLoading(true);
     setError("");
     setActionResult(null);
@@ -227,7 +344,7 @@ export default function AckLinkClaim() {
           </label>
           <button
             onClick={runClaim}
-            disabled={!isConnected || actionLoading}
+            disabled={!isConnected || actionLoading || (isDemo && data.status !== "CREATED")}
             style={{ padding: "10px 14px", borderRadius: 6, border: "1px solid #333" }}
           >
             {actionLoading ? "Claiming..." : "Claim"}

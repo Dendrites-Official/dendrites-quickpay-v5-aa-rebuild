@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useAccount } from "wagmi";
 import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
+import { useAppMode } from "../demo/AppModeContext";
+import { useWalletState } from "../demo/useWalletState";
 
 type QAStatus = "PASS" | "FAIL" | "WARN";
 
@@ -43,7 +44,8 @@ function formatMs(ms: number) {
 }
 
 export default function WalletQA() {
-  const { address, isConnected, chainId } = useAccount();
+  const { isDemo } = useAppMode();
+  const { address, isConnected, chainId } = useWalletState();
   const [addressInput, setAddressInput] = useState("");
   const [chainInput, setChainInput] = useState<number>(84532);
   const [results, setResults] = useState<QAResult[]>([]);
@@ -94,6 +96,19 @@ export default function WalletQA() {
     setError("");
     setResults([]);
     setEnvProbe(null);
+
+    if (isDemo) {
+      setResults([
+        {
+          name: "Demo mode",
+          status: "WARN",
+          details: "Wallet QA checks are disabled in demo mode.",
+          fix: "Turn off Demo mode to run live checks.",
+          durationMs: 0,
+        },
+      ]);
+      return;
+    }
 
     if (!selectedAddress || !ethers.isAddress(selectedAddress)) {
       setError("Enter a valid address or connect a wallet.");
@@ -408,7 +423,7 @@ export default function WalletQA() {
       chainId: selectedChainId,
       ...summary,
     });
-  }, [address, chainId, isConnected, selectedAddress, selectedChainId]);
+  }, [address, chainId, isConnected, isDemo, selectedAddress, selectedChainId]);
 
   const handleExport = useCallback(() => {
     if (!results.length) return;
@@ -433,6 +448,11 @@ export default function WalletQA() {
   const runWriteTest = useCallback(async () => {
     setWriteError("");
     setWriteSteps([]);
+
+    if (isDemo) {
+      setWriteError("Demo mode: write tests are disabled.");
+      return;
+    }
 
     if (!writeEnabled) {
       setWriteError("Enable write tests first.");
@@ -564,7 +584,7 @@ export default function WalletQA() {
     } finally {
       setWriteRunning(false);
     }
-  }, [address, isConnected, selectedChainId, updateWriteStep, writeEnabled]);
+  }, [address, isConnected, isDemo, selectedChainId, updateWriteStep, writeEnabled]);
 
  return (
   <div className="dx-container">
@@ -573,6 +593,12 @@ export default function WalletQA() {
     <div className="dx-sub">
       Internal checks for Wallet Health, Activity, Approvals, Risk, Tx Queue, and Nonce Rescue.
     </div>
+
+    {isDemo ? (
+      <div className="dx-alert" style={{ marginTop: 12 }}>
+        Demo mode: Wallet QA uses live RPC and API checks. Disable Demo mode to run tests.
+      </div>
+    ) : null}
 
     <div className="dx-grid">
       {/* Input */}
@@ -653,6 +679,7 @@ export default function WalletQA() {
                   setWriteSteps([]);
                   setWriteError("");
                 }}
+                disabled={isDemo}
               />
               Enable write tests (Sepolia only)
             </label>
@@ -661,7 +688,7 @@ export default function WalletQA() {
               <button
                 className="dx-primary"
                 onClick={() => setConfirmOpen(true)}
-                disabled={!writeEnabled || writeRunning || selectedChainId !== 84532}
+                disabled={isDemo || !writeEnabled || writeRunning || selectedChainId !== 84532}
               >
                 {writeRunning ? "Running..." : "Run Cancel/Speed-up Test"}
               </button>

@@ -20,20 +20,10 @@
 }
 
 .dx-navInner {
-  max-width: 1152px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  height: 64px;
-  padding: 0 16px;
-}
-
-@media (max-width: 639px) {
-  .dx-navInner {
     gap: 8px;
-    padding: 0 12px;
+    padding: 10px 12px;
+    height: auto;
+    flex-wrap: wrap;
   }
 }
 
@@ -68,7 +58,7 @@
   .dx-brandLogoMobile {
     display: none;
   }
-  
+
   .dx-brandLogoDesktop {
     display: block;
   }
@@ -78,7 +68,7 @@
   .dx-brand {
     padding: 4px;
   }
-  
+
   .dx-brandLogo {
     height: 36px;
   }
@@ -91,6 +81,17 @@
 .dx-brand:focus-visible {
   box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.7);
 }
+}
+
+.dx-brand:focus-visible {
+  box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.7);
+}
+  .dx-menuBtn {
+    padding: 8px 10px;
+  }
+  .dx-menuText {
+    display: none;
+  }
 
 .dx-brandMark {
   width: 32px;
@@ -354,8 +355,107 @@
   align-items: center;
 }
 
+.dx-demoToggleWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dx-demoToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.86);
+  letter-spacing: 0.02em;
+}
+
+.dx-demoToggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dx-demoToggleOn {
+  border-color: rgba(255, 204, 102, 0.5);
+  background: rgba(255, 204, 102, 0.12);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.dx-demoToggleState {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dx-demoPill {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 204, 102, 0.18);
+  border: 1px solid rgba(255, 204, 102, 0.4);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+}
+
+.dx-demoNote {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  max-width: 240px;
+}
+
+@media (max-width: 960px) {
+  .dx-demoNote {
+    display: none;
+  }
+}
+
 @media (max-width: 639px) {
   .dx-walletWrap {
+    display: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .dx-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    width: 100%;
+  }
+
+  .dx-demoToggleWrap {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .dx-demoToggle {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .dx-demoToggleState {
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+
+  .dx-demoPill {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .dx-menuBtn {
+    padding: 8px 10px;
+  }
+
+  .dx-menuText {
     display: none;
   }
 }

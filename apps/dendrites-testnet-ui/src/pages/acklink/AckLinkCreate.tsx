@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
+import { usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
-import { acklinkCreate, acklinkQuote } from "../../lib/api";
+import { acklinkCreate } from "../../lib/api";
 import { logAppEvent } from "../../lib/appEvents";
+import { useAppMode } from "../../demo/AppModeContext";
+import { useWalletState } from "../../demo/useWalletState";
+import { useQuoteDataAckLink } from "../../demo/useQuoteDataAckLink";
+import { useDemoAckLinkStore } from "../../demo/demoAckLinkStore";
+import { createDemoCode, demoAckLinkPresets, seedDemo, getDemoSender } from "../../demo/seedDemo";
 
 const CHAIN_ID = 84532;
 const DECIMALS = 6;
@@ -16,12 +21,19 @@ type CreateResult = {
   receiptId?: string;
   txHash?: string;
   expiresAt?: string;
+  url?: string;
+  code?: string;
+  status?: string;
 };
 
 export default function AckLinkCreate() {
-  const { address, isConnected } = useAccount();
+  const { isDemo } = useAppMode();
+  const { address, isConnected, chainId, chainName } = useWalletState();
+  const { getQuote } = useQuoteDataAckLink();
+  const { addLink } = useDemoAckLinkStore();
   const publicClient = usePublicClient();
   const { signTypedDataAsync } = useSignTypedData();
+  const [demoPresetIndex, setDemoPresetIndex] = useState(0);
 
   const [amount, setAmount] = useState("");
   const [speed, setSpeed] = useState<"eco" | "instant">("eco");
@@ -39,6 +51,45 @@ export default function AckLinkCreate() {
   const [quoteVault, setQuoteVault] = useState<string | null>(null);
 
   const feeUsdc6 = speed === "eco" ? 200000n : 300000n;
+
+  const applyDemoDefaults = (force: boolean) => {
+    const preset = demoAckLinkPresets[demoPresetIndex % demoAckLinkPresets.length];
+    if (!preset) return;
+
+    if (!force) {
+      const hasValues = Boolean(amount) || Boolean(name) || Boolean(message) || Boolean(reason) || Boolean(note) || Boolean(code);
+      if (hasValues) return;
+    }
+
+    setAmount(preset.amount);
+    setSpeed(preset.speed);
+    setName(preset.name);
+    setMessage(preset.message);
+    setReason(preset.reason);
+    setNote(preset.note);
+    setCode(preset.code ?? createDemoCode());
+  };
+
+  const shuffleDemoDefaults = () => {
+    const next = (demoPresetIndex + 1) % demoAckLinkPresets.length;
+    setDemoPresetIndex(next);
+    const preset = demoAckLinkPresets[next];
+    if (!preset) return;
+    setAmount(preset.amount);
+    setSpeed(preset.speed);
+    setName(preset.name);
+    setMessage(preset.message);
+    setReason(preset.reason);
+    setNote(preset.note);
+    setCode(preset.code ?? createDemoCode());
+  };
+
+  useEffect(() => {
+    if (!isDemo) return;
+    seedDemo();
+    applyDemoDefaults(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemo]);
 
   const amountRaw = useMemo(() => {
     try {
@@ -59,7 +110,7 @@ export default function AckLinkCreate() {
         return;
       }
       try {
-        const quote = await acklinkQuote({
+        const quote = await getQuote({
           from: address,
           amountUsdc6: amountRaw.toString(),
           speed,
@@ -82,6 +133,10 @@ export default function AckLinkCreate() {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
+      if (isDemo) {
+        setBalanceError("");
+        return;
+      }
       if (!address || !publicClient || !USDC_ADDRESS) {
         setBalanceError("");
         return;
@@ -125,7 +180,7 @@ export default function AckLinkCreate() {
     return () => {
       cancelled = true;
     };
-  }, [address, amountRaw, publicClient, totalRaw]);
+  }, [address, amountRaw, isDemo, publicClient, totalRaw]);
 
   const copy = async (value: string) => {
     if (!value) return;
@@ -186,10 +241,47 @@ export default function AckLinkCreate() {
     setResult(null);
 
     try {
+      if (isDemo) {
+        const linkId = `al_demo_${Math.floor(Math.random() * 1000000).toString().padStart(6, "0")}`;
+        const feeToUse = feeQuoteUsdc6 ?? feeUsdc6;
+        const url = `${window.location.origin}/ack/${linkId}?demo=1`;
+        const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 6).toISOString();
+        const resolvedCode = code.trim() || createDemoCode();
+        const sender = address ? address.toLowerCase() : getDemoSender();
+
+        addLink({
+          id: linkId,
+          url,
+          code: resolvedCode,
+          amountUsdc6: amountRaw?.toString?.() ?? "0",
+          feeUsdc6: feeToUse?.toString?.() ?? "0",
+          token: USDC_ADDRESS,
+          tokenSymbol: "USDC",
+          tokenDecimals: DECIMALS,
+          chainId: CHAIN_ID,
+          createdAt: new Date().toISOString(),
+          status: "created",
+          sender,
+          senderName: name.trim() || "Demo sender",
+          message: message.trim() || null,
+          reason: reason.trim() || null,
+          note: note.trim() || null,
+        });
+
+        setResult({
+          linkId,
+          url,
+          code: resolvedCode,
+          status: "created",
+          expiresAt,
+        });
+        setLoading(false);
+        return;
+      }
       const senderLower = address.toLowerCase();
       let feeToUse = feeQuoteUsdc6;
       if (feeToUse == null) {
-        const quote = await acklinkQuote({
+        const quote = await getQuote({
           from: address,
           amountUsdc6: amountRaw.toString(),
           speed,
@@ -338,7 +430,7 @@ export default function AckLinkCreate() {
     }
   };
 
-  const shareUrl = result?.linkId ? `${window.location.origin}/ack/${result.linkId}` : "";
+  const shareUrl = result?.url || (result?.linkId ? `${window.location.origin}/ack/${result.linkId}` : "");
 
  return (
   <main className="dx-container">
@@ -472,12 +564,22 @@ export default function AckLinkCreate() {
                 type="submit"
                 disabled={loading || !isConnected || Boolean(balanceError)}
               >
-                {loading ? "Creating…" : "Create link"}
+                {loading ? (isDemo ? "Simulating…" : "Creating…") : isDemo ? "Simulate link" : "Create link"}
               </button>
+              {isDemo ? (
+                <button type="button" className="dx-miniBtn" onClick={shuffleDemoDefaults}>
+                  Shuffle Example
+                </button>
+              ) : null}
 
               {!isConnected ? (
                 <div className="dx-alert" style={{ marginTop: 0 }}>
                   Connect wallet first.
+                </div>
+              ) : isDemo ? (
+                <div className="dx-alert" style={{ marginTop: 0 }}>
+                  Demo: connected {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : ""}
+                  {chainId ? ` on ${chainName || "Base Sepolia"} (${chainId})` : ""}.
                 </div>
               ) : null}
             </div>
@@ -541,13 +643,13 @@ export default function AckLinkCreate() {
             <div className="dx-card-in">
               <div className="dx-card-head">
                 <h2 className="dx-card-title">Created</h2>
-                <p className="dx-card-hint">Share</p>
+                <p className="dx-card-hint">{isDemo ? "Link created (Demo)" : "Share"}</p>
               </div>
 
               <div className="dx-section">
                 <div className="dx-kv">
                   <div className="dx-k">Security code</div>
-                  <div className="dx-v dx-mono">{code}</div>
+                  <div className="dx-v dx-mono">{result?.code || code}</div>
 
                   <div className="dx-k">Share URL</div>
                   <div className="dx-v dx-mono">{shareUrl}</div>

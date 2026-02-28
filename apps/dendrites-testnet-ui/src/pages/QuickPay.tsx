@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAccount, usePublicClient, useSignTypedData } from "wagmi";
+import { usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
 import ReceiptCard from "../components/ReceiptCard";
 import { createReceipt, updateReceiptMeta, updateReceiptStatus } from "../lib/receiptsApi";
@@ -8,12 +8,22 @@ import { quickpayReceipt } from "../lib/api";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { logAppEvent } from "../lib/appEvents";
+import { useAppMode } from "../demo/AppModeContext";
+import { useWalletState } from "../demo/useWalletState";
+import { useQuoteDataQuickPay } from "../demo/useQuoteDataQuickPay";
+import { createDemoReceipt } from "../demo/demoData";
+import { useDemoReceiptsStore } from "../demo/DemoReceiptsStore";
+import { demoQuickPayPresets, seedDemo } from "../demo/seedDemo";
 
 export default function QuickPay() {
   const navigate = useNavigate();
-  const { address, isConnected } = useAccount();
+  const { isDemo } = useAppMode();
+  const { address, isConnected, chainId, chainName } = useWalletState();
+  const { getQuote: getQuoteData } = useQuoteDataQuickPay();
+  const { addReceipt, receipts } = useDemoReceiptsStore();
   const publicClient = usePublicClient({ chainId: 84532 });
   const { signTypedDataAsync } = useSignTypedData();
+  const [demoPresetIndex, setDemoPresetIndex] = useState(0);
   const [token, setToken] = useState("");
   const [tokenPreset, setTokenPreset] = useState("custom");
   const [decimals, setDecimals] = useState(18);
@@ -104,36 +114,78 @@ export default function QuickPay() {
   const speedLabel = speed === 0 ? "eco" : "instant";
   const quoteBusy = quotePending || quoteLoading;
 
+  const applyDemoDefaults = (force: boolean) => {
+    const preset = demoQuickPayPresets[demoPresetIndex % demoQuickPayPresets.length];
+    if (!preset) return;
+
+    if (!force) {
+      const hasValues =
+        Boolean(token) ||
+        Boolean(to) ||
+        Boolean(amount) ||
+        Boolean(displayName) ||
+        Boolean(message) ||
+        Boolean(reason) ||
+        Boolean(note) ||
+        tokenPreset !== "custom";
+      if (hasValues) return;
+    }
+
+    setTokenPreset(preset.tokenPreset);
+    setToken(preset.token);
+    setDecimals(preset.decimals);
+    setTo(preset.to);
+    setAmount(preset.amount);
+    setSpeed(preset.speed);
+    setMode(preset.mode);
+    setDisplayName(preset.name);
+    setMessage(preset.message);
+    setReason(preset.reason);
+    setNote(preset.note);
+  };
+
+  const shuffleDemoDefaults = () => {
+    const next = (demoPresetIndex + 1) % demoQuickPayPresets.length;
+    setDemoPresetIndex(next);
+    const preset = demoQuickPayPresets[next];
+    if (!preset) return;
+    setTokenPreset(preset.tokenPreset);
+    setToken(preset.token);
+    setDecimals(preset.decimals);
+    setTo(preset.to);
+    setAmount(preset.amount);
+    setSpeed(preset.speed);
+    setMode(preset.mode);
+    setDisplayName(preset.name);
+    setMessage(preset.message);
+    setReason(preset.reason);
+    setNote(preset.note);
+  };
+
+  useEffect(() => {
+    if (!isDemo) return;
+    seedDemo(addReceipt, receipts.length);
+    applyDemoDefaults(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemo]);
+
   const fetchQuote = async (signal?: AbortSignal) => {
     const amountRaw = ethers.parseUnits(amount, decimals).toString();
-    const body = {
+    return getQuoteData({
       chainId: 84532,
       ownerEoa: address,
       token,
       to,
-      amount: amountRaw,
-      feeMode: speedLabel,
+      amountRaw,
+      speedLabel,
       speed,
       mode,
-    };
-    console.log("QUOTE_BODY", body);
-
-    const res = await fetch(qpUrl("/quote"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
       signal,
+      decimals,
     });
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 400 || data?.ok === false) {
-      const details = data?.details ? ` ${JSON.stringify(data.details)}` : "";
-      throw new Error(`${data?.error || "Bad request"}${details}`.trim());
-    }
-    if (!res.ok) throw new Error(data?.error || "Failed to get quote");
-    return data;
   };
 
-  const getQuote = async (signal?: AbortSignal) => {
+  const requestQuote = async (signal?: AbortSignal) => {
     if (!address) {
       setQuoteError("Connect wallet first.");
       return;
@@ -202,7 +254,7 @@ export default function QuickPay() {
       quoteAbortRef.current?.abort();
       const controller = new AbortController();
       quoteAbortRef.current = controller;
-      getQuote(controller.signal);
+      requestQuote(controller.signal);
     }, 400);
     setQuotePending(true);
 
@@ -222,6 +274,7 @@ export default function QuickPay() {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
+      if (isDemo) return;
       setSelfPayGasEstimate("");
       setSelfPayGasError("");
       if (mode !== "SELF_PAY") return;
@@ -269,7 +322,7 @@ export default function QuickPay() {
     return () => {
       cancelled = true;
     };
-  }, [address, amount, amountValid, decimals, mode, publicClient, to, token]);
+  }, [address, amount, amountValid, decimals, isDemo, mode, publicClient, to, token]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -290,6 +343,44 @@ export default function QuickPay() {
     try {
       const chainId = 84532;
       const senderLower = address.toLowerCase();
+
+      if (isDemo) {
+        let activeQuote = quote;
+        if (!activeQuote) {
+          activeQuote = await fetchQuote();
+          setQuote(activeQuote);
+        }
+
+        const amountRaw = ethers.parseUnits(amount, decimals).toString();
+        const feeAmountRaw = String(activeQuote?.feeTokenAmount ?? "0");
+        const symbol = tokenOptions.find((option) => option.address === token)?.label?.split(" ")[0] || "TOKEN";
+        const demoReceipt = createDemoReceipt({
+          token,
+          token_symbol: symbol,
+          token_decimals: decimals,
+          amount_raw: amountRaw,
+          fee_amount_raw: feeAmountRaw,
+          fee_mode: speedLabel,
+          fee_token_mode: mode === "SPONSORED" ? "sponsored" : "self pay",
+          to,
+          owner_eoa: senderLower,
+          sender: senderLower,
+          display_name: displayName.trim() || null,
+          reason: reason.trim() || null,
+          title: message.trim() || null,
+          note: note.trim() || null,
+          meta: {
+            route: "send",
+            lane: String(activeQuote?.lane ?? "PERMIT2"),
+          },
+        });
+        addReceipt(demoReceipt);
+        setReceipt(demoReceipt);
+        setStatus("Simulation complete.");
+        setPhase("done");
+        navigate(`/r/${demoReceipt.receipt_id}`);
+        return;
+      }
 
       let activeQuote = quote;
       if (!activeQuote) {
@@ -807,7 +898,6 @@ return (
         <div className="dx-card-in">
           <div className="dx-card-head">
             <h2 className="dx-card-title">Send</h2>
-            <p className="dx-card-hint">UI only — functionality unchanged</p>
           </div>
 
           <form onSubmit={submit} className="dx-form">
@@ -925,11 +1015,23 @@ return (
 
             <div className="dx-actions">
               <button className="dx-primary" type="submit" disabled={loading || !isConnected || !quote}>
-                {loading ? "Sending…" : "Send"}
+                {loading ? (isDemo ? "Simulating…" : "Sending…") : isDemo ? "Simulate" : "Send"}
               </button>
+              {isDemo ? (
+                <button type="button" className="dx-miniBtn" onClick={shuffleDemoDefaults}>
+                  Shuffle Example
+                </button>
+              ) : null}
             </div>
 
-            {!isConnected ? <div className="dx-alert">Connect wallet first.</div> : null}
+            {!isConnected ? (
+              <div className="dx-alert">Connect wallet first.</div>
+            ) : isDemo ? (
+              <div className="dx-alert">
+                Demo: connected {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : ""}
+                {chainId ? ` on ${chainName || "Base Sepolia"} (${chainId})` : ""}.
+              </div>
+            ) : null}
           </form>
         </div>
       </section>

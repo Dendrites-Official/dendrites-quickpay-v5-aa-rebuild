@@ -7,6 +7,9 @@ import App from "./App";
 import "./styles/fonts.css";
 import "./index.css";
 import { wagmiConfig } from "./wallet/wagmi";
+import { AppModeProvider } from "./demo/AppModeContext";
+import { DemoReceiptsProvider } from "./demo/DemoReceiptsStore";
+import { DemoAckLinkProvider } from "./demo/demoAckLinkStore";
 
 
 const queryClient = new QueryClient();
@@ -16,7 +19,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <WagmiProvider config={wagmiConfig} reconnectOnMount={false}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <App />
+          <AppModeProvider>
+            <DemoReceiptsProvider>
+              <DemoAckLinkProvider>
+                <App />
+              </DemoAckLinkProvider>
+            </DemoReceiptsProvider>
+          </AppModeProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </WagmiProvider>

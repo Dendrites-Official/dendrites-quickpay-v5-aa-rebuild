@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { useAccount } from "wagmi";
 import { ethers } from "ethers";
 import MainnetConfirmModal from "../components/MainnetConfirmModal";
 import { buildEip1559Fees, estimateTxCost } from "../lib/txEstimate";
 import { normalizeWalletError } from "../lib/walletErrors";
+import { useAppMode } from "../demo/AppModeContext";
+import { useWalletState } from "../demo/useWalletState";
+import { demoNoncePresets } from "../demo/seedDemo";
 
 export default function NonceRescue() {
-  const { address, isConnected, chainId } = useAccount();
+  const { isDemo } = useAppMode();
+  const { address, isConnected, chainId } = useWalletState();
   const [nonceLatest, setNonceLatest] = useState<number | null>(null);
   const [noncePending, setNoncePending] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -33,6 +36,7 @@ export default function NonceRescue() {
   const [speedError, setSpeedError] = useState("");
   const [speedErrorDetails, setSpeedErrorDetails] = useState<string | null>(null);
   const [speedTxHash, setSpeedTxHash] = useState("");
+  const [demoPresetIndex, setDemoPresetIndex] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmSummary, setConfirmSummary] = useState("");
   const [confirmGasEstimate, setConfirmGasEstimate] = useState<string | null>(null);
@@ -79,6 +83,11 @@ export default function NonceRescue() {
       setNoncePending(null);
       return;
     }
+    if (isDemo) {
+      setNonceLatest(42);
+      setNoncePending(42);
+      return;
+    }
     const ethereum = (window as any)?.ethereum;
     if (!ethereum) {
       setError("Wallet provider not available.");
@@ -96,11 +105,73 @@ export default function NonceRescue() {
     } finally {
       setLoading(false);
     }
-  }, [address, isConnected]);
+  }, [address, isConnected, isDemo]);
 
   useEffect(() => {
     loadNonces();
   }, [loadNonces]);
+
+  useEffect(() => {
+    if (!isDemo) return;
+    const preset = demoNoncePresets[demoPresetIndex % demoNoncePresets.length];
+    if (!preset) return;
+
+    const hasValues =
+      Boolean(txHash) ||
+      Boolean(cancelNonce) ||
+      Boolean(speedNonce) ||
+      Boolean(speedTo) ||
+      Boolean(speedValue) ||
+      Boolean(speedData) ||
+      Boolean(speedMaxFee) ||
+      Boolean(speedMaxPriorityFee);
+
+    if (hasValues) return;
+
+    setTxHash(preset.txHash);
+    setTxInfo({
+      nonce: Number(preset.nonce),
+      to: preset.to,
+      value: 0n,
+      data: preset.data,
+      maxFeePerGas: BigInt(Math.floor(Number(preset.maxFee) * 1e9)),
+      maxPriorityFeePerGas: BigInt(Math.floor(Number(preset.maxPriorityFee) * 1e9)),
+      chainId: 84532,
+    });
+    setTxGuardMessage("Demo example prefilled. Actions are disabled.");
+    setCancelNonce(preset.nonce);
+    setSpeedNonce(preset.nonce);
+    setSpeedTo(preset.to);
+    setSpeedValue(preset.value);
+    setSpeedData(preset.data);
+    setSpeedMaxFee(preset.maxFee);
+    setSpeedMaxPriorityFee(preset.maxPriorityFee);
+  }, [isDemo]);
+
+  const shuffleDemoDefaults = () => {
+    const next = (demoPresetIndex + 1) % demoNoncePresets.length;
+    setDemoPresetIndex(next);
+    const preset = demoNoncePresets[next];
+    if (!preset) return;
+    setTxHash(preset.txHash);
+    setTxInfo({
+      nonce: Number(preset.nonce),
+      to: preset.to,
+      value: 0n,
+      data: preset.data,
+      maxFeePerGas: BigInt(Math.floor(Number(preset.maxFee) * 1e9)),
+      maxPriorityFeePerGas: BigInt(Math.floor(Number(preset.maxPriorityFee) * 1e9)),
+      chainId: 84532,
+    });
+    setTxGuardMessage("Demo example prefilled. Actions are disabled.");
+    setCancelNonce(preset.nonce);
+    setSpeedNonce(preset.nonce);
+    setSpeedTo(preset.to);
+    setSpeedValue(preset.value);
+    setSpeedData(preset.data);
+    setSpeedMaxFee(preset.maxFee);
+    setSpeedMaxPriorityFee(preset.maxPriorityFee);
+  };
 
   const withMainnetConfirm = async (
     summary: string,
@@ -148,12 +219,23 @@ return (
         <button className="dx-miniBtn" onClick={loadNonces} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh"}
         </button>
+        {isDemo ? (
+          <button className="dx-miniBtn" onClick={shuffleDemoDefaults}>
+            Shuffle Example
+          </button>
+        ) : null}
       </div>
     </div>
 
     {chainWarning ? (
       <div className="dx-alert dx-alert-warn" style={{ marginTop: 14 }}>
         Warning: connected to chain {chainId}. This tool targets Base Sepolia (84532).
+      </div>
+    ) : null}
+
+    {isDemo ? (
+      <div className="dx-alert" style={{ marginTop: 12 }}>
+        Demo mode: actions are disabled. Example fields are prefilled below.
       </div>
     ) : null}
 
@@ -204,6 +286,10 @@ return (
                     <button
                       className="dx-miniBtn"
                       onClick={async () => {
+                        if (isDemo) {
+                          setTxError("Demo mode: transactions are disabled.");
+                          return;
+                        }
                         setTxError("");
                         setTxInfo(null);
                         setDraft(null);
@@ -246,7 +332,7 @@ return (
                           setTxLoading(false);
                         }
                       }}
-                      disabled={txLoading}
+                      disabled={txLoading || isDemo}
                     >
                       {txLoading ? "Fetching…" : "Fetch"}
                     </button>
@@ -292,6 +378,7 @@ return (
                       <button
                         className="dx-linkBtn"
                         onClick={() => {
+                          if (isDemo) return;
                           const type = txInfo.maxFeePerGas ? "eip1559" : "legacy";
                           setDraft({
                             nonce: txInfo.nonce,
@@ -308,7 +395,7 @@ return (
                           setSpeedValue(String(txInfo.value?.toString?.() ?? "0"));
                           setSpeedData(String(txInfo.data ?? "0x"));
                         }}
-                        disabled={Boolean(txGuardMessage)}
+                        disabled={Boolean(txGuardMessage) || isDemo}
                       >
                         Use for Speed Up
                       </button>
@@ -365,6 +452,10 @@ return (
                     <button
                       className="dx-miniBtn"
                       onClick={async () => {
+                        if (isDemo) {
+                          setCancelError("Demo mode: transactions are disabled.");
+                          return;
+                        }
                         setCancelError("");
                         setCancelErrorDetails(null);
                         setCancelStatus("");
@@ -420,6 +511,7 @@ return (
                           setCancelErrorDetails(formatted.details ?? null);
                         }
                       }}
+                      disabled={isDemo}
                     >
                       Cancel nonce
                     </button>
@@ -517,6 +609,10 @@ return (
                     <button
                       className="dx-miniBtn"
                       onClick={async () => {
+                        if (isDemo) {
+                          setSpeedError("Demo mode: transactions are disabled.");
+                          return;
+                        }
                         setSpeedError("");
                         const ethereum = (window as any)?.ethereum;
                         if (!ethereum) {
@@ -541,6 +637,7 @@ return (
                           setSpeedError(err?.message || "Failed to load suggested fees.");
                         }
                       }}
+                    disabled={isDemo}
                     >
                       Suggested
                     </button>
@@ -554,6 +651,10 @@ return (
                   <button
                     className="dx-primary"
                     onClick={async () => {
+                        if (isDemo) {
+                          setSpeedError("Demo mode: transactions are disabled.");
+                          return;
+                        }
                       setSpeedError("");
                       setSpeedErrorDetails(null);
                       setSpeedStatus("");
@@ -625,6 +726,7 @@ return (
                         setSpeedErrorDetails(formatted.details ?? null);
                       }
                     }}
+                  disabled={isDemo}
                   >
                     Send Speed Up
                   </button>

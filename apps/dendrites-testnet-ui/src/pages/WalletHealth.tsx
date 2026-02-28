@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useAccount } from "wagmi";
 import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { getQuickPayChainConfig } from "../lib/quickpayChainConfig";
@@ -9,9 +8,12 @@ import MainnetConfirmModal from "../components/MainnetConfirmModal";
 import { estimateTxCost } from "../lib/txEstimate";
 import { normalizeWalletError } from "../lib/walletErrors";
 import { switchToBase, switchToBaseSepolia } from "../lib/switchChain";
+import { useWalletState } from "../demo/useWalletState";
+import { useWalletHealthData } from "../demo/useWalletHealthData";
 
 export default function WalletHealth() {
-  const { address, isConnected, chainId } = useAccount();
+  const { address, isConnected, chainId } = useWalletState();
+  const { isDemo, demoData } = useWalletHealthData();
   const [activeTab, setActiveTab] = useState<"overview" | "approvals" | "activity" | "risk">("overview");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -95,6 +97,11 @@ export default function WalletHealth() {
   }, [customSpender, permit2Address, quickpayRouter, spenderMode]);
 
   const loadMdndxConfig = useCallback(async () => {
+    if (isDemo) {
+      setMdndxAddress(demoData.mdndxAddress ?? null);
+      setMdndxDecimals(demoData.mdndxDecimals ?? null);
+      return;
+    }
     try {
       const res = await fetch(qpUrl("/faucet/config"));
       const data = await res.json().catch(() => ({}));
@@ -116,7 +123,7 @@ export default function WalletHealth() {
       setMdndxAddress(null);
       setMdndxDecimals(null);
     }
-  }, []);
+  }, [demoData.mdndxAddress, demoData.mdndxDecimals, isDemo]);
 
   useEffect(() => {
     if (loggedOpenRef.current) return;
@@ -126,6 +133,18 @@ export default function WalletHealth() {
 
   const loadOverview = useCallback(async () => {
     setError("");
+    if (isDemo) {
+      setLoading(true);
+      setNonceLatest(demoData.nonceLatest);
+      setNoncePending(demoData.noncePending);
+      setNativeBalance(demoData.nativeBalance);
+      setTokenBalances(demoData.tokenBalances);
+      setTokenMeta(demoData.tokenMeta);
+      setScanResults(demoData.scanResults);
+      setScanProgress({ done: demoData.scanResults.length, total: demoData.scanResults.length });
+      setLoading(false);
+      return;
+    }
     if (!address || !isConnected) {
       setNonceLatest(null);
       setNoncePending(null);
@@ -214,7 +233,7 @@ export default function WalletHealth() {
     } finally {
       setLoading(false);
     }
-  }, [address, isConnected, mdndxAddress, mdndxDecimals]);
+  }, [address, demoData, isConnected, isDemo, mdndxAddress, mdndxDecimals]);
 
   useEffect(() => {
     tokenMetaRef.current = tokenMeta;
@@ -226,6 +245,12 @@ export default function WalletHealth() {
 
   const loadActivity = useCallback(async () => {
     setActivityError("");
+    if (isDemo) {
+      setActivityRows(demoData.activityRows);
+      setExplorerBaseUrl(demoData.explorerBaseUrl);
+      setActivityLoading(false);
+      return;
+    }
     if (!address || !isConnected) {
       setActivityRows([]);
       setExplorerBaseUrl("");
@@ -334,7 +359,7 @@ export default function WalletHealth() {
     } finally {
       setActivityLoading(false);
     }
-  }, [address, chainId, isConnected]);
+  }, [address, chainId, demoData.activityRows, demoData.explorerBaseUrl, isConnected, isDemo]);
 
   const unknownContracts = useMemo(
     () =>
@@ -391,6 +416,11 @@ export default function WalletHealth() {
     setAllowance(null);
     setAllowanceFormatted(null);
     setTokenDetails(null);
+
+    if (isDemo) {
+      setApprovalError("Demo mode: approvals are disabled.");
+      return;
+    }
 
     if (!address || !isConnected) {
       setApprovalError("Connect your wallet first.");
@@ -465,6 +495,10 @@ export default function WalletHealth() {
       setApprovalErrorDetails(null);
       setTxHash("");
       setTxStatus("");
+      if (isDemo) {
+        setApprovalError("Demo mode: approvals are disabled.");
+        return;
+      }
       if (!address || !isConnected) {
         setApprovalError("Connect your wallet first.");
         return;
@@ -536,6 +570,10 @@ export default function WalletHealth() {
       setApprovalErrorDetails(null);
       setTxHash("");
       setTxStatus("");
+      if (isDemo) {
+        setApprovalError("Demo mode: approvals are disabled.");
+        return;
+      }
       if (!address || !isConnected) {
         setApprovalError("Connect your wallet first.");
         return;
@@ -593,6 +631,12 @@ export default function WalletHealth() {
     setScanError("");
     setScanResults([]);
     setScanProgress({ done: 0, total: 0 });
+    if (isDemo) {
+      setScanResults(demoData.scanResults);
+      setScanProgress({ done: demoData.scanResults.length, total: demoData.scanResults.length });
+      setScanLoading(false);
+      return;
+    }
     if (!address || !isConnected) {
       setScanError("Connect your wallet first.");
       return;
@@ -621,7 +665,7 @@ export default function WalletHealth() {
     } finally {
       setScanLoading(false);
     }
-  }, [address, chainId, isConnected]);
+  }, [address, chainId, demoData.scanResults, isConnected, isDemo]);
 
   useEffect(() => {
     if (activeTab !== "overview") return;
@@ -701,6 +745,7 @@ export default function WalletHealth() {
             <button
               className="dx-miniBtn"
               onClick={async () => {
+                if (isDemo) return;
                 setSwitchStatus("");
                 try {
                   const ethereum = (window as any)?.ethereum;
@@ -712,6 +757,7 @@ export default function WalletHealth() {
                   );
                 }
               }}
+              disabled={isDemo}
             >
               Switch to Base
             </button>
@@ -719,6 +765,7 @@ export default function WalletHealth() {
             <button
               className="dx-miniBtn"
               onClick={async () => {
+                if (isDemo) return;
                 setSwitchStatus("");
                 try {
                   const ethereum = (window as any)?.ethereum;
@@ -730,6 +777,7 @@ export default function WalletHealth() {
                   );
                 }
               }}
+              disabled={isDemo}
             >
               Switch to Base Sepolia
             </button>

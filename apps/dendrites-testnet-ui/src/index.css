@@ -1294,6 +1294,67 @@ details summary {
   font-size: 11px;
 }
 
+.dx-bannerDemo {
+  background: linear-gradient(90deg, rgba(255, 204, 102, 0.12), rgba(0, 0, 0, 0.2));
+  border-bottom: 1px solid rgba(255, 204, 102, 0.3);
+}
+
+.dx-bannerInnerDemo {
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dx-bannerDotDemo {
+  background: rgba(255, 204, 102, 0.9);
+  box-shadow: 0 0 0 4px rgba(255, 204, 102, 0.18);
+}
+
+.dx-bannerTitle {
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.dx-bannerBody {
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 13px;
+}
+
+.dx-bannerActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dx-bannerBtn {
+  border-radius: 999px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 204, 102, 0.4);
+  background: rgba(255, 204, 102, 0.15);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dx-bannerBtn:hover {
+  background: rgba(255, 204, 102, 0.25);
+}
+
+.dx-bannerBtnGhost {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+@media (max-width: 720px) {
+  .dx-bannerInnerDemo {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 /* ===================== Mobile drawer ===================== */
 
 .dx-mobileWrap{
@@ -1549,6 +1610,13 @@ details summary {
   font-size: 14px;
   color: rgba(255, 255, 255, 0.8);
   font-variant-numeric: tabular-nums;
+}
+
+.dx-walletChain {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .dx-walletDisconnect {

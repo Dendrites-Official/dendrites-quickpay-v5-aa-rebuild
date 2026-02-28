@@ -2,6 +2,7 @@
   import { Link } from "react-router-dom";
   import { formatUnits } from "ethers";
   import { supabase } from "../lib/supabaseClient";
+  import { useAppMode } from "../demo/AppModeContext";
 
   const USDC_ADDRESS = String(import.meta.env.VITE_USDC_ADDRESS ?? import.meta.env.VITE_USDC ?? "")
     .trim()
@@ -213,6 +214,7 @@
   }
 
   export default function AdminDashboard() {
+    const { isDemo } = useAppMode();
     const [loading, setLoading] = useState(false);
     const [snapshotLoading, setSnapshotLoading] = useState(false);
     const [error, setError] = useState("");
@@ -326,6 +328,19 @@ const filteredRecentErrors = useMemo(() => {
       setError("");
       setConnectionError("");
       setFunnelError("");
+      if (isDemo) {
+        setMetrics(null);
+        setSnapshot(null);
+        setAcklinkMetrics(null);
+        setBulkMetrics(null);
+        setRecentErrors([]);
+        setRecentConnections([]);
+        setTrend(null);
+        setFunnel(null);
+        setLastUpdated(null);
+        setLoading(false);
+        return;
+      }
       try {
         const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const totalRes = await supabase
@@ -673,12 +688,15 @@ const filteredRecentErrors = useMemo(() => {
       } finally {
         setLoading(false);
       }
-    }, []);
+    }, [isDemo]);
 
     const runSnapshot = useCallback(async () => {
       setSnapshotLoading(true);
       setError("");
       try {
+        if (isDemo) {
+          throw new Error("Demo mode: admin snapshot is disabled.");
+        }
         if (!ADMIN_UI_KEY) {
           throw new Error("Missing VITE_ADMIN_UI_KEY");
         }
@@ -697,7 +715,7 @@ const filteredRecentErrors = useMemo(() => {
       } finally {
         setSnapshotLoading(false);
       }
-    }, [loadData]);
+    }, [isDemo, loadData]);
 
     useEffect(() => {
       loadData();
@@ -727,6 +745,11 @@ const filteredRecentErrors = useMemo(() => {
         </div>
       </div>
 
+      {isDemo ? (
+        <div className="dx-alert" style={{ marginTop: 14 }}>
+          Demo mode: admin metrics are disabled.
+        </div>
+      ) : null}
       {error ? (
         <div className="dx-alert dx-alert-danger" style={{ marginTop: 14 }}>
           Error: {error}

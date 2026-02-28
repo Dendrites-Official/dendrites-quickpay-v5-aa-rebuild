@@ -230,32 +230,45 @@ export default function Home() {
           <div className="dx-homeKicker">DENDRITES</div>
 
           <h1 className="dx-homeH1">
-            <span className="dx-homeH1Faint">Your</span>{" "}
-            <span className="dx-homeH1Strong">All-in-One</span>
-            <br />
-            <span className="dx-homeH1Strong">Crypto</span>{" "}
-            <span className="dx-homeH1Faint">Companion</span>
+            <span className="dx-homeH1Strong">Gasless Payments</span>{" "}
+            <span className="dx-homeH1Faint">+</span>{" "}
+            <span className="dx-homeH1Strong">Wallet Safety</span>
           </h1>
 
           <p className="dx-homeLead">
-            Simplify payments and on-chain flows with premium rails designed for everyone —
-            from first transaction to production UX.
+            Premium rails for QuickPay, pay-by-link, and bulk payouts — with receipts built in. Designed for Base,
+            built for real users.
           </p>
 
           <div className="dx-homeCtas">
-            <button type="button" className="dx-homeBtn dx-homeBtnPrimary" onClick={scrollToRails}>
-              Get Started <ArrowIcon />
+            <button
+              type="button"
+              className="dx-homeBtn dx-homeBtnPrimary"
+              onClick={scrollToRails}
+            >
+              Features <ArrowIcon />
             </button>
 
-            <Link to="/payment-rails" className="dx-homeBtn dx-homeBtnGhost">
-              Explore rails
-            </Link>
+            <a
+              href="https://waitlist.dendrites.ai"
+              className="dx-homeBtn dx-homeBtnGhost"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Join Waitlist
+            </a>
+          </div>
+
+          <div className="dx-homeMiniLink">
+            <a href="https://dendrites.ai" target="_blank" rel="noreferrer">
+              Visit dendrites.ai
+            </a>
           </div>
 
           <div className="dx-homeSubline" aria-label="Meta">
-            <span className="dx-homePill">base-ready</span>
-            <span className="dx-homePill">receipts-first</span>
-            <span className="dx-homePill">premium skin</span>
+            <span className="dx-homePill">Base-ready</span>
+            <span className="dx-homePill">Receipts-first</span>
+            <span className="dx-homePill">Premium UX</span>
           </div>
         </section>
 

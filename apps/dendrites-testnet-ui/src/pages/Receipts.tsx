@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useParams } from "react-router-dom";
-import { quickpayReceipt } from "../lib/api";
 import ReceiptCard from "../components/ReceiptCard";
+import { useReceiptsData } from "../demo/useReceiptsData";
 
 export default function Receipts() {
   const { id } = useParams();
@@ -11,6 +11,7 @@ export default function Receipts() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<any>(null);
+  const { lookupReceipt } = useReceiptsData();
 
   const trimmed = useMemo(() => query.trim(), [query]);
   const isHash = useMemo(() => /^0x[0-9a-fA-F]{64}$/.test(trimmed), [trimmed]);
@@ -50,9 +51,9 @@ export default function Receipts() {
       const payload = buildPayload(trimmed);
       if (!payload) return;
 
-      let data = await quickpayReceipt(payload);
+      let data = await lookupReceipt(payload);
       if (!data && isHash) {
-        data = await quickpayReceipt({ txHash: trimmed });
+        data = await lookupReceipt({ txHash: trimmed });
       }
       setReceipt(data);
       if (!id) {
@@ -76,7 +77,7 @@ export default function Receipts() {
     const payload = buildPayloadFromReceipt(receipt) ?? buildPayload(trimmed);
     if (!payload) return;
     try {
-      const data = await quickpayReceipt(payload);
+      const data = await lookupReceipt(payload);
       if (data) setReceipt(data);
     } catch {
       // ignore resync errors
