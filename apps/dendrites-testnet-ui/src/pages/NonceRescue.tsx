@@ -7,10 +7,11 @@ import { normalizeWalletError } from "../lib/walletErrors";
 import { useAppMode } from "../demo/AppModeContext";
 import { useWalletState } from "../demo/useWalletState";
 import { demoNoncePresets } from "../demo/seedDemo";
+import { resolveEip1193Provider } from "../wallet/eip1193";
 
 export default function NonceRescue() {
   const { isDemo } = useAppMode();
-  const { address, isConnected, chainId } = useWalletState();
+  const { address, isConnected, chainId, connector } = useWalletState();
   const [nonceLatest, setNonceLatest] = useState<number | null>(null);
   const [noncePending, setNoncePending] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -88,7 +89,7 @@ export default function NonceRescue() {
       setNoncePending(42);
       return;
     }
-    const ethereum = (window as any)?.ethereum;
+    const ethereum = await resolveEip1193Provider(connector);
     if (!ethereum) {
       setError("Wallet provider not available.");
       return;
@@ -105,7 +106,7 @@ export default function NonceRescue() {
     } finally {
       setLoading(false);
     }
-  }, [address, isConnected, isDemo]);
+  }, [address, connector, isConnected, isDemo]);
 
   useEffect(() => {
     loadNonces();
@@ -179,7 +180,11 @@ export default function NonceRescue() {
     setStatus: (value: string) => void,
     action: () => Promise<void>
   ) => {
-    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const ethereum = await resolveEip1193Provider(connector);
+    if (!ethereum) {
+      throw new Error("Wallet provider not available.");
+    }
+    const provider = new ethers.BrowserProvider(ethereum);
     const estimate = await estimateTxCost(provider, txRequest);
     if (chainId === 8453) {
       setConfirmSummary(summary);
@@ -298,7 +303,7 @@ return (
                           setTxError("Enter a tx hash.");
                           return;
                         }
-                        const ethereum = (window as any)?.ethereum;
+                        const ethereum = await resolveEip1193Provider(connector);
                         if (!ethereum) {
                           setTxError("Wallet provider not available.");
                           return;
@@ -472,7 +477,7 @@ return (
                           setCancelError("Tx already confirmed; cannot replace. Use a pending tx hash.");
                           return;
                         }
-                        const ethereum = (window as any)?.ethereum;
+                        const ethereum = await resolveEip1193Provider(connector);
                         if (!ethereum) {
                           setCancelError("Wallet provider not available.");
                           return;
@@ -614,7 +619,7 @@ return (
                           return;
                         }
                         setSpeedError("");
-                        const ethereum = (window as any)?.ethereum;
+                        const ethereum = await resolveEip1193Provider(connector);
                         if (!ethereum) {
                           setSpeedError("Wallet provider not available.");
                           return;
@@ -684,7 +689,7 @@ return (
                         setSpeedError("Data must be hex starting with 0x.");
                         return;
                       }
-                      const ethereum = (window as any)?.ethereum;
+                      const ethereum = await resolveEip1193Provider(connector);
                       if (!ethereum) {
                         setSpeedError("Wallet provider not available.");
                         return;

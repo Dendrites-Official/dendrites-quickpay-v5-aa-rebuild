@@ -10,9 +10,10 @@ import { normalizeWalletError } from "../lib/walletErrors";
 import { switchToBase, switchToBaseSepolia } from "../lib/switchChain";
 import { useWalletState } from "../demo/useWalletState";
 import { useWalletHealthData } from "../demo/useWalletHealthData";
+import { hasEip1193Provider, resolveEip1193Provider } from "../wallet/eip1193";
 
 export default function WalletHealth() {
-  const { address, isConnected, chainId } = useWalletState();
+  const { address, isConnected, chainId, connector } = useWalletState();
   const { isDemo, demoData } = useWalletHealthData();
   const [activeTab, setActiveTab] = useState<"overview" | "approvals" | "activity" | "risk">("overview");
   const [loading, setLoading] = useState(false);
@@ -68,7 +69,14 @@ export default function WalletHealth() {
   const tagMapRef = useRef<Record<string, string>>({});
   const loggedOpenRef = useRef(false);
 
-  const providerAvailable = Boolean((window as any)?.ethereum);
+  const providerAvailable = hasEip1193Provider(connector);
+  const getBrowserProvider = useCallback(async () => {
+    const ethereum = await resolveEip1193Provider(connector);
+    if (!ethereum) {
+      throw new Error("Wallet provider not available.");
+    }
+    return new ethers.BrowserProvider(ethereum);
+  }, [connector]);
   const statusAddress = isConnected && address ? address : "Not connected";
   const networkLabel = chainId === 84532 ? "Base Sepolia" : chainId ? `Chain ${chainId}` : "Not available";
   const displayChainLabel = chainId === 8453 ? "Base" : chainId === 84532 ? "Base Sepolia" : networkLabel;
@@ -442,7 +450,7 @@ export default function WalletHealth() {
       address ?? null,
       chainId ?? null
     );
-    const ethereum = (window as any)?.ethereum;
+    const ethereum = await resolveEip1193Provider(connector);
     if (!ethereum) {
       setApprovalError("Wallet provider not available.");
       return;
@@ -465,11 +473,11 @@ export default function WalletHealth() {
     } finally {
       setApprovalLoading(false);
     }
-  }, [address, approvalSpender, chainId, fetchTokenDetails, isConnected, tokenAddress]);
+  }, [address, approvalSpender, chainId, connector, fetchTokenDetails, isConnected, tokenAddress]);
 
   const withMainnetConfirm = useCallback(
     async (summary: string, txRequest: ethers.TransactionRequest, action: () => Promise<void>) => {
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const provider = await getBrowserProvider();
       const estimate = await estimateTxCost(provider, txRequest);
       if (chainId === 8453) {
         setConfirmSummary(summary);
@@ -486,7 +494,7 @@ export default function WalletHealth() {
       }
       await action();
     },
-    [chainId]
+    [chainId, getBrowserProvider]
   );
 
   const handleApprove = useCallback(

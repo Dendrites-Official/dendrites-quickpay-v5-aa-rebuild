@@ -6,6 +6,7 @@ type Rail = {
   title: string;
   subtitle: string;
   tags: string[];
+  blurb: string;
   route?: string;
   accent: "blue" | "violet" | "green" | "neutral";
   status: "live" | "soon";
@@ -100,9 +101,8 @@ function RailCard({
     <button
       type="button"
       className={[
-        "dx-railBtn",
-        "dx-railCard",
-        `dx-rail-${rail.accent}`,
+        "dx-railsCard",
+        `dx-railsCard-${rail.accent}`,
         rail.featured ? "is-featured" : "",
         disabled ? "is-disabled" : "",
       ].join(" ")}
@@ -110,37 +110,39 @@ function RailCard({
       disabled={disabled}
       aria-disabled={disabled}
     >
-      <div className="dx-railChrome" aria-hidden="true" />
-      <div className="dx-railInner">
-        <div className="dx-railHead">
-          <div className="dx-railIcon" aria-hidden="true">
+      <div className="dx-railsCardGlow" aria-hidden="true" />
+      <div className="dx-railsCardInner">
+        <div className="dx-railsCardTop">
+          <div className="dx-railsIcon" aria-hidden="true">
             <Icon name={iconName as any} />
           </div>
 
-          <div className="dx-railMeta">
-            <div className={`dx-railPill ${rail.status === "live" ? "is-live" : "is-soon"}`}>
+          <div className="dx-railsMeta">
+            <div className={`dx-railsPill ${rail.status === "live" ? "is-live" : "is-soon"}`}>
               {rail.status === "live" ? "Live" : "Soon"}
             </div>
-            {rail.featured ? <div className="dx-railPill is-reco">Recommended</div> : null}
+            {rail.featured ? <div className="dx-railsPill is-reco">Recommended</div> : null}
           </div>
         </div>
 
-        <div className="dx-railText">
-          <h2 className="dx-railTitle">{rail.title}</h2>
-          <p className="dx-railSub">{rail.subtitle}</p>
+        <div className="dx-railsCopy">
+          <div className="dx-railsEyebrow">{rail.featured ? "Primary rail" : rail.status === "live" ? "Available now" : "On roadmap"}</div>
+          <h2 className="dx-railsTitle">{rail.title}</h2>
+          <p className="dx-railsSubtitle">{rail.subtitle}</p>
+          <p className="dx-railsBlurb">{rail.blurb}</p>
 
-          <div className="dx-railTags" aria-label="Highlights">
+          <div className="dx-railsTags" aria-label="Highlights">
             {rail.tags.map((t) => (
-              <span key={t} className="dx-railTag">
+              <span key={t} className="dx-railsTag">
                 {t}
               </span>
             ))}
           </div>
         </div>
 
-        <div className="dx-railFoot">
-          <span className="dx-railCta">{disabled ? "Planned" : "Open"}</span>
-          <span className="dx-railArrow" aria-hidden="true">
+        <div className="dx-railsFoot">
+          <span className="dx-railsCta">{disabled ? "Planned" : "Open rail"}</span>
+          <span className="dx-railsArrow" aria-hidden="true">
             <Arrow />
           </span>
         </div>
@@ -157,6 +159,7 @@ export default function PaymentRails() {
       id: "quickpay",
       title: "QuickPay",
       subtitle: "Single-send flow with a clean quote → send → receipt path.",
+      blurb: "Best when you want one polished payment flow with receipts and minimal decision overhead.",
       tags: ["Fast", "One recipient", "Receipts"],
       route: "/quickpay",
       accent: "blue",
@@ -167,6 +170,7 @@ export default function PaymentRails() {
       id: "acklink",
       title: "AckLink",
       subtitle: "Create a link. Share it. Claim later — controlled acceptance.",
+      blurb: "Useful for handoffs, approvals, and any payment where the recipient should actively acknowledge before completion.",
       tags: ["Shareable link", "Claim later", "Receipts"],
       route: "/ack",
       accent: "violet",
@@ -176,6 +180,7 @@ export default function PaymentRails() {
       id: "bulkpay",
       title: "Bulk Pay",
       subtitle: "Paste recipients and execute in one session. Built for payouts.",
+      blurb: "Designed for operational batches where one send path and one result surface matter more than one-off polish.",
       tags: ["Many recipients", "One quote", "One send"],
       route: "/bulk",
       accent: "green",
@@ -188,6 +193,7 @@ export default function PaymentRails() {
       id: "undo",
       title: "UNDO Payments",
       subtitle: "A cancel window for wrong-address sends. Safety-first by design.",
+      blurb: "Planned safety rail focused on reducing sender anxiety and providing a small reversal window for mistakes.",
       tags: ["Cancel window", "Mistake protection", "Planned"],
       accent: "neutral",
       status: "soon",
@@ -196,6 +202,7 @@ export default function PaymentRails() {
       id: "escrow",
       title: "Escrow Payments",
       subtitle: "Hold funds until delivery or milestone release. Real escrow UX.",
+      blurb: "Planned release flow for milestone-based work, conditional fulfillment, and stronger buyer-seller coordination.",
       tags: ["Hold & release", "Milestones", "Planned"],
       accent: "neutral",
       status: "soon",
@@ -203,19 +210,28 @@ export default function PaymentRails() {
   ];
 
   return (
-    <main className="dx-container dx-rails">
+    <main className="dx-container dx-railsPage">
       <header className="dx-railsHero">
-        <div className="dx-kicker">DENDRITES</div>
-        <h1 className="dx-railsH1">Select a payment rail</h1>
-        <p className="dx-railsP">
-          Minimal clicks. Premium surfaces. Same underlying AA stack — different UX flows.
+        <div className="dx-kicker">Dendrites</div>
+        <h1 className="dx-railsHeroTitle">Choose the rail that fits the payment.</h1>
+        <p className="dx-railsHeroLead">
+          Same stack underneath. Different user experiences on top. Pick the flow that matches how the sender and
+          recipient should move through the payment.
         </p>
+        <div className="dx-railsHeroPills">
+          <span className="dx-railsHeroPill">Wallet-friendly</span>
+          <span className="dx-railsHeroPill">Mobile-ready</span>
+          <span className="dx-railsHeroPill">Receipt-first</span>
+        </div>
       </header>
 
-      <section className="dx-railsSection">
-        <div className="dx-railsSectionHead">
-          <h2 className="dx-railsSectionTitle">Available</h2>
-          <div className="dx-railsSectionHint">Optimized for mobile and wallets.</div>
+      <section className="dx-railsBlock dx-railsBlockAvailable">
+        <div className="dx-railsBlockHead">
+          <div>
+            <div className="dx-railsSectionKicker">Available</div>
+            <h2 className="dx-railsSectionTitle">Live rails</h2>
+          </div>
+          <div className="dx-railsSectionHint">Built to read clearly on phone, tablet, and desktop.</div>
         </div>
 
         <div className="dx-railsGrid">
@@ -225,10 +241,13 @@ export default function PaymentRails() {
         </div>
       </section>
 
-      <section className="dx-railsSection dx-railsPlanned">
-        <div className="dx-railsSectionHead">
-          <h2 className="dx-railsSectionTitle">Planned</h2>
-          <div className="dx-railsSectionHint">Shown for visibility. Disabled until shipped.</div>
+      <section className="dx-railsBlock dx-railsBlockPlanned">
+        <div className="dx-railsBlockHead">
+          <div>
+            <div className="dx-railsSectionKicker">Planned</div>
+            <h2 className="dx-railsSectionTitle">Next rails</h2>
+          </div>
+          <div className="dx-railsSectionHint">Visible for direction, but not active yet.</div>
         </div>
 
         <div className="dx-railsGrid dx-railsGridPlanned">
@@ -240,23 +259,23 @@ export default function PaymentRails() {
 
       <section className="dx-card dx-railsNote">
         <div className="dx-card-in">
-          <div className="dx-card-head">
-            <h3 className="dx-card-title">What you get</h3>
-            <p className="dx-card-hint">Across rails</p>
+          <div className="dx-card-head dx-railsNoteHead">
+            <h3 className="dx-card-title">Across rails</h3>
+            <p className="dx-card-hint">Consistent system behavior</p>
           </div>
 
           <div className="dx-railsMini">
             <div className="dx-railsMiniItem">
               <div className="dx-railsMiniTop">Receipts</div>
-              <div className="dx-railsMiniSub">Every flow produces trackable output.</div>
+              <div className="dx-railsMiniSub">Every flow lands in a trackable confirmation surface.</div>
             </div>
             <div className="dx-railsMiniItem">
               <div className="dx-railsMiniTop">Predictable UX</div>
-              <div className="dx-railsMiniSub">Same controls, different rails.</div>
+              <div className="dx-railsMiniSub">The interaction model stays familiar even when the rail changes.</div>
             </div>
             <div className="dx-railsMiniItem">
-              <div className="dx-railsMiniTop">Premium surfaces</div>
-              <div className="dx-railsMiniSub">No clutter. No noisy gradients.</div>
+              <div className="dx-railsMiniTop">Responsive layout</div>
+              <div className="dx-railsMiniSub">Cards collapse cleanly for smaller screens without losing hierarchy.</div>
             </div>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { useAppMode } from "../demo/AppModeContext";
 import { useWalletState } from "../demo/useWalletState";
 import { formatEther, formatUnits } from "viem";
 import { quickpayNoteGet, quickpayNoteSet } from "../lib/api";
+import { resolveEip1193Provider } from "../wallet/eip1193";
 
 type ReceiptCardProps = {
   receipt: any;
@@ -10,7 +11,7 @@ type ReceiptCardProps = {
 
 export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   const { isDemo } = useAppMode();
-  const { address, isConnected } = useWalletState();
+  const { address, isConnected, connector } = useWalletState();
   const [noteLoading, setNoteLoading] = useState(false);
   const [noteError, setNoteError] = useState("");
   const [privateNote, setPrivateNote] = useState<string | null>(null);
@@ -90,7 +91,11 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
       setNoteError("");
       try {
         const { BrowserProvider } = await import("ethers");
-        const provider = new BrowserProvider((window as any).ethereum);
+        const ethereum = await resolveEip1193Provider(connector);
+        if (!ethereum) {
+          throw new Error("Wallet provider not available.");
+        }
+        const provider = new BrowserProvider(ethereum);
         const signer = await provider.getSigner();
         const signature = await signer.signMessage(buildNoteMessage("SET"));
         await quickpayNoteSet({
@@ -119,7 +124,7 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
     return () => {
       cancelled = true;
     };
-  }, [autoNoteAttempted, buildNoteMessage, chainId, isConnected, isDemo, pendingNoteKey, privateNote, receiptIdValue, senderForNote]);
+  }, [autoNoteAttempted, buildNoteMessage, chainId, connector, isConnected, isDemo, pendingNoteKey, privateNote, receiptIdValue, senderForNote]);
 
   const loadPrivateNote = async () => {
     if (!receiptIdValue || !senderForNote) return;
@@ -131,7 +136,11 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
     setNoteError("");
     try {
       const { BrowserProvider } = await import("ethers");
-      const provider = new BrowserProvider((window as any).ethereum);
+      const ethereum = await resolveEip1193Provider(connector);
+      if (!ethereum) {
+        throw new Error("Wallet provider not available.");
+      }
+      const provider = new BrowserProvider(ethereum);
       const signer = await provider.getSigner();
       const signature = await signer.signMessage(buildNoteMessage("READ"));
       const data = await quickpayNoteGet({
@@ -158,7 +167,11 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
     setNoteError("");
     try {
       const { BrowserProvider } = await import("ethers");
-      const provider = new BrowserProvider((window as any).ethereum);
+      const ethereum = await resolveEip1193Provider(connector);
+      if (!ethereum) {
+        throw new Error("Wallet provider not available.");
+      }
+      const provider = new BrowserProvider(ethereum);
       const signer = await provider.getSigner();
       const signature = await signer.signMessage(buildNoteMessage("SET"));
       await quickpayNoteSet({

@@ -9,6 +9,7 @@ import { createDemoReceipt } from "../../demo/demoData";
 import { useDemoReceiptsStore } from "../../demo/DemoReceiptsStore";
 import type { DemoAckLink } from "../../demo/demoAckLinkStore";
 import { useDemoAckLinkStore } from "../../demo/demoAckLinkStore";
+import { resolveEip1193Provider } from "../../wallet/eip1193";
 
 const DECIMALS = 6;
 
@@ -32,7 +33,7 @@ export default function AckLinkClaim() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { isDemo } = useAppMode();
-  const { address, isConnected } = useWalletState();
+  const { address, isConnected, connector } = useWalletState();
   const { addReceipt } = useDemoReceiptsStore();
   const { getLink, updateLink } = useDemoAckLinkStore();
   const [data, setData] = useState<AckLinkData | null>(null);
@@ -187,7 +188,11 @@ export default function AckLinkClaim() {
       const needsUserOpSig =
         result?.needsUserOpSignature === true && /^0x[0-9a-fA-F]{64}$/.test(String(result?.userOpHash || ""));
       if (needsUserOpSig) {
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const ethereum = await resolveEip1193Provider(connector);
+        if (!ethereum) {
+          throw new Error("Wallet provider not available.");
+        }
+        const provider = new ethers.BrowserProvider(ethereum);
         const signer = await provider.getSigner();
         const sig = await signer.signMessage(ethers.getBytes(result.userOpHash));
         result = await acklinkClaim({
@@ -268,7 +273,11 @@ export default function AckLinkClaim() {
       const needsUserOpSig =
         result?.needsUserOpSignature === true && /^0x[0-9a-fA-F]{64}$/.test(String(result?.userOpHash || ""));
       if (needsUserOpSig) {
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const ethereum = await resolveEip1193Provider(connector);
+        if (!ethereum) {
+          throw new Error("Wallet provider not available.");
+        }
+        const provider = new ethers.BrowserProvider(ethereum);
         const signer = await provider.getSigner();
         const sig = await signer.signMessage(ethers.getBytes(result.userOpHash));
         result = await acklinkRefund({

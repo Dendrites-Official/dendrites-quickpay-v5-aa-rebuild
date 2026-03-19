@@ -8,6 +8,7 @@ import { useWalletState } from "../../demo/useWalletState";
 import { useQuoteDataAckLink } from "../../demo/useQuoteDataAckLink";
 import { useDemoAckLinkStore } from "../../demo/demoAckLinkStore";
 import { createDemoCode, demoAckLinkPresets, seedDemo, getDemoSender } from "../../demo/seedDemo";
+import { resolveEip1193Provider } from "../../wallet/eip1193";
 
 const CHAIN_ID = 84532;
 const DECIMALS = 6;
@@ -28,7 +29,7 @@ type CreateResult = {
 
 export default function AckLinkCreate() {
   const { isDemo } = useAppMode();
-  const { address, isConnected, chainId, chainName } = useWalletState();
+  const { address, isConnected, chainId, chainName, connector } = useWalletState();
   const { getQuote } = useQuoteDataAckLink();
   const { addLink } = useDemoAckLinkStore();
   const publicClient = usePublicClient();
@@ -383,7 +384,11 @@ export default function AckLinkCreate() {
         data?.needsUserOpSignature === true && /^0x[0-9a-fA-F]{64}$/.test(String(data?.userOpHash || ""));
 
       if (needsUserOpSig) {
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const ethereum = await resolveEip1193Provider(connector);
+        if (!ethereum) {
+          throw new Error("Wallet provider not available.");
+        }
+        const provider = new ethers.BrowserProvider(ethereum);
         const signer = await provider.getSigner();
         const sig = await signer.signMessage(ethers.getBytes(data.userOpHash));
         data = await acklinkCreate({

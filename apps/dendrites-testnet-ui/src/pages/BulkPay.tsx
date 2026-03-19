@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
@@ -12,6 +12,7 @@ import { useQuoteDataBulk } from "../demo/useQuoteDataBulk";
 import { createDemoReceipt } from "../demo/demoData";
 import { useDemoReceiptsStore } from "../demo/DemoReceiptsStore";
 import { demoBulkPresets, seedDemo } from "../demo/seedDemo";
+import { resolveEip1193Provider } from "../wallet/eip1193";
 
 const USDC_DEFAULT = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const DECIMALS = 6;
@@ -27,7 +28,7 @@ function parseLine(line: string) {
 
 export default function BulkPay() {
   const { isDemo } = useAppMode();
-  const { address, isConnected, chainId, chainName } = useWalletState();
+  const { address, isConnected, chainId, chainName, connector } = useWalletState();
   const { getQuote } = useQuoteDataBulk();
   const { addReceipt, receipts } = useDemoReceiptsStore();
   const publicClient = usePublicClient({ chainId: 84532 });
@@ -54,6 +55,13 @@ export default function BulkPay() {
 
   const usdcAddress = String(import.meta.env.VITE_USDC_ADDRESS || USDC_DEFAULT).trim();
   const speedLabel = speed === 0 ? "eco" : "instant";
+  const getBrowserProvider = useCallback(async () => {
+    const ethereum = await resolveEip1193Provider(connector);
+    if (!ethereum) {
+      throw new Error("Wallet provider not available.");
+    }
+    return new ethers.BrowserProvider(ethereum);
+  }, [connector]);
 
   const applyDemoDefaults = (force: boolean) => {
     const preset = demoBulkPresets[demoPresetIndex % demoBulkPresets.length];
@@ -468,7 +476,7 @@ export default function BulkPay() {
       const needsUserOpSig = data?.needsUserOpSignature === true && /^0x[0-9a-fA-F]{64}$/.test(String(data?.userOpHash || ""));
       if (needsUserOpSig && !sendPayload.userOpSignature) {
         setStatus("Waiting for userOp signature…");
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const provider = await getBrowserProvider();
         const signer = await provider.getSigner();
         const sig = await signer.signMessage(ethers.getBytes(data.userOpHash));
         if (!data?.userOpDraft) {
@@ -502,7 +510,7 @@ export default function BulkPay() {
         }
         try {
           setStatus("Saving private note…");
-          const provider = new ethers.BrowserProvider((window as any).ethereum);
+          const provider = await getBrowserProvider();
           const signer = await provider.getSigner();
           const senderLower = address.toLowerCase();
           const noteMessage = `Dendrites QuickPay Note v1\nAction: SET\nReceipt: ${receiptId}\nSender: ${senderLower}\nChainId: ${chainId}`;

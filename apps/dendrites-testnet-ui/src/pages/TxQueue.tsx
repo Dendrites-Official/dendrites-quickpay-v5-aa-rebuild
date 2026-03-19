@@ -10,6 +10,7 @@ import { switchToBase, switchToBaseSepolia } from "../lib/switchChain";
 import { useAppMode } from "../demo/AppModeContext";
 import { useWalletState } from "../demo/useWalletState";
 import { demoActivity, demoWalletHealth } from "../demo/demoData";
+import { hasEip1193Provider, resolveEip1193Provider } from "../wallet/eip1193";
 
 type ActivityItem = {
   hash?: string;
@@ -22,7 +23,7 @@ type ActivityItem = {
 
 export default function TxQueue() {
   const { isDemo } = useAppMode();
-  const { address, isConnected, chainId } = useWalletState();
+  const { address, isConnected, chainId, connector } = useWalletState();
   const [inputAddress, setInputAddress] = useState("");
   const [activeAddress, setActiveAddress] = useState<string | null>(null);
   const [nonceLatest, setNonceLatest] = useState<number | null>(null);
@@ -48,8 +49,15 @@ export default function TxQueue() {
   const [confirmAction, setConfirmAction] = useState<null | (() => Promise<void>)>(null);
   const [switchStatus, setSwitchStatus] = useState("");
 
-  const providerAvailable = Boolean((window as any)?.ethereum);
+  const providerAvailable = hasEip1193Provider(connector);
   const defaultAddress = isConnected && address ? address : "";
+  const getBrowserProvider = useCallback(async () => {
+    const ethereum = await resolveEip1193Provider(connector);
+    if (!ethereum) {
+      throw new Error("Wallet provider not available.");
+    }
+    return new ethers.BrowserProvider(ethereum);
+  }, [connector]);
 
   useEffect(() => {
     if (!inputAddress && defaultAddress) {
@@ -129,7 +137,7 @@ export default function TxQueue() {
       }
       setNonceLoading(true);
       try {
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const provider = await getBrowserProvider();
         const [latest, pending] = await Promise.all([
           provider.getTransactionCount(target, "latest"),
           provider.getTransactionCount(target, "pending"),
@@ -140,7 +148,7 @@ export default function TxQueue() {
         setNonceLoading(false);
       }
     },
-    [isDemo, providerAvailable]
+      [getBrowserProvider, isDemo, providerAvailable]
   );
 
   const loadActivity = useCallback(async (target: string) => {
@@ -251,7 +259,7 @@ export default function TxQueue() {
     txRequest: ethers.TransactionRequest,
     action: () => Promise<void>
   ) => {
-    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const provider = await getBrowserProvider();
     const estimate = await estimateTxCost(provider, txRequest);
     if (onMainnet) {
       setConfirmSummary(summary);
@@ -290,7 +298,7 @@ export default function TxQueue() {
       setActionError("Wallet provider not available.");
       return;
     }
-    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const provider = await getBrowserProvider();
     const fees = await buildEip1559Fees(provider, multiplier);
     const txRequest: ethers.TransactionRequest = {
       to: address,
@@ -342,7 +350,7 @@ export default function TxQueue() {
       setActionError("Enter a tx hash.");
       return;
     }
-    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const provider = await getBrowserProvider();
     const tx = await provider.getTransaction(hash);
     if (!tx) {
       setActionError("Could not fetch tx. Check the hash or try again.");
@@ -401,7 +409,7 @@ export default function TxQueue() {
       setActionError(speedDraft.disabledReason);
       return;
     }
-    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const provider = await getBrowserProvider();
     const previousFees = {
       maxFeePerGas: speedDraft.maxFeePerGas ? BigInt(speedDraft.maxFeePerGas) : null,
       maxPriorityFeePerGas: speedDraft.maxPriorityFeePerGas ? BigInt(speedDraft.maxPriorityFeePerGas) : null,
@@ -461,7 +469,7 @@ export default function TxQueue() {
       return;
     }
     setDemoStatus("Sending demo tx...");
-    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const provider = await getBrowserProvider();
     const signer = await provider.getSigner();
     const nextNonce = await provider.getTransactionCount(address, "pending");
     const latestBlock = await provider.getBlock("latest");

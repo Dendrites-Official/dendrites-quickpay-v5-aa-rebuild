@@ -3,6 +3,7 @@ import { ethers } from "ethers";
 import { qpUrl } from "../lib/quickpayApiBase";
 import { useAppMode } from "../demo/AppModeContext";
 import { useWalletState } from "../demo/useWalletState";
+import { resolveEip1193Provider } from "../wallet/eip1193";
 
 type QAStatus = "PASS" | "FAIL" | "WARN";
 
@@ -45,7 +46,7 @@ function formatMs(ms: number) {
 
 export default function WalletQA() {
   const { isDemo } = useAppMode();
-  const { address, isConnected, chainId } = useWalletState();
+  const { address, isConnected, chainId, connector } = useWalletState();
   const [addressInput, setAddressInput] = useState("");
   const [chainInput, setChainInput] = useState<number>(84532);
   const [results, setResults] = useState<QAResult[]>([]);
@@ -152,7 +153,7 @@ export default function WalletQA() {
 
     await runTimed("Provider check", async () => {
       if (isConnected) {
-        const ethereum = (window as any)?.ethereum;
+        const ethereum = await resolveEip1193Provider(connector);
         if (!ethereum) {
           return {
             status: "FAIL",
@@ -423,7 +424,7 @@ export default function WalletQA() {
       chainId: selectedChainId,
       ...summary,
     });
-  }, [address, chainId, isConnected, isDemo, selectedAddress, selectedChainId]);
+  }, [address, chainId, connector, isConnected, isDemo, selectedAddress, selectedChainId]);
 
   const handleExport = useCallback(() => {
     if (!results.length) return;

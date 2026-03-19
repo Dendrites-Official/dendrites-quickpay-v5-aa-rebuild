@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePublicClient, useSignTypedData } from "wagmi";
 import { ethers } from "ethers";
@@ -14,11 +14,12 @@ import { useQuoteDataQuickPay } from "../demo/useQuoteDataQuickPay";
 import { createDemoReceipt } from "../demo/demoData";
 import { useDemoReceiptsStore } from "../demo/DemoReceiptsStore";
 import { demoQuickPayPresets, seedDemo } from "../demo/seedDemo";
+import { resolveEip1193Provider } from "../wallet/eip1193";
 
 export default function QuickPay() {
   const navigate = useNavigate();
   const { isDemo } = useAppMode();
-  const { address, isConnected, chainId, chainName } = useWalletState();
+  const { address, isConnected, chainId, chainName, connector } = useWalletState();
   const { getQuote: getQuoteData } = useQuoteDataQuickPay();
   const { addReceipt, receipts } = useDemoReceiptsStore();
   const publicClient = usePublicClient({ chainId: 84532 });
@@ -61,6 +62,13 @@ export default function QuickPay() {
 
   const isValidAddress = (value: string) => /^0x[0-9a-fA-F]{40}$/.test(value);
   const isUserOpHash = (value: string) => /^0x[0-9a-fA-F]{64}$/.test(value);
+  const getBrowserProvider = useCallback(async () => {
+    const ethereum = await resolveEip1193Provider(connector);
+    if (!ethereum) {
+      throw new Error("Wallet provider not available.");
+    }
+    return new ethers.BrowserProvider(ethereum);
+  }, [connector]);
   const amountValid = useMemo(() => {
     try {
       return ethers.parseUnits(amount, decimals) > 0n;
@@ -648,7 +656,7 @@ export default function QuickPay() {
 
       if (receiptId && note.trim()) {
         try {
-          const provider = new ethers.BrowserProvider((window as any).ethereum);
+          const provider = await getBrowserProvider();
           const signer = await provider.getSigner();
           const senderLower = address.toLowerCase();
           const noteMessage = `Dendrites QuickPay Note v1\nAction: SET\nReceipt: ${receiptId}\nSender: ${senderLower}\nChainId: ${chainId}`;
@@ -663,7 +671,7 @@ export default function QuickPay() {
       if (mode === "SELF_PAY") {
         setPhase("send");
         setStatus("Sending wallet transaction…");
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const provider = await getBrowserProvider();
         const signer = await provider.getSigner();
         const erc20 = new ethers.Contract(
           token,
@@ -751,7 +759,7 @@ export default function QuickPay() {
       if (data?.code === "NEEDS_APPROVE" && data?.approve?.to && data?.approve?.data) {
         setPhase("approve");
         setStatus("Approval required (popup 1 of 2)…");
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const provider = await getBrowserProvider();
         const signer = await provider.getSigner();
         const approveTx = await signer.sendTransaction({
           to: data.approve.to,
@@ -792,7 +800,7 @@ export default function QuickPay() {
       if (needsUserOpSig && !sendPayload.userOpSignature) {
         setPhase("userop");
         setStatus("Waiting for wallet signature (popup 2 of 2)…");
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const provider = await getBrowserProvider();
         let sig: string;
         try {
           const signer = await provider.getSigner();

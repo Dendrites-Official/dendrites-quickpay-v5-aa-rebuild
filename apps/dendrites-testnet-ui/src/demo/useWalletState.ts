@@ -13,6 +13,7 @@ export function useWalletState() {
       isConnected: account.isConnected,
       chainId,
       chainName: chainId ? `Chain ${chainId}` : "",
+      connector: account.connector,
     };
   }
 
@@ -21,5 +22,6 @@ export function useWalletState() {
     isConnected: true,
     chainId: DEMO_CHAIN_ID,
     chainName: DEMO_CHAIN_NAME,
+    connector: null,
   };
 }
