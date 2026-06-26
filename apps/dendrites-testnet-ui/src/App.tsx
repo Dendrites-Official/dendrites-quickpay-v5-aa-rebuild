@@ -22,6 +22,7 @@ import WalletButton from "./components/WalletButton";
 import { logAppEvent } from "./lib/appEvents";
 import { useAppMode } from "./demo/AppModeContext";
 import DemoBanner from "./components/DemoBanner";
+import Footer from "./components/Footer";
 
 type NavItem = { to: string; label: string; end?: boolean; dropdown?: { to: string; label: string }[] };
 
@@ -292,9 +293,10 @@ export default function App() {
           <Route path="/qa-wallet" element={<WalletQA />} />
           <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
+        <Footer />
       </main>
 
-      <footer className="dx-footer" role="contentinfo">
+      {/* <footer className="dx-footer" role="contentinfo">
         <div className="dx-footerInner">
           <div className="dx-footerBrand">
             <div className="dx-footerLogo">Dendrites</div>
@@ -330,7 +332,7 @@ export default function App() {
             </div>
           </div>
         </div>
-      </footer>
+      </footer> */}
     </div>
   );
 }

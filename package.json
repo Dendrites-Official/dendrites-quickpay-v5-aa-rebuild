@@ -5,6 +5,10 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "dev": "npm --prefix apps/dendrites-testnet-ui run dev",
+    "build": "npm --prefix apps/dendrites-testnet-ui run build",
+    "preview": "npm --prefix apps/dendrites-testnet-ui run preview",
+
     "aa:send:v5": "node scripts/aa/send_userop_v5.mjs",
     "aa:acceptance:v5": "node scripts/aa/acceptance_v5.mjs",
     "aa:inspect:v5": "node scripts/aa/inspect_fee_transfers_v5.mjs",

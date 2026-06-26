@@ -437,14 +437,14 @@ export default function QuickPay() {
             abi: eip3009Abi,
             functionName: "name",
           });
-        } catch {}
+        } catch { }
         try {
           tokenVersion = await client.readContract({
             address: tokenAddress,
             abi: eip3009Abi,
             functionName: "version",
           });
-        } catch {}
+        } catch { }
         const now = Math.floor(Date.now() / 1000);
         const validAfter = now - 10;
         const validBefore = now + 60 * 60;
@@ -509,14 +509,14 @@ export default function QuickPay() {
             abi: permitAbi,
             functionName: "name",
           });
-        } catch {}
+        } catch { }
         try {
           tokenVersion = await client.readContract({
             address: tokenAddress,
             abi: permitAbi,
             functionName: "version",
           });
-        } catch {}
+        } catch { }
         try {
           nonce = await client.readContract({
             address: tokenAddress,
@@ -524,7 +524,7 @@ export default function QuickPay() {
             functionName: "nonces",
             args: [senderAddress],
           });
-        } catch {}
+        } catch { }
         const deadline = Math.floor(Date.now() / 1000) + 60 * 60;
         const typedData = {
           domain: {
@@ -890,272 +890,415 @@ export default function QuickPay() {
     }
   };
 
-return (
-  <main className="dx-container">
-    <header>
-      <div className="dx-kicker">DENDRITES</div>
-      <h1 className="dx-h1">QuickPay</h1>
-      <p className="dx-sub">
-        Premium payments UI. Quotes refresh as you type. No extra clicks.
-      </p>
-    </header>
+  return (
+    <main className="dx-container">
+      <header>
+        <div className="dx-kicker">DENDRITES</div>
+        <h1 className="dx-h1">QuickPay</h1>
+        <p className="dx-sub">
+          Premium payments UI. Quotes refresh as you type. No extra clicks.
+        </p>
+      </header>
 
-    <div className="dx-grid">
-      {/* LEFT: SEND FORM */}
-      <section className="dx-card">
-        <div className="dx-card-in">
-          <div className="dx-card-head">
-            <h2 className="dx-card-title">Send</h2>
-          </div>
-
-          <form onSubmit={submit} className="dx-form">
-            <div className="dx-field">
-              <span className="dx-label">Token preset</span>
-              <select
-                value={tokenPreset}
-                onChange={(e) => {
-                  const nextPreset = e.target.value;
-                  setTokenPreset(nextPreset);
-                  const selected = tokenOptions.find((option) => option.value === nextPreset);
-                  if (!selected) return;
-                  if (selected.value === "custom") {
-                    setDecimals(18);
-                    return;
-                  }
-                  setToken(selected.address || "");
-                  setDecimals(selected.decimals ?? 18);
-                }}
-              >
-                {tokenOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="dx-row2">
-              <div className="dx-field">
-                <span className="dx-label">Token address</span>
-                <input
-                  placeholder="0x…"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  readOnly={tokenLocked}
-                />
-              </div>
-
-              <div className="dx-field">
-                <span className="dx-label">Decimals</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={36}
-                  value={decimals}
-                  onChange={(e) => {
-                    const next = Number(e.target.value);
-                    if (!Number.isFinite(next)) return;
-                    setDecimals(Math.max(0, Math.min(36, Math.trunc(next))));
-                  }}
-                  readOnly={decimalsLocked}
-                />
-              </div>
-            </div>
-
-            <div className="dx-field">
-              <span className="dx-label">Recipient</span>
-              <input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} />
-            </div>
-
-            <div className="dx-field">
-              <span className="dx-label">Amount</span>
-              <input placeholder="e.g. 1.0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-              <div className="dx-help">We convert to raw units automatically.</div>
-            </div>
-
-            <div className="dx-field">
-              <span className="dx-label">Name (optional)</span>
-              <input placeholder="Display name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-            </div>
-
-            <div className="dx-field">
-              <span className="dx-label">Message (optional)</span>
-              <textarea
-                placeholder="Add a message"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                style={{ minHeight: 96 }}
-              />
-            </div>
-
-            <div className="dx-field">
-              <span className="dx-label">Reason (optional)</span>
-              <input placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
-            </div>
-
-            <div className="dx-field">
-              <span className="dx-label">Note (optional)</span>
-              <textarea
-                placeholder="Private note"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                style={{ minHeight: 96 }}
-              />
-            </div>
-
-            <div className="dx-row2">
-              <label className="dx-field">
-                <span className="dx-label">Speed</span>
-                <select value={speed} onChange={(e) => setSpeed(e.target.value === "1" ? 1 : 0)}>
-                  <option value={0}>Eco</option>
-                  <option value={1}>Instant</option>
-                </select>
-              </label>
-
-              <label className="dx-field">
-                <span className="dx-label">Mode</span>
-                <select value={mode} onChange={(e) => setMode(e.target.value as "SPONSORED" | "SELF_PAY")}>
-                  <option value="SPONSORED">SPONSORED</option>
-                  <option value="SELF_PAY">SELF_PAY</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="dx-actions">
-              <button className="dx-primary" type="submit" disabled={loading || !isConnected || !quote}>
-                {loading ? (isDemo ? "Simulating…" : "Sending…") : isDemo ? "Simulate" : "Send"}
-              </button>
-              {isDemo ? (
-                <button type="button" className="dx-miniBtn" onClick={shuffleDemoDefaults}>
-                  Shuffle Example
-                </button>
-              ) : null}
-            </div>
-
-            {!isConnected ? (
-              <div className="dx-alert">Connect wallet first.</div>
-            ) : isDemo ? (
-              <div className="dx-alert">
-                Demo: connected {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : ""}
-                {chainId ? ` on ${chainName || "Base Sepolia"} (${chainId})` : ""}.
-              </div>
-            ) : null}
-          </form>
-        </div>
-      </section>
-
-      {/* RIGHT: ACTIVITY / STATUS / QUOTE */}
-      <aside className="dx-stack">
+      <div className="dx-grid">
+        {/* LEFT: SEND FORM */}
         <section className="dx-card">
           <div className="dx-card-in">
             <div className="dx-card-head">
-              <h2 className="dx-card-title">Activity</h2>
-              <p className="dx-card-hint">Live</p>
+              <h2 className="dx-card-title">Send</h2>
             </div>
 
-            {quoteBusy ? <div className="dx-muted">Quote: loading…</div> : null}
-            {status ? <div className="dx-muted" style={{ marginTop: 8 }}>{status}</div> : null}
+            <form onSubmit={submit} className="dx-form">
+              <div className="dx-field">
+                <span className="dx-label">Token preset</span>
+                <select
+                  value={tokenPreset}
+                  onChange={(e) => {
+                    const nextPreset = e.target.value;
+                    setTokenPreset(nextPreset);
+                    const selected = tokenOptions.find((option) => option.value === nextPreset);
+                    if (!selected) return;
+                    if (selected.value === "custom") {
+                      setDecimals(18);
+                      return;
+                    }
+                    setToken(selected.address || "");
+                    setDecimals(selected.decimals ?? 18);
+                  }}
+                >
+                  {tokenOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            {loading ? (
-              <div style={{ marginTop: 12 }}>
-                <div className="dx-muted" style={{ marginBottom: 10 }}>
-                  {mode === "SPONSORED"
-                    ? "First-time send may show extra wallet popups."
-                    : "You’ll confirm a normal wallet transfer."}
+              <div className="dx-row2">
+                <div className="dx-field">
+                  <span className="dx-label">Token address</span>
+                  <input
+                    placeholder="0x…"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    readOnly={tokenLocked}
+                  />
                 </div>
 
-                <ol className="dx-steps">
-                  {mode === "SELF_PAY" ? (
-                    <li className={phase === "send" ? "dx-step-active" : ""}>Confirm wallet transfer</li>
-                  ) : (
-                    <>
-                      {Array.isArray(quote?.setupNeeded) &&
-                      quote?.setupNeeded?.includes("permit2_allowance_missing") ? (
-                        <li className={phase === "approve" ? "dx-step-active" : ""}>Approve token for Permit2</li>
-                      ) : null}
-
-                      {String(quote?.lane ?? "").toUpperCase() === "PERMIT2" ? (
-                        <li className={phase === "permit2" ? "dx-step-active" : ""}>Sign Permit2 authorization</li>
-                      ) : null}
-
-                      {String(quote?.lane ?? "").toUpperCase() === "EIP3009" ? (
-                        <li className={phase === "eip3009" ? "dx-step-active" : ""}>Sign EIP-3009 authorization</li>
-                      ) : null}
-
-                      {String(quote?.lane ?? "").toUpperCase() === "EIP2612" ? (
-                        <li className={phase === "eip2612" ? "dx-step-active" : ""}>Sign EIP-2612 permit</li>
-                      ) : null}
-
-                      <li className={phase === "userop" ? "dx-step-active" : ""}>Sign send request</li>
-                      <li className={phase === "send" ? "dx-step-active" : ""}>Sending transaction</li>
-                    </>
-                  )}
-                </ol>
+                <div className="dx-field">
+                  <span className="dx-label">Decimals</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={36}
+                    value={decimals}
+                    onChange={(e) => {
+                      const next = Number(e.target.value);
+                      if (!Number.isFinite(next)) return;
+                      setDecimals(Math.max(0, Math.min(36, Math.trunc(next))));
+                    }}
+                    readOnly={decimalsLocked}
+                  />
+                </div>
               </div>
-            ) : null}
 
-            {quoteError ? <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>{quoteError}</div> : null}
-            {error ? <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>{error}</div> : null}
+              <div className="dx-field">
+                <span className="dx-label">Recipient</span>
+                <input placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} />
+              </div>
+
+              <div className="dx-field">
+                <span className="dx-label">Amount</span>
+                <input placeholder="e.g. 1.0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                <div className="dx-help">We convert to raw units automatically.</div>
+              </div>
+
+              <div className="dx-field">
+                <span className="dx-label">Name (optional)</span>
+                <input placeholder="Display name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+              </div>
+
+              <div className="dx-field">
+                <span className="dx-label">Message (optional)</span>
+                <textarea
+                  placeholder="Add a message"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  style={{ minHeight: 96 }}
+                />
+              </div>
+
+              <div className="dx-field">
+                <span className="dx-label">Reason (optional)</span>
+                <input placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+              </div>
+
+              <div className="dx-field">
+                <span className="dx-label">Note (optional)</span>
+                <textarea
+                  placeholder="Private note"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  style={{ minHeight: 96 }}
+                />
+              </div>
+
+              <div className="dx-row2">
+                <label className="dx-field">
+                  <span className="dx-label">Speed</span>
+                  <select value={speed} onChange={(e) => setSpeed(e.target.value === "1" ? 1 : 0)}>
+                    <option value={0}>Eco</option>
+                    <option value={1}>Instant</option>
+                  </select>
+                </label>
+
+                <label className="dx-field">
+                  <span className="dx-label">Mode</span>
+                  <select value={mode} onChange={(e) => setMode(e.target.value as "SPONSORED" | "SELF_PAY")}>
+                    <option value="SPONSORED">SPONSORED</option>
+                    <option value="SELF_PAY">SELF_PAY</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="dx-actions">
+                <button className="dx-primary" type="submit" disabled={loading || !isConnected || !quote}>
+                  {loading ? (isDemo ? "Simulating…" : "Sending…") : isDemo ? "Simulate" : "Send"}
+                </button>
+                {isDemo ? (
+                  <button type="button" className="dx-miniBtn" onClick={shuffleDemoDefaults}>
+                    Shuffle Example
+                  </button>
+                ) : null}
+              </div>
+
+              {!isConnected ? (
+                <div className="dx-alert">Connect wallet first.</div>
+              ) : isDemo ? (
+                <div className="dx-alert">
+                  Demo: connected {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : ""}
+                  {chainId ? ` on ${chainName || "Base Sepolia"} (${chainId})` : ""}.
+                </div>
+              ) : null}
+            </form>
           </div>
         </section>
 
-        {quote ? (
+        {/* RIGHT: ACTIVITY / STATUS / QUOTE */}
+        {/* RIGHT: ACTIVITY / STATUS / QUOTE */}
+        <aside className="dx-stack">
+         <div
+  style={{
+    display: "flex",
+    justifyContent: "center",
+    margin: "8px 0 30px",
+  }}
+>
+  <a
+    href="https://www.youtube.com/watch?v=Idb1_53DSa4"
+    target="_blank"
+    rel="noreferrer"
+    aria-label="Watch QuickPay demo video on YouTube"
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 7,
+      color: "rgba(255,255,255,0.72)",
+      fontSize: 13,
+      fontWeight: 750,
+      letterSpacing: "-0.01em",
+      textDecoration: "none",
+      cursor: "pointer",
+      borderBottom: "1px solid rgba(255,255,255,0.32)",
+      padding: "0 1px 4px",
+      transition:
+        "color 160ms ease, border-color 160ms ease, transform 160ms ease, opacity 160ms ease",
+    }}
+    onMouseEnter={(event) => {
+      event.currentTarget.style.color = "#ffffff";
+      event.currentTarget.style.borderColor = "rgba(0,112,243,0.9)";
+      event.currentTarget.style.transform = "translateY(-1px)";
+
+      const arrow = event.currentTarget.querySelector(
+        "[data-demo-arrow]"
+      ) as HTMLElement | null;
+
+      if (arrow) {
+        arrow.style.opacity = "1";
+        arrow.style.transform = "translate(2px, -3px)";
+      }
+    }}
+    onMouseLeave={(event) => {
+      event.currentTarget.style.color = "rgba(255,255,255,0.72)";
+      event.currentTarget.style.borderColor = "rgba(255,255,255,0.32)";
+      event.currentTarget.style.transform = "translateY(0)";
+
+      const arrow = event.currentTarget.querySelector(
+        "[data-demo-arrow]"
+      ) as HTMLElement | null;
+
+      if (arrow) {
+        arrow.style.opacity = "0.72";
+        arrow.style.transform = "translateY(-1px)";
+      }
+    }}
+  >
+    <span>Watch QuickPay demo video</span>
+
+    <span
+      data-demo-arrow
+      aria-hidden="true"
+      style={{
+        display: "inline-flex",
+        fontSize: 12,
+        opacity: 0.72,
+        transform: "translateY(-1px)",
+        transition: "transform 160ms ease, opacity 160ms ease",
+      }}
+    >
+      ↗
+    </span>
+  </a>
+</div>
+
           <section className="dx-card">
             <div className="dx-card-in">
               <div className="dx-card-head">
-                <h2 className="dx-card-title">Quote</h2>
-                <p className="dx-card-hint">Breakdown</p>
+                <h2 className="dx-card-title">Activity</h2>
+                <p className="dx-card-hint">Live</p>
               </div>
 
-              <div style={{ display: "grid", gap: 8, fontSize: 13, color: "rgba(255,255,255,0.82)" }}>
-                <div><strong style={{ color: "rgba(255,255,255,0.92)" }}>Lane:</strong> {quote.lane ?? "—"}</div>
-                <div><strong style={{ color: "rgba(255,255,255,0.92)" }}>Sponsored:</strong> {quote.sponsored ? "Yes" : "No"}</div>
+              {quoteBusy ? <div className="dx-muted">Quote: loading…</div> : null}
 
-                <div className="dx-divider" />
-
-                <div>
-                  <strong style={{ color: "rgba(255,255,255,0.92)" }}>Fee USD (total):</strong>{" "}
-                  {`$${(Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)}`}
+              {status ? (
+                <div className="dx-muted" style={{ marginTop: 8 }}>
+                  {status}
                 </div>
+              ) : null}
 
-                <div>
-                  <strong style={{ color: "rgba(255,255,255,0.92)" }}>Fee token amount:</strong>{" "}
-                  {quote.feeTokenAmount ? ethers.formatUnits(quote.feeTokenAmount, decimals) : "0"}
+              {loading ? (
+                <div style={{ marginTop: 12 }}>
+                  <div className="dx-muted" style={{ marginBottom: 10 }}>
+                    {mode === "SPONSORED"
+                      ? "First-time send may show extra wallet popups."
+                      : "You’ll confirm a normal wallet transfer."}
+                  </div>
+
+                  <ol
+                    style={{
+                      display: "grid",
+                      gap: 8,
+                      margin: 0,
+                      paddingLeft: 18,
+                      color: "rgba(255,255,255,0.58)",
+                      fontSize: 13,
+                    }}
+                  >
+                    {mode === "SELF_PAY" ? (
+                      <>
+                        <li className={phase === "send" ? "dx-step-active" : ""}>
+                          Confirm wallet transfer
+                        </li>
+                        <li className={phase === "done" ? "dx-step-active" : ""}>
+                          Save receipt
+                        </li>
+                      </>
+                    ) : (
+                      <>
+                        <li className={phase === "approve" ? "dx-step-active" : ""}>
+                          Approve token if needed
+                        </li>
+
+                        {String(quote?.lane ?? "").toUpperCase() === "PERMIT2" ? (
+                          <li className={phase === "permit2" ? "dx-step-active" : ""}>
+                            Sign Permit2 authorization
+                          </li>
+                        ) : null}
+
+                        {String(quote?.lane ?? "").toUpperCase() === "EIP3009" ? (
+                          <li className={phase === "eip3009" ? "dx-step-active" : ""}>
+                            Sign EIP-3009 authorization
+                          </li>
+                        ) : null}
+
+                        {String(quote?.lane ?? "").toUpperCase() === "EIP2612" ? (
+                          <li className={phase === "eip2612" ? "dx-step-active" : ""}>
+                            Sign EIP-2612 permit
+                          </li>
+                        ) : null}
+
+                        <li className={phase === "userop" ? "dx-step-active" : ""}>
+                          Sign send request
+                        </li>
+
+                        <li className={phase === "send" ? "dx-step-active" : ""}>
+                          Sending transaction
+                        </li>
+                      </>
+                    )}
+                  </ol>
                 </div>
+              ) : null}
 
-                <div>
-                  <strong style={{ color: "rgba(255,255,255,0.92)" }}>Net token:</strong>{" "}
-                  {quote.netAmount || quote.netAmountRaw
-                    ? ethers.formatUnits(quote.netAmountRaw ?? quote.netAmount, decimals)
-                    : "0"}
+              {quoteError ? (
+                <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>
+                  {quoteError}
                 </div>
-              </div>
+              ) : null}
 
-              <div className="dx-divider" />
-
-              <details>
-                <summary>Raw details</summary>
-                <div style={{ marginTop: 8, fontSize: 12, color: "rgba(255,255,255,0.56)", display: "grid", gap: 6 }}>
-                  <div>feeUsd6: {quote.feeUsd6 ?? "0"}</div>
-                  <div>feeTokenAmount: {quote.feeTokenAmount ?? "0"}</div>
-                  <div>netAmount: {quote.netAmountRaw ?? quote.netAmount ?? "0"}</div>
-                  <div>feeMode: {quote.feeMode ?? "—"}</div>
-                  <div>speed: {quote.speed ?? "—"}</div>
+              {error ? (
+                <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>
+                  {error}
                 </div>
-              </details>
+              ) : null}
             </div>
           </section>
-        ) : null}
-      </aside>
-    </div>
 
-    {receipt ? (
-      <div style={{ marginTop: 14 }}>
-        <ReceiptCard receipt={receipt} />
+          {quote ? (
+            <section className="dx-card">
+              <div className="dx-card-in">
+                <div className="dx-card-head">
+                  <h2 className="dx-card-title">Quote</h2>
+                  <p className="dx-card-hint">Breakdown</p>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 8,
+                    fontSize: 13,
+                    color: "rgba(255,255,255,0.82)",
+                  }}
+                >
+                  <div>
+                    <strong style={{ color: "rgba(255,255,255,0.92)" }}>
+                      Lane:
+                    </strong>{" "}
+                    {quote.lane ?? "—"}
+                  </div>
+
+                  <div>
+                    <strong style={{ color: "rgba(255,255,255,0.92)" }}>
+                      Sponsored:
+                    </strong>{" "}
+                    {quote.sponsored ? "Yes" : "No"}
+                  </div>
+
+                  <div className="dx-divider" />
+
+                  <div>
+                    <strong style={{ color: "rgba(255,255,255,0.92)" }}>
+                      Fee USD (total):
+                    </strong>{" "}
+                    {`$${(Number(quote.feeUsd6 ?? 0) / 1e6).toFixed(6)}`}
+                  </div>
+
+                  <div>
+                    <strong style={{ color: "rgba(255,255,255,0.92)" }}>
+                      Fee token amount:
+                    </strong>{" "}
+                    {quote.feeTokenAmount
+                      ? ethers.formatUnits(quote.feeTokenAmount, decimals)
+                      : "0"}
+                  </div>
+
+                  <div>
+                    <strong style={{ color: "rgba(255,255,255,0.92)" }}>
+                      Net token:
+                    </strong>{" "}
+                    {quote.netAmount || quote.netAmountRaw
+                      ? ethers.formatUnits(quote.netAmountRaw ?? quote.netAmount, decimals)
+                      : "0"}
+                  </div>
+                </div>
+
+                <div className="dx-divider" />
+              </div>
+            </section>
+          ) : null}
+
+          {receipt ? (
+            <section className="dx-card">
+              <div className="dx-card-in">
+                <div className="dx-card-head">
+                  <h2 className="dx-card-title">Receipt</h2>
+                  <p className="dx-card-hint">Preview</p>
+                </div>
+
+                <ReceiptCard receipt={receipt} />
+              </div>
+            </section>
+          ) : null}
+        </aside>
       </div>
-    ) : null}
-  </main>
-);
+
+      {receipt ? (
+        <div style={{ marginTop: 14 }}>
+          <ReceiptCard receipt={receipt} />
+        </div>
+      ) : null}
+    </main>
+  );
 
 
 }

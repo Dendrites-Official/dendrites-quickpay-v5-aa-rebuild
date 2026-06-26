@@ -700,150 +700,236 @@ return (
       </section>
 
       {/* RIGHT: SUMMARY + RESULT */}
+{/* RIGHT: SUMMARY + RESULT */}
 <aside className="dx-stack dx-bulkSummary">
-        <section className="dx-card">
-          <div className="dx-card-in">
-            <div className="dx-card-head">
-              <h2 className="dx-card-title">Summary</h2>
-              <p className="dx-card-hint">Preview</p>
-            </div>
+  <div
+    style={{
+      display: "flex",
+      justifyContent: "center",
+      margin: "8px 0 30px",
+    }}
+  >
+    <a
+      href="https://www.youtube.com/watch?v=nvAVlil9T2k"
+      target="_blank"
+      rel="noreferrer"
+      aria-label="Watch Bulk Pay demo video on YouTube"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 7,
+        color: "rgba(255,255,255,0.72)",
+        fontSize: 13,
+        fontWeight: 750,
+        letterSpacing: "-0.01em",
+        textDecoration: "none",
+        cursor: "pointer",
+        borderBottom: "1px solid rgba(255,255,255,0.32)",
+        padding: "0 1px 4px",
+        transition:
+          "color 160ms ease, border-color 160ms ease, transform 160ms ease, opacity 160ms ease",
+      }}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.color = "#ffffff";
+        event.currentTarget.style.borderColor = "rgba(0,112,243,0.9)";
+        event.currentTarget.style.transform = "translateY(-1px)";
 
-            <div className="dx-section">
-              <div className="dx-kv">
-                <div className="dx-k">Recipients</div>
-                <div className="dx-v">{parsed.entries.length}</div>
+        const arrow = event.currentTarget.querySelector(
+          "[data-bulk-demo-arrow]"
+        ) as HTMLElement | null;
 
-                <div className="dx-k">Total input</div>
-                <div className="dx-v">{totalNetDisplay} USDC</div>
+        if (arrow) {
+          arrow.style.opacity = "1";
+          arrow.style.transform = "translate(2px, -3px)";
+        }
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.color = "rgba(255,255,255,0.72)";
+        event.currentTarget.style.borderColor = "rgba(255,255,255,0.32)";
+        event.currentTarget.style.transform = "translateY(0)";
 
-                <div className="dx-k">Fee</div>
-                <div className="dx-v">
-                  {quote?.feeTokenAmount
-                    ? `${ethers.formatUnits(BigInt(String(quote.feeTokenAmount)), DECIMALS)} USDC`
-                    : "—"}
-                </div>
+        const arrow = event.currentTarget.querySelector(
+          "[data-bulk-demo-arrow]"
+        ) as HTMLElement | null;
 
-                <div className="dx-k">Recipients total</div>
-                <div className="dx-v">{totalNetDisplayAdjusted} USDC</div>
+        if (arrow) {
+          arrow.style.opacity = "0.72";
+          arrow.style.transform = "translateY(-1px)";
+        }
+      }}
+    >
+      <span>Watch Bulk Pay demo video</span>
 
-                <div className="dx-k">Total charged</div>
-                <div className="dx-v">
-                  <span className="dx-chip dx-chipBlue">{totalWithFeeDisplay} USDC</span>
-                </div>
+      <span
+        data-bulk-demo-arrow
+        aria-hidden="true"
+        style={{
+          display: "inline-flex",
+          fontSize: 12,
+          opacity: 0.72,
+          transform: "translateY(-1px)",
+          transition: "transform 160ms ease, opacity 160ms ease",
+        }}
+      >
+        ↗
+      </span>
+    </a>
+  </div>
 
-                <div className="dx-k">Mode</div>
-                <div className="dx-v">{amountMode}</div>
-              </div>
-            </div>
+  <section className="dx-card">
+    <div className="dx-card-in">
+      <div className="dx-card-head">
+        <h2 className="dx-card-title">Summary</h2>
+        <p className="dx-card-hint">Preview</p>
+      </div>
 
-            {amountModeError ? (
-              <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>
-                {amountModeError}
-              </div>
-            ) : null}
-            {balanceError ? (
-              <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>
-                {balanceError}
-              </div>
-            ) : null}
+      <div className="dx-section">
+        <div className="dx-kv">
+          <div className="dx-k">Recipients</div>
+          <div className="dx-v">{parsed.entries.length}</div>
+
+          <div className="dx-k">Total input</div>
+          <div className="dx-v">{totalNetDisplay} USDC</div>
+
+          <div className="dx-k">Fee</div>
+          <div className="dx-v">
+            {quote?.feeTokenAmount
+              ? `${ethers.formatUnits(BigInt(String(quote.feeTokenAmount)), DECIMALS)} USDC`
+              : "—"}
           </div>
-        </section>
 
-        <section className="dx-card">
-          <div className="dx-card-in">
-            <div className="dx-card-head">
-              <h2 className="dx-card-title">Result</h2>
-              <p className="dx-card-hint">{result ? "Completed" : "—"}</p>
+          <div className="dx-k">Recipients total</div>
+          <div className="dx-v">{totalNetDisplayAdjusted} USDC</div>
+
+          <div className="dx-k">Total charged</div>
+          <div className="dx-v">
+            <span className="dx-chip dx-chipBlue">
+              {totalWithFeeDisplay} USDC
+            </span>
+          </div>
+
+          <div className="dx-k">Mode</div>
+          <div className="dx-v">{amountMode}</div>
+        </div>
+      </div>
+
+      {amountModeError ? (
+        <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>
+          {amountModeError}
+        </div>
+      ) : null}
+
+      {balanceError ? (
+        <div className="dx-alert dx-alert-danger" style={{ marginTop: 10 }}>
+          {balanceError}
+        </div>
+      ) : null}
+    </div>
+  </section>
+
+  <section className="dx-card">
+    <div className="dx-card-in">
+      <div className="dx-card-head">
+        <h2 className="dx-card-title">Result</h2>
+        <p className="dx-card-hint">{result ? "Completed" : "—"}</p>
+      </div>
+
+      {!result ? (
+        <div className="dx-muted">
+          No result yet. Get a quote, then send bulk to generate a receipt.
+        </div>
+      ) : (
+        <div className="dx-section">
+          <div className="dx-kv">
+            <div className="dx-k">Request ID</div>
+            <div className="dx-v">{result.reqId || "-"}</div>
+
+            <div className="dx-k">Receipt</div>
+            <div className="dx-v">
+              {result.receiptId ? (
+                <a
+                  className="dx-linkBtn"
+                  href={`/receipts/${result.receiptId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {result.receiptId}
+                </a>
+              ) : (
+                "-"
+              )}
             </div>
 
-            {!result ? (
-              <div className="dx-muted">
-                No result yet. Get a quote, then send bulk to generate a receipt.
-              </div>
-            ) : (
-              <div className="dx-section">
-                <div className="dx-kv">
-                  <div className="dx-k">Request ID</div>
-                  <div className="dx-v">{result.reqId || "-"}</div>
+            <div className="dx-k">UserOp Hash</div>
+            <div className="dx-v">
+              {result.userOpHash ? (
+                <a
+                  className="dx-linkBtn"
+                  href={`https://sepolia.basescan.org/tx/${result.userOpHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {result.userOpHash}
+                </a>
+              ) : (
+                "-"
+              )}
+            </div>
 
-                  <div className="dx-k">Receipt</div>
-                  <div className="dx-v">
-                    {result.receiptId ? (
-                      <a className="dx-linkBtn" href={`/receipts/${result.receiptId}`} target="_blank" rel="noreferrer">
-                        {result.receiptId}
-                      </a>
-                    ) : (
-                      "-"
-                    )}
-                  </div>
+            <div className="dx-k">Tx Hash</div>
+            <div className="dx-v">
+              {result.txHash ? (
+                <a
+                  className="dx-linkBtn"
+                  href={`https://sepolia.basescan.org/tx/${result.txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {result.txHash}
+                </a>
+              ) : (
+                "-"
+              )}
+            </div>
 
-                  <div className="dx-k">UserOp Hash</div>
-                  <div className="dx-v">
-                    {result.userOpHash ? (
-                      <a
-                        className="dx-linkBtn"
-                        href={`https://sepolia.basescan.org/tx/${result.userOpHash}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {result.userOpHash}
-                      </a>
-                    ) : (
-                      "-"
-                    )}
-                  </div>
+            <div className="dx-k">Recipients</div>
+            <div className="dx-v">{parsed.entries.length}</div>
 
-                  <div className="dx-k">Tx Hash</div>
-                  <div className="dx-v">
-                    {result.txHash ? (
-                      <a
-                        className="dx-linkBtn"
-                        href={`https://sepolia.basescan.org/tx/${result.txHash}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {result.txHash}
-                      </a>
-                    ) : (
-                      "-"
-                    )}
-                  </div>
+            <div className="dx-k">Mode</div>
+            <div className="dx-v">{result.modeUsed || amountMode}</div>
 
-                  <div className="dx-k">Recipients</div>
-                  <div className="dx-v">{parsed.entries.length}</div>
+            <div className="dx-k">Fee</div>
+            <div className="dx-v">
+              {result.feeAmountRaw
+                ? ethers.formatUnits(BigInt(String(result.feeAmountRaw)), DECIMALS)
+                : "-"}{" "}
+              USDC
+            </div>
 
-                  <div className="dx-k">Mode</div>
-                  <div className="dx-v">{result.modeUsed || amountMode}</div>
+            <div className="dx-k">Recipients total</div>
+            <div className="dx-v">
+              {result.netAmountRaw
+                ? ethers.formatUnits(BigInt(String(result.netAmountRaw)), DECIMALS)
+                : "-"}{" "}
+              USDC
+            </div>
 
-                  <div className="dx-k">Fee</div>
-                  <div className="dx-v">
-                    {result.feeAmountRaw ? ethers.formatUnits(BigInt(String(result.feeAmountRaw)), DECIMALS) : "-"} USDC
-                  </div>
+            <div className="dx-k">Total charged</div>
+            <div className="dx-v">
+              {result.totalAmountRaw
+                ? ethers.formatUnits(BigInt(String(result.totalAmountRaw)), DECIMALS)
+                : "-"}{" "}
+              USDC
+            </div>
 
-                  <div className="dx-k">Recipients total</div>
-                  <div className="dx-v">
-                    {result.netAmountRaw
-                      ? ethers.formatUnits(BigInt(String(result.netAmountRaw)), DECIMALS)
-                      : "-"}{" "}
-                    USDC
-                  </div>
-
-                  <div className="dx-k">Total charged</div>
-                  <div className="dx-v">
-                    {result.totalAmountRaw
-                      ? ethers.formatUnits(BigInt(String(result.totalAmountRaw)), DECIMALS)
-                      : "-"}{" "}
-                    USDC
-                  </div>
-
-                  <div className="dx-k">Reference ID</div>
-                  <div className="dx-v">{result.referenceId || referenceId || "-"}</div>
-                </div>
-              </div>
-            )}
+            <div className="dx-k">Reference ID</div>
+            <div className="dx-v">{result.referenceId || referenceId || "-"}</div>
           </div>
-        </section>
-      </aside>
+        </div>
+      )}
+    </div>
+  </section>
+</aside>
     </div>
   </main>
 );
