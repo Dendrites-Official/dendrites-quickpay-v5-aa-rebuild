@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "installCommand": "node -v && cd apps/dendrites-testnet-ui && npm install --include=dev",
+  "installCommand": "cd apps/dendrites-testnet-ui && npm install --production=false",
   "buildCommand": "cd apps/dendrites-testnet-ui && node -v && ls node_modules/.bin/tsc && npm run build",
   "outputDirectory": "apps/dendrites-testnet-ui/dist",
   "rewrites": [
