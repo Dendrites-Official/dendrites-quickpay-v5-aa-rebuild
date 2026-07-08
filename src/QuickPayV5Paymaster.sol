@@ -55,9 +55,7 @@ contract QuickPayV5Paymaster is BasePaymaster {
         address _feeVault,
         address _feeCollector,
         address _acklinkVault
-    )
-        BasePaymaster(_entryPoint)
-    {
+    ) BasePaymaster(_entryPoint) {
         require(address(_entryPoint) != address(0), "QuickPayV5Paymaster: entryPoint=0");
         require(_router != address(0), "QuickPayV5Paymaster: router=0");
         require(_feeVault != address(0), "QuickPayV5Paymaster: feeVault=0");
@@ -201,10 +199,8 @@ contract QuickPayV5Paymaster is BasePaymaster {
             func = innerFunc;
         } else if (sel == 0x47e1da2a) {
             // executeBatch(address[] dest,uint256[] value,bytes[] func)
-            (address[] memory dests, uint256[] memory values, bytes[] memory funcs) = abi.decode(
-                cd[4:],
-                (address[], uint256[], bytes[])
-            );
+            (address[] memory dests, uint256[] memory values, bytes[] memory funcs) =
+                abi.decode(cd[4:], (address[], uint256[], bytes[]));
             require(dests.length == funcs.length && values.length == funcs.length, "QuickPayV5Paymaster: bad batch");
             require(dests.length == 2, "QuickPayV5Paymaster: bad batch length");
             require(values[0] == 0 && values[1] == 0, "QuickPayV5Paymaster: nonzero value");
@@ -587,10 +583,24 @@ contract QuickPayV5Paymaster is BasePaymaster {
                     v,
                     r,
                     s
-                ) = abi.decode(
-                    funcParams,
-                    (address, uint256, uint256, uint64, bytes32, bytes32, bytes32, uint64, uint64, uint8, bytes32, bytes32)
-                );
+                ) =
+                    abi.decode(
+                        funcParams,
+                        (
+                            address,
+                            uint256,
+                            uint256,
+                            uint64,
+                            bytes32,
+                            bytes32,
+                            bytes32,
+                            uint64,
+                            uint64,
+                            uint8,
+                            bytes32,
+                            bytes32
+                        )
+                    );
                 expiresAt;
                 metaHash;
                 codeHash;

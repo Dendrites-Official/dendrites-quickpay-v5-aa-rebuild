@@ -291,17 +291,7 @@ contract QuickPayV5Router is Ownable {
 
         (uint8 v, bytes32 r, bytes32 s) = _splitSignature(signature);
 
-        IERC3009(token).receiveWithAuthorization(
-            from,
-            address(this),
-            total,
-            validAfter,
-            validBefore,
-            nonce,
-            v,
-            r,
-            s
-        );
+        IERC3009(token).receiveWithAuthorization(from, address(this), total, validAfter, validBefore, nonce, v, r, s);
 
         for (uint256 i = 0; i < recipients.length; i++) {
             IERC20(token).safeTransfer(recipients[i], amounts[i]);

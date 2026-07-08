@@ -39,25 +39,12 @@ contract AckLinkVault is ReentrancyGuard {
     mapping(address => uint256) public nonces;
 
     event LinkCreated(
-        bytes32 indexed linkId,
-        address indexed sender,
-        uint256 amount,
-        uint64 expiresAt,
-        bytes32 metaHash
+        bytes32 indexed linkId, address indexed sender, uint256 amount, uint64 expiresAt, bytes32 metaHash
     );
 
-    event LinkClaimed(
-        bytes32 indexed linkId,
-        address indexed sender,
-        address indexed to,
-        uint256 amount
-    );
+    event LinkClaimed(bytes32 indexed linkId, address indexed sender, address indexed to, uint256 amount);
 
-    event LinkRefunded(
-        bytes32 indexed linkId,
-        address indexed sender,
-        uint256 amount
-    );
+    event LinkRefunded(bytes32 indexed linkId, address indexed sender, uint256 amount);
 
     constructor(address _usdc, address _feeVault) {
         require(_usdc != address(0), "AckLinkVault: usdc=0");
@@ -115,17 +102,8 @@ contract AckLinkVault is ReentrancyGuard {
         require(expiresAt > block.timestamp, "AckLinkVault: expired");
         require(codeHash != bytes32(0), "AckLinkVault: code=0");
 
-        IERC3009(address(usdc)).transferWithAuthorization(
-            from,
-            address(this),
-            totalUsdc6,
-            validAfter,
-            validBefore,
-            nonce,
-            v,
-            r,
-            s
-        );
+        IERC3009(address(usdc))
+            .transferWithAuthorization(from, address(this), totalUsdc6, validAfter, validBefore, nonce, v, r, s);
 
         usdc.safeTransfer(feeVault, feeUsdc6);
 
