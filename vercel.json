@@ -1,7 +1,7 @@
 {
   "version": 2,
   "installCommand": "cd apps/dendrites-testnet-ui && npm install",
-  "buildCommand": "cd apps/dendrites-testnet-ui && npm run build",
+  "buildCommand": "node -v && cd apps/dendrites-testnet-ui && node -v && npm run build",
   "outputDirectory": "apps/dendrites-testnet-ui/dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
