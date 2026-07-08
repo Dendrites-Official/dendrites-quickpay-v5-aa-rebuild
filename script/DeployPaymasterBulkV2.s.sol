@@ -22,7 +22,8 @@ contract DeployPaymasterBulkV2 is Script {
         require(chainId == 84532, "DeployPaymasterBulkV2: CHAIN_ID must be 84532");
 
         vm.startBroadcast(pk);
-        QuickPayV5Paymaster paymaster = new QuickPayV5Paymaster(IEntryPoint(entryPoint), routerBulk, feeVault, feeCollector);
+        QuickPayV5Paymaster paymaster =
+            new QuickPayV5Paymaster(IEntryPoint(entryPoint), routerBulk, feeVault, feeCollector);
         vm.stopBroadcast();
 
         console2.log("PAYMASTER_BULK:", address(paymaster));

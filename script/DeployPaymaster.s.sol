@@ -18,13 +18,8 @@ contract DeployPaymaster is Script {
         address acklinkVault = vm.envAddress("ACKLINK_VAULT");
 
         vm.startBroadcast(pk);
-        QuickPayV5Paymaster paymaster = new QuickPayV5Paymaster(
-            IEntryPoint(entryPoint),
-            router,
-            feeVault,
-            feeCollector,
-            acklinkVault
-        );
+        QuickPayV5Paymaster paymaster =
+            new QuickPayV5Paymaster(IEntryPoint(entryPoint), router, feeVault, feeCollector, acklinkVault);
         vm.stopBroadcast();
 
         console2.log("PAYMASTER:", address(paymaster));
