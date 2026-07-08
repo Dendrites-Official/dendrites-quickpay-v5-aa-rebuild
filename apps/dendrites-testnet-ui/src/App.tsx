@@ -254,7 +254,6 @@ function usePageViewTelemetry() {
 
 export default function App() {
   usePageViewTelemetry();
-  const year = new Date().getFullYear();
 
   return (
     <div className="dx-app">
