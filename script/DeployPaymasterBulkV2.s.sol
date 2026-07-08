@@ -18,12 +18,13 @@ contract DeployPaymasterBulkV2 is Script {
         address routerBulk = vm.envAddress("ROUTER_BULK");
         address feeVault = vm.envAddress("FEEVAULT");
         address feeCollector = vm.envAddress("FEE_COLLECTOR");
+        address acklinkVault = vm.envAddress("ACKLINK_VAULT");
         uint256 chainId = vm.envUint("CHAIN_ID");
         require(chainId == 84532, "DeployPaymasterBulkV2: CHAIN_ID must be 84532");
 
         vm.startBroadcast(pk);
         QuickPayV5Paymaster paymaster =
-            new QuickPayV5Paymaster(IEntryPoint(entryPoint), routerBulk, feeVault, feeCollector);
+            new QuickPayV5Paymaster(IEntryPoint(entryPoint), routerBulk, feeVault, feeCollector, acklinkVault);
         vm.stopBroadcast();
 
         console2.log("PAYMASTER_BULK:", address(paymaster));
