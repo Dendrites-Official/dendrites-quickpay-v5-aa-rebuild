@@ -20,11 +20,10 @@
 }
 
 .dx-navInner {
-    gap: 8px;
-    padding: 10px 12px;
-    height: auto;
-    flex-wrap: wrap;
-  }
+  gap: 8px;
+  padding: 10px 12px;
+  height: auto;
+  flex-wrap: wrap;
 }
 
 /* === Brand === */
@@ -81,17 +80,15 @@
 .dx-brand:focus-visible {
   box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.7);
 }
-}
 
-.dx-brand:focus-visible {
-  box-shadow: 0 0 0 2px rgba(0, 112, 243, 0.7);
-}
+@media (max-width: 639px) {
   .dx-menuBtn {
     padding: 8px 10px;
   }
   .dx-menuText {
     display: none;
   }
+}
 
 .dx-brandMark {
   width: 32px;
